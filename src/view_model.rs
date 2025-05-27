@@ -56,7 +56,7 @@ pub struct ViewModel {
     cores_list_vec_rc: slint::ModelRc<crate::app::SelectorOption>,
     spools_cores_weights: HashMap<i32, i32>,
     spools_cores_filter: String,
-    store: Rc<RefCell<Store>>,
+    store: Rc<Store>,
 }
 
 impl ViewModel {
@@ -1020,7 +1020,7 @@ impl SpoolTagObserver for ViewModel {
                 let tray_id = tray_id as i32;
 
                 if let Ok(tag_info) = TagInformation::from_descriptor(encoded_descriptor) {
-                    let tag_info_clone = if self.store.borrow().is_available() {
+                    let tag_info_clone = if self.store.is_available() {
                         Some(tag_info.clone())
                     } else {
                         None
@@ -1035,7 +1035,7 @@ impl SpoolTagObserver for ViewModel {
                             .invoke_encoding_failed(SharedString::from("Descriptor Generation Error"));
                     }
                     if let Some(tag_info) = tag_info_clone {
-                        if let Err(err) = self.store.borrow().try_send_op(StoreOp::WriteTag(tag_info)) {
+                        if let Err(err) = self.store.try_send_op(StoreOp::WriteTag(tag_info)) {
                             info!("Error writing tag to store : {}", err);
                         }
                     }
@@ -1043,7 +1043,7 @@ impl SpoolTagObserver for ViewModel {
             }
             Status::ReadSuccess(read_text) => {
                 if let Ok(tag_info) = TagInformation::from_descriptor(read_text) {
-                    let tag_info_clone = if self.store.borrow().is_available() {
+                    let tag_info_clone = if self.store.is_available() {
                         Some(tag_info.clone())
                     } else {
                         None
@@ -1057,7 +1057,7 @@ impl SpoolTagObserver for ViewModel {
                             .invoke_read_tag_failed(SharedString::from("Invalid Tag Content"));
                     }
                     if let Some(tag_info) = tag_info_clone {
-                        if let Err(err) = self.store.borrow().try_send_op(StoreOp::WriteTag(tag_info)) {
+                        if let Err(err) = self.store.try_send_op(StoreOp::WriteTag(tag_info)) {
                             info!("Error writing tag to store : {}", err);
                         }
                     }
