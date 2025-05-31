@@ -40,6 +40,7 @@ dependencies = [
  "esp-backtrace",
  "esp-hal",
  "esp-hal-app-framework",
+ "esp-hal-app-framework-macros",
  "esp-hal-embassy",
  "esp-hal-ota",
  "esp-mbedtls",
@@ -2091,7 +2092,7 @@ dependencies = [
 
 [[package]]
 name = "esp-hal-app-framework"
-version = "0.3.0"
+version = "0.3.1"
 source = "git+https://github.com/yanshay/esp-hal-app/?tag=v0.3.0#3684b1cdf1e2f0e0f8afa2ad1771f01353ea7c93"
 dependencies = [
  "aes",
@@ -2127,6 +2128,7 @@ dependencies = [
  "esp-alloc",
  "esp-backtrace",
  "esp-hal",
+ "esp-hal-app-framework-macros",
  "esp-hal-embassy",
  "esp-hal-ota",
  "esp-mbedtls",
@@ -2160,6 +2162,16 @@ dependencies = [
  "snafu",
  "static_cell",
  "xtensa-lx-rt",
+]
+
+[[package]]
+name = "esp-hal-app-framework-macros"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.101",
 ]
 
 [[package]]

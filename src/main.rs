@@ -24,6 +24,7 @@ mod store;
 mod csvdb;
 
 use alloc::{format, rc::Rc, string::ToString};
+use framework_macros::include_bytes_gz;
 use core::{cell::RefCell, net::Ipv4Addr};
 use embassy_futures::yield_now;
 use esp_alloc as _;
@@ -399,8 +400,8 @@ async fn main(spawner: Spawner) {
 
     let web_app_builder = framework::framework_web_app::WebAppBuilder::<NestedAppBuilder> {
         framework: framework.clone(),
-        captive_html: include_str!("../static/captive.html"),
-        web_app_html: include_str!("../static/config.html"),
+        captive_html_gz: include_bytes_gz!("static/captive.html"),
+        web_app_html_gz: include_bytes_gz!("static/config.html"),
         app_builder: NestedAppBuilder {
             framework: framework.clone(),
             app_config: app_config.clone(),

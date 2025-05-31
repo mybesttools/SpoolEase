@@ -22,6 +22,7 @@ use framework::{
     },
     prelude::*,
 };
+use framework_macros::include_bytes_gz;
 
 use crate::app_config::{AppConfig, DefaultPrinterConfig, PrinterConfig, PrintersConfig, ScaleConfig, SPOOLS_CATALOG};
 use crate::store::Store;
@@ -71,7 +72,11 @@ impl AppWithStateBuilder for NestedAppBuilder {
         // TODO: >>>>>> Move to framework with setting for the css
         let router = router.route(
             "/styles.css",
-            get_service(picoserve::response::File::css(include_str!("../static/styles.css"))),
+            get_service(picoserve::response::File::with_content_type_and_headers(
+                "text/css",
+                include_bytes_gz!("static/styles.css"),
+                &[("Content-Encoding", "gzip")],
+            )),
         );
 
         let router = router.route(
@@ -84,7 +89,11 @@ impl AppWithStateBuilder for NestedAppBuilder {
 
         let router = router.route(
             "/encode",
-            get_service(picoserve::response::File::html(include_str!("../static/encode.html"))),
+            get_service(picoserve::response::File::with_content_type_and_headers(
+                "text/html",
+                include_bytes_gz!("static/encode.html"),
+                &[("Content-Encoding", "gzip")],
+            )),
         );
 
         let app_config_clone_post = app_config.clone();
@@ -241,17 +250,17 @@ impl AppWithStateBuilder for NestedAppBuilder {
         let store_get = self.store.clone();
         let router = router.route(
             "/api/spools",
-            get(move |State(Encryption(key)): State<Encryption>| 
+            get(move |State(Encryption(key)): State<Encryption>| {
                 ready({
                     match store_get.query_spools() {
                         Some(csv) => csv,
-                        None =>  {
+                        None => {
                             error!("Failed to generate response to spoole query");
                             "".to_string()
                         }
                     }
                 })
-            )
+            }),
         );
 
         let router = router.route(
