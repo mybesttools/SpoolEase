@@ -1,9 +1,9 @@
-use core::cell::RefCell;
+use core::{any::Any, cell::RefCell};
 use once_cell::unsync::OnceCell;
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 
-use alloc::{rc::Rc, string::String};
+use alloc::{boxed::Box, format, rc::Rc, string::{String, ToString}, vec::Vec};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
 use framework::{
     debug, error, info, mk_static,
@@ -25,8 +25,42 @@ pub enum StoreError {
 
 #[derive(Debug)]
 pub enum StoreOp {
-    WriteTag { tag_info: TagInformation, weight: Option<i32> },
+    WriteTag { tag_info: TagInformation, weight: Option<i32>, cookie: Box<dyn AnyClone> },
 }
+
+// Cookie - General code 
+pub trait AnyClone: Any + core::fmt::Debug {
+    fn clone_box(&self) -> Box<dyn AnyClone>;
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
+    fn as_any(&self) -> &dyn Any;
+}
+
+pub trait Cookie: Any + Clone + core::fmt::Debug + 'static {}
+
+impl<T> AnyClone for T
+where
+    T: Cookie // Any + Clone  + core::fmt::Debug + 'static,
+{
+    fn clone_box(&self) -> Box<dyn AnyClone> {
+        Box::new(self.clone())
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl Clone for Box<dyn AnyClone> {
+    fn clone(&self) -> Box<dyn AnyClone> {
+        self.clone_box()
+    }
+}
+
+//
 
 type StoreRequestsChannel = Channel<NoopRawMutex, StoreOp, 5>;
 // type StoreRequestsReceiver<'a> = Receiver::<'a, NoopRawMutex, StoreOp, 5>;
@@ -40,6 +74,7 @@ type TheSpi = embedded_hal_bus::spi::ExclusiveDevice<
 
 #[allow(private_interfaces)]
 pub struct Store {
+    observers: RefCell<Vec<alloc::rc::Weak<RefCell<dyn StoreObserver>>>>,
     pub requests_channel: &'static StoreRequestsChannel,
     // TODO: make spools_db mutext or something that doesn't need borrow
     // Think if need to make the entire store under mutex (if there are several related dbs could case issues)
@@ -50,11 +85,23 @@ impl Store {
     pub fn new(framework: Rc<RefCell<Framework>>) -> Rc<Store> {
         let requests_channel = mk_static!(StoreRequestsChannel, StoreRequestsChannel::new());
         let store = Rc::new(Self {
+            observers: RefCell::new(Vec::new()),
             requests_channel,
             spools_db: OnceCell::new(),
         });
         framework.borrow().spawner.spawn(store_task(framework.clone(), store.clone())).ok();
         store
+    }
+
+    pub fn subscribe(&self, observer: alloc::rc::Weak<RefCell<dyn StoreObserver>>) {
+        self.observers.borrow_mut().push(observer);
+    }
+
+    pub fn notify_tag_stored(&self, result: Result<(), &str>, cookie: Box<dyn AnyClone>) {
+        for weak_observer in self.observers.borrow().iter() {
+            let observer = weak_observer.upgrade().unwrap();
+            observer.borrow_mut().on_tag_stored(result.map_err(|e| e.to_string()), cookie.clone());
+        }
     }
 
     pub fn try_send_op(&self, op: StoreOp) -> Result<(), StoreError> {
@@ -111,7 +158,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
     let receiver = store.requests_channel.receiver();
     loop {
         match receiver.receive().await {
-            StoreOp::WriteTag { tag_info, weight } => {
+            StoreOp::WriteTag { tag_info, weight, cookie } => {
                 if tag_info.tag_id.is_some() {
                     let filament_info = tag_info.filament.unwrap_or(FilamentInfo::new());
                     let mut spool_rec = SpoolRecord {
@@ -133,15 +180,20 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                         match spools_db.insert(spool_rec).await {
                             Ok(true) => {
                                 info!("Stored tag to spools database");
+                                store.notify_tag_stored(Ok(()), cookie);
                             }
                             Ok(false) => {
                                 info!("Stored tag to spools database, but no change");
+                                store.notify_tag_stored(Ok(()), cookie);
                             }
                             Err(e) => {
                                 error!("Error storing record to spools database {e}");
+                                store.notify_tag_stored(Err(&format!("Failed to store Tag : {e}")), cookie);
                             }
                         }
                         info!("{:?}", spools_db.records.borrow());
+                    } else {
+                        store.notify_tag_stored(Err("Store for tags not available, SD card installed?"), cookie);
                     }
                 }
             }
@@ -165,4 +217,8 @@ impl CsvDbId for SpoolRecord {
     fn id(&self) -> &String {
         &self.tag_id
     }
+}
+
+pub trait StoreObserver {
+    fn on_tag_stored(&mut self, result: Result<(), String>, cookie:  Box<dyn AnyClone>);
 }

@@ -57,7 +57,7 @@ pub trait SpoolScaleObserver {
     fn on_term_text(&mut self, text: &str);
     fn on_tag_status(&mut self, status: &shared::spool_tag::Status);
     fn on_pn532_status(&mut self, status: bool);
-    fn on_button_pressed(&mut self, scale_weight: ScaleWeight);
+    fn on_button_pressed(&mut self, scale_weight: ScaleWeight) -> Option<bool>;
 }
 
 impl SpoolScale {
@@ -65,6 +65,12 @@ impl SpoolScale {
         self.console_to_scale
             .try_send(ConsoleToScale::Calibrate(weight))
             .unwrap_or_else(|e| error!("Failed sending calibrate request to scale {e:?}"));
+    }
+
+    pub fn button_response(&self, success: bool) {
+        self.console_to_scale
+            .try_send(ConsoleToScale::ButtonResponse(success))
+            .unwrap_or_else(|e| error!("Failed sending button response request to scale {e:?}"));
     }
 
     pub fn process_message(&mut self, _frame_header: &FrameHeader, payload: &[u8]) {
@@ -84,13 +90,15 @@ impl SpoolScale {
                     self.notify_scale_load_changed_stable(weight);
                 }
                 ScaleToConsole::LoadRemoved => {
+                    let first_update = matches!(self.weight, ScaleWeight::Unknown);
                     self.weight = ScaleWeight::Stable(0);
-                    self.notify_scale_load_removed();
+                    if !first_update {
+                        self.notify_scale_load_removed();
+                    }
                 }
                 ScaleToConsole::RawSamplesAvg(raw_data) => {
                     self.notify_scale_raw_samples_avg(raw_data);
                 }
-                ScaleToConsole::WebConfigEnabled(_web_config_info) => todo!(),
                 ScaleToConsole::Uncalibrated => {
                     self.notify_scale_uncalibrated();
                 }
@@ -107,6 +115,8 @@ impl SpoolScale {
                     self.notify_button_pressed();
                 }
             }
+        } else {
+            warn!("Received an unsupported message from Scale, Console version update probably available : {}", String::from_utf8_lossy(payload));
         }
     }
     pub fn connected(&mut self) {
@@ -189,7 +199,10 @@ impl SpoolScale {
     pub fn notify_button_pressed(&mut self) {
         for weak_observer in self.observers.iter() {
             let observer = weak_observer.upgrade().unwrap();
-            observer.borrow_mut().on_button_pressed(self.weight);
+            let observer_immediate_response = observer.borrow_mut().on_button_pressed(self.weight);
+            if let Some(success) = observer_immediate_response {
+                self.button_response(success);
+            }
         }
     }
 }

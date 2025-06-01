@@ -142,6 +142,10 @@ export global AppState {
 
     in-out property <string> user-message: "Booting ...";
     in-out property <StatusType> user-message-type: StatusType.Normal;
+
+    in-out property <string> spool-scale-dialog-message: "";
+    in-out property <StatusType> spool-scale-dialog-type: StatusType.Normal;
+
     in-out property <int> encode-timeout: 999;
     in-out property <EncodeRequest> curr-encode-request:  { tray_id: -1 }; // -1 is important so when pressing slot 0, it will still appear as change (for the changed that comes next)
     changed curr-encode-request => {
@@ -356,6 +360,11 @@ export global AppState {
         if self.spool-staging-state == SpoolStagingState.Loaded {
             self.staging-to-tray = tray_id;
         }
+    }
+
+    public function show-spoolscale-dialog(message: string, type: StatusType) {
+      self.spool-scale-dialog-message = message;
+      self.spool-scale-dialog-type = type;
     }
 
     public function spool-scale-connected() {

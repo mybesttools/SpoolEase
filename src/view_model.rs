@@ -2,6 +2,7 @@ use core::cell::RefCell;
 use core::cmp::max;
 use core::ops::{Deref, DerefMut};
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::{
     format,
@@ -25,7 +26,7 @@ use crate::app_config::{BASE_FILAMENTS, FILAMENT_BRAND_NAMES, SPOOLS_CATALOG};
 use crate::color_utils::get_color_name;
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
-use crate::store::{Store, StoreOp};
+use crate::store::{AnyClone, Cookie, Store, StoreObserver, StoreOp};
 use crate::web_app::EncodeInfoDTO;
 use crate::{
     app_config::AppConfig,
@@ -194,6 +195,13 @@ impl ViewModel {
         let trait_for_spool_scale_rc: Rc<RefCell<dyn spool_scale::SpoolScaleObserver>> = self.view_model.as_ref().unwrap().clone();
         let trait_for_spool_scale_weak: Weak<RefCell<dyn spool_scale::SpoolScaleObserver>> = Rc::downgrade(&trait_for_spool_scale_rc);
         self.spool_scale_model.borrow_mut().subscribe(trait_for_spool_scale_weak);
+
+        // Subscribe to rust store events
+        // It's a bit different because store is Rc<Store> and not Rc<RefCell<Store>> due to Store different needs
+        // ...I already don't remember those needs ... maybe not really needed anymore and originated in trying to solve something else there
+        let trait_for_store_rc: Rc<RefCell<dyn StoreObserver>> = self.view_model.as_ref().unwrap().clone();
+        let trait_for_store_weak: Weak<RefCell<dyn StoreObserver>> = Rc::downgrade(&trait_for_store_rc);
+        self.store.subscribe(trait_for_store_weak);
 
         let ui = self.ui_weak.unwrap();
         let ui_app_backend = ui.global::<crate::app::AppBackend>();
@@ -1038,7 +1046,11 @@ impl SpoolTagObserver for ViewModel {
                             .invoke_encoding_failed(SharedString::from("Descriptor Generation Error"));
                     }
                     if let Some(tag_info) = tag_info_clone {
-                        if let Err(err) = self.store.try_send_op(StoreOp::WriteTag { tag_info, weight: None }) {
+                        if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
+                            tag_info,
+                            weight: None,
+                            cookie: Box::new(StoreWriteTagCookie { notify_scale: false }),
+                        }) {
                             info!("Error writing tag to store : {}", err);
                         }
                     }
@@ -1056,7 +1068,11 @@ impl SpoolTagObserver for ViewModel {
                             .invoke_read_tag_failed(SharedString::from("Invalid Tag Content"));
                     }
                     if let Some(tag_info) = tag_info_clone {
-                        if let Err(err) = self.store.try_send_op(StoreOp::WriteTag { tag_info, weight: None }) {
+                        if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
+                            tag_info,
+                            weight: None,
+                            cookie: Box::new(StoreWriteTagCookie { notify_scale: false }),
+                        }) {
                             info!("Error writing tag to store : {}", err);
                         }
                     }
@@ -1295,23 +1311,88 @@ impl SpoolScaleObserver for ViewModel {
         }
     }
 
-    fn on_button_pressed(&mut self, scale_weight: ScaleWeight) {
+    fn on_button_pressed(&mut self, scale_weight: ScaleWeight) -> Option<bool> {
+        let ui = self.ui_weak.unwrap();
+        let ui_app_state = ui.global::<crate::app::AppState>();
         if let Some(tag_info) = &self.filament_staging.borrow().tag_info {
-            if let ScaleWeight::Stable(weight) = scale_weight {
-                if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
-                    tag_info: tag_info.clone(),
-                    weight: Some(weight),
-                }) {
-                    info!("Error writing tag to store : {}", err);
+            match scale_weight {
+                ScaleWeight::Stable(weight) => {
+                    if weight == 0 {
+                        info!("User Error: Reqeust to store tag with no weight on scale");
+                        ui_app_state.invoke_show_spoolscale_dialog(
+                            "No Weight on Scale\n\nCan't Update Spool Weight".to_shared_string(),
+                            crate::app::StatusType::Error,
+                        );
+                        Some(false)
+                    } else if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
+                        tag_info: tag_info.clone(),
+                        weight: Some(weight),
+                        cookie: Box::new(StoreWriteTagCookie { notify_scale: true }),
+                    }) {
+                        info!("Error writing tag to store : {}", err);
+                        ui_app_state.invoke_show_spoolscale_dialog(
+                            "Internal Error\n\nFailed to Update Filament Weight".to_shared_string(),
+                            crate::app::StatusType::Error,
+                        );
+                        // TODO: notify on GUI and on Scale Led
+                        Some(false)
+                    } else {
+                        info!("Submitted internally a request to store weight");
+                        None
+                    }
+                }
+                ScaleWeight::Unstable(_) => {
+                    info!("User Error: Reqeust to store tag with weight but scale weight is not stable");
+                    ui_app_state.invoke_show_spoolscale_dialog(
+                        "Weight on Scale Not Stable\n\nCan't Update Spool Weight".to_shared_string(),
+                        crate::app::StatusType::Error,
+                    );
+                    Some(false)
                     // TODO: notify on GUI and on Scale Led
                 }
-            } else {
-                info!("Reqeust to store tag with weight but scale weight is not stable");
-                // TODO: notify on GUI and on Scale Led
+                ScaleWeight::Unknown => {
+                    info!("Software Error: scale weight unknown after connec?");
+                    ui_app_state.invoke_show_spoolscale_dialog(
+                        "Internal Software Error\n\nCan't Update Spool Weight".to_shared_string(),
+                        crate::app::StatusType::Error,
+                    );
+                    Some(false)
+                }
             }
         } else {
-            info!("Reqeust to store tag with weight but no tag information in staging");
+            info!("User Error: Reqeust to store tag with weight but no tag information in staging");
+            ui_app_state.invoke_show_spoolscale_dialog(
+                "No Spool Tag in Staging\n\nCan't Update Spool Weight".to_shared_string(),
+                crate::app::StatusType::Error,
+            );
+            Some(false)
             // TODO:  notify on GUI and on Scale Led
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct StoreWriteTagCookie {
+    notify_scale: bool,
+}
+impl Cookie for StoreWriteTagCookie {}
+
+impl StoreObserver for ViewModel {
+    fn on_tag_stored(&mut self, result: Result<(), String>, cookie: Box<dyn AnyClone>) {
+        if let Ok(cookie) = cookie.into_any().downcast::<StoreWriteTagCookie>() {
+            if cookie.notify_scale {
+                self.spool_scale_model.borrow().button_response(result.is_ok());
+                let ui = self.ui_weak.unwrap();
+                let ui_app_state = ui.global::<crate::app::AppState>();
+                if result.is_ok() {
+                    ui_app_state.invoke_show_spoolscale_dialog("Updated Filament Weight".to_shared_string(), crate::app::StatusType::Success);
+                } else {
+                    ui_app_state.invoke_show_spoolscale_dialog(
+                        "Technical Error\n\nFailed to Update Filament Weight".to_shared_string(),
+                        crate::app::StatusType::Error,
+                    );
+                }
+            }
         }
     }
 }

@@ -3,11 +3,11 @@ import { ListView, GridBox, VerticalBox, HorizontalBox, Button, ComboBox, SpinBo
 import { FrameworkBackend, FrameworkState, OtaState, WebConfigState } from "framework/framework.slint";
 import { Terminal } from "framework/terminal.slint";
 import { Settings } from "framework/settings.slint";
-import { Selector, MyButton, Title, LeftTab } from "framework/widgets.slint";
+import { Title, MyText } from "framework/widgets.slint";
 
 import { Utils } from "utils.slint";
 import { Trays } from "trays.slint";
-import { AppBackend, AppState, AppConsts, ControlState, SpoolScaleState, UiTray, UiTrayState, UiFilamentState, UiSpoolInfo } from "app.slint";
+import { AppBackend, AppState, AppConsts, ControlState, SpoolScaleState, UiTray, UiTrayState, UiFilamentState, UiSpoolInfo, StatusType } from "app.slint";
 import { ControlPanel } from "controlpanel.slint";
 import { SelectPrinter } from "select-printer.slint";
 import { AppSettings } from "app-settings.slint";
@@ -25,7 +25,7 @@ export component AppWindow inherits Window {
     width: 480px;
     height: 320px;
 
-    property <int> current-page: (FrameworkState.web-config-state == WebConfigState.Started-AP || FrameworkState.web-config-state == WebConfigState.Started-STA-Displayed )? 2 : (AppState.control-state == ControlState.Booting || AppState.control-state == ControlState.ConnectingToPrinter || AppState.control-state == ControlState.BootFailed) ? 0 : 1;
+    property <int> current-page: (FrameworkState.web-config-state == WebConfigState.Started-AP || FrameworkState.web-config-state == WebConfigState.Started-STA-Displayed) ? 2 : (AppState.control-state == ControlState.Booting || AppState.control-state == ControlState.ConnectingToPrinter || AppState.control-state == ControlState.BootFailed) ? 0 : 1;
     changed current-page => {
         if FrameworkState.web-config-state == WebConfigState.Starting || FrameworkState.web-config-state == WebConfigState.Started-STA || FrameworkState.web-config-state == WebConfigState.Started-AP {
             if current-page != 2 {
@@ -140,20 +140,58 @@ export component AppWindow inherits Window {
         }
     }
 
-    if AppState.control-state == ControlState.EncodeEditing: encode-editing :=
-    FilamentInfo {
+    if AppState.control-state == ControlState.EncodeEditing: encode-editing := FilamentInfo {
         mode: FilamentInfoMode.Encode;
         height: root.height;
     }
 
-    if AppState.control-state == ControlState.EncodeEditing: core-weight :=
-    SpoolCoreWeight {
+    if AppState.control-state == ControlState.EncodeEditing: core-weight := SpoolCoreWeight {
         visible: AppState.encoding-spool-core-visible;
         height: root.height;
     }
-    if AppState.control-state == ControlState.FilamentInformation: filament-information :=
-    FilamentInfo {
+    if AppState.control-state == ControlState.FilamentInformation: filament-information := FilamentInfo {
         mode: FilamentInfoMode.View;
         height: root.height;
+    }
+
+    if AppState.spool-scale-dialog-message != "": Rectangle {
+        Timer {
+            property <int> counter: 5;
+            interval: 1s;
+            running: AppState.spool-scale-dialog-message != "";
+            triggered => {
+                counter = counter - 1;
+                if counter == 0 {
+                    AppState.spool-scale-dialog-message = "";
+                    counter = 5;
+                }
+            }
+        }
+
+        x: 320px / 5 / 2;
+        y: self.x * (480 / 320) * 1.5;
+        width: root.width - self.x * 2;
+        height: root.height - self.y * 2;
+        background: AppState.spool-scale-dialog-type == StatusType.Success ? green.brighter(1.0) : AppState.spool-scale-dialog-type == StatusType.Error ? red : skyblue;
+        VerticalLayout {
+            Title {
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
+                text: "SpoolEase Scale Notice!";
+                background: beige;
+            }
+
+            Rectangle {
+                MyText {
+                    horizontal-alignment: center;
+                    text: AppState.spool-scale-dialog-message;
+                    color: AppState.spool-scale-dialog-type == StatusType.Success ? black : AppState.spool-scale-dialog-type == StatusType.Error ? white : black;
+                }
+            }
+        }
+
+        border-color: black;
+        border-width: 1px;
+        border-radius: 10px;
     }
 }
