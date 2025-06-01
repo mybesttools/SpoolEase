@@ -397,6 +397,17 @@ impl ViewModel {
 
         let mut id = -1;
         let app_config_clone = self.app_config.clone();
+
+        {  // Add Clear/Unset/No-Core first
+        
+            id += 1;
+            let selector_option = crate::app::SelectorOption {
+                id,
+                text: "Don't Encode Spool Core Weight".into(),
+            };
+            cores_list_vec.push(selector_option);
+        }
+
         if let Some(user_cores) = &app_config_clone.borrow().user_cores {
             id = self.add_core_weights_csv_to_list(id, user_cores.as_str(), "My Spools List", filter);
         }
@@ -663,6 +674,7 @@ impl ViewModel {
             };
             // let spool_scale_weight = moved_spool_scale.borrow().weight;
             tag_info_to_encode.weight_new = (encode_request.weight_new != 0).then_some(encode_request.weight_new);
+            tag_info_to_encode.weight_advertised = (encode_request.weight_advertised != 0).then_some(encode_request.weight_advertised);
             tag_info_to_encode.weight_core = (encode_request.weight_core != 0).then_some(encode_request.weight_core);
             tag_info_to_encode.brand = (!encode_request.brand.trim().is_empty()).then(|| encode_request.brand.trim().to_string());
             tag_info_to_encode.filament_subtype =
@@ -777,6 +789,9 @@ impl ViewModel {
                             }
                             if encode_request.note.is_empty() && tag_info.note.is_some() {
                                 encode_request.note = tag_info.note.as_ref().unwrap().to_shared_string();
+                            }
+                            if encode_request.weight_advertised == 0 && tag_info.weight_advertised.is_some() {
+                                encode_request.weight_advertised = tag_info.weight_advertised.unwrap();
                             }
                             if encode_request.weight_core == 0 && tag_info.weight_core.is_some() {
                                 encode_request.weight_core = tag_info.weight_core.unwrap();

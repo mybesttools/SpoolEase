@@ -169,12 +169,15 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                         color_code: filament_info.tray_color,
                         note: tag_info.note.unwrap_or_default(),
                         brand: tag_info.brand.unwrap_or_default(),
-                        weight_left: weight,
+                        weight_advertised: tag_info.weight_advertised,
+                        weight_core: tag_info.weight_core,
+                        weight_new: tag_info.weight_new,
+                        weight_current: weight,
                     };
                     if let Some(spools_db) = store.spools_db.get() {
                         if weight.is_none() {
                             if let Some(current_rec) = spools_db.records.borrow().get(&spool_rec.tag_id) {
-                                spool_rec.weight_left = current_rec.data.weight_left;
+                                spool_rec.weight_current = current_rec.data.weight_current;
                             }
                         }
                         match spools_db.insert(spool_rec).await {
@@ -210,7 +213,10 @@ struct SpoolRecord {
     pub color_code: String,       // 8
     pub note: String,             // 40
     pub brand: String,            // 30
-    pub weight_left: Option<i32>, // 4
+    pub weight_advertised: Option<i32>, // 4
+    pub weight_core: Option<i32>, // 4
+    pub weight_new: Option<i32>, // 4
+    pub weight_current: Option<i32>, // 4
 }
 
 impl CsvDbId for SpoolRecord {

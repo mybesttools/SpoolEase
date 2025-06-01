@@ -37,6 +37,7 @@ export struct EncodeRequest { // EncodeRequest is actually used for FilamentInfo
   // autofilled
   tray-index: int,
   tray-id: int, // from index
+  weight-advertised: int, 
   weight-core: int,
   weight-new: int, 
   core-name: string, // used to add to list of previously used spools, not encoded to tag
@@ -313,13 +314,15 @@ export global AppState {
             self.encoding-spool-core-visible = false;
         }
     }
-    public function encode-set-core-info(weight-core: int, weight-new: int, core-name: string) {
+    public function encode-set-core-info(weight-advertised: int, weight-core: int, weight-new: int, core-name: string) {
         self.curr-encode-request.weight-core = weight-core;
         self.curr-encode-request.weight-new = weight-new;
+        self.curr-encode-request.weight-advertised = weight-advertised;
         self.curr-encode-request.core-name = core-name;
     }
 
     public function clear-curr-encoding-request() {
+        self.curr-encode-request.weight-advertised = 0;
         self.curr-encode-request.weight-core = 0;
         self.curr-encode-request.weight-new = 0;
         self.curr-encode-request.core-name = 0;

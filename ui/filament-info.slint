@@ -164,8 +164,9 @@ export component FilamentInfo inherits Rectangle {
                         label-button: mode == FilamentInfoMode.Encode;
                         property <string> core: AppState.curr-encode-request.weight-core != 0 ? "\{AppState.curr-encode-request.weight-core}g" : "—";
                         property <string> new: AppState.curr-encode-request.weight-new != 0 ? "\{AppState.curr-encode-request.weight-new}g" : "—";
+                        property <string> advertised: AppState.curr-encode-request.weight-advertised == 0 ? "—" : ((AppState.curr-encode-request.weight-advertised > 500) && (Math.mod(AppState.curr-encode-request.weight-advertised,500)) == 0) ? "\{AppState.curr-encode-request.weight-advertised/1000}kg" : "\{AppState.curr-encode-request.weight-advertised}g";
                         label: "Weights:";
-                        text: "\{core} (Core) / \{new} (New)";
+                        text: "\{advertised} (Label) / \{core} (Core) / \{new} (New)";
                         clicked => {
                            AppState.encoding-spool-core-visible = true;
                         }

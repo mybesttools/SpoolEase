@@ -1809,6 +1809,7 @@ pub struct TagInformation {
     pub calibrations: HashMap<String, Calibration>,
     pub calibrations_printer_name: String, // has value only if calibrations has any value
     pub calibrations_printer_uuid: String, // has value only if calibrations has any value
+    pub weight_advertised: Option<i32>,
     pub weight_core: Option<i32>,
     pub weight_new: Option<i32>,
     pub brand: Option<String>,
@@ -1879,7 +1880,8 @@ impl TagInformation {
             format!("{k_prefix}{inner_calibrations_part}{k_postfix}")
         };
         self.filament.as_ref().map(|filament| format!(
-                "{FILAMENT_URL_PREFIX}V1?ID={TAG_PLACEHOLDER}{}{}&M={}&C={}&NN={}&NX={}{}&FI={}{brand_part}{filament_subtype_part}{color_name_part}{note_part}",
+                "{FILAMENT_URL_PREFIX}V1?ID={TAG_PLACEHOLDER}{}{}{}&M={}&C={}&NN={}&NX={}{}&FI={}{brand_part}{filament_subtype_part}{color_name_part}{note_part}",
+                self.weight_advertised.map(|v| format!("&WA={}", v)).unwrap_or_default(),
                 self.weight_core.map(|v| format!("&WC={}", v)).unwrap_or_default(),
                 self.weight_new.map(|v| format!("&WN={}", v)).unwrap_or_default(),
                 filament.tray_type,
@@ -1896,6 +1898,7 @@ impl TagInformation {
     pub fn from_descriptor(descriptor: &str) -> Result<Self, Error> {
         let mut filament_info_result = FilamentInfo::new();
         let mut calibrations_result = HashMap::new();
+        let mut weight_advertised = None;
         let mut weight_core = None;
         let mut weight_new = None;
         let mut brand = None;
@@ -1962,6 +1965,13 @@ impl TagInformation {
                     "FI" => {
                         filament_info_result.tray_info_idx = String::from(param_value);
                         fi = true;
+                    }
+                    "WA" => {
+                        if let Ok(ret_val) = param_value.parse::<i32>() {
+                            weight_advertised = Some(ret_val);
+                        } else {
+                            return Err(Error::ParseError);
+                        }
                     }
                     "WC" => {
                         if let Ok(ret_val) = param_value.parse::<i32>() {
@@ -2053,6 +2063,7 @@ impl TagInformation {
                 calibrations: calibrations_result,
                 calibrations_printer_name: calibrations_printer_name.to_string(),
                 calibrations_printer_uuid: calibrations_printer_uuid.to_string(),
+                weight_advertised,
                 weight_core,
                 weight_new,
                 brand,
