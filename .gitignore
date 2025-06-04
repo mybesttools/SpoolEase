@@ -48,3 +48,5 @@ src/certs
 !src/certs/raw.githubuercontent.com.pem
 !src/certs/raw.githubuercontent.com.info
 .envrc
+
+_untracked/**

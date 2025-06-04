@@ -1,9 +1,14 @@
 use core::{any::Any, cell::RefCell};
+use num_traits::Float;
 use once_cell::unsync::OnceCell;
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 
-use alloc::{boxed::Box, format, rc::Rc, string::{String, ToString}, vec::Vec};
+
+use alloc::{
+    borrow::Cow, boxed::Box, format, rc::Rc, string::{String, ToString}, vec::Vec
+};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
 use framework::{
     debug, error, info, mk_static,
@@ -23,12 +28,38 @@ pub enum StoreError {
     TooManyOps,
 }
 
+#[allow(clippy::enum_variant_names, dead_code)]
 #[derive(Debug)]
-pub enum StoreOp {
-    WriteTag { tag_info: TagInformation, weight: Option<i32>, cookie: Box<dyn AnyClone> },
+pub enum WeightStoreDirective {
+    ProvidedCurrentWeight(i32),
+    UseStoreCurrentWeight,
+    ClearCurrentWeight,
 }
 
-// Cookie - General code 
+#[allow(dead_code)]
+#[derive(Debug)]
+pub enum TagFileDirective {
+    SkipWrite,
+    AlwaysWrite,
+    WriteIfMissing,
+}
+
+#[derive(Debug)]
+pub enum StoreOp {
+    WriteTag {
+        tag_info: TagInformation,
+        tag_file: TagFileDirective,
+        weight: WeightStoreDirective,
+        cookie: Box<dyn AnyClone>,
+    },
+}
+
+#[derive(Serialize, Deserialize )]
+struct TagFile<'a> {
+    tag: Cow<'a, String>,
+}
+
+// Cookie - General code
 pub trait AnyClone: Any + core::fmt::Debug {
     fn clone_box(&self) -> Box<dyn AnyClone>;
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
@@ -39,7 +70,7 @@ pub trait Cookie: Any + Clone + core::fmt::Debug + 'static {}
 
 impl<T> AnyClone for T
 where
-    T: Cookie // Any + Clone  + core::fmt::Debug + 'static,
+    T: Cookie, // Any + Clone  + core::fmt::Debug + 'static,
 {
     fn clone_box(&self) -> Box<dyn AnyClone> {
         Box::new(self.clone())
@@ -158,11 +189,11 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
     let receiver = store.requests_channel.receiver();
     loop {
         match receiver.receive().await {
-            StoreOp::WriteTag { tag_info, weight, cookie } => {
+            StoreOp::WriteTag { tag_info, tag_file, weight, cookie } => {
                 if tag_info.tag_id.is_some() {
                     let filament_info = tag_info.filament.unwrap_or(FilamentInfo::new());
                     let mut spool_rec = SpoolRecord {
-                        tag_id: tag_info.tag_id.unwrap(),
+                        tag_id: URL_SAFE_NO_PAD.encode(tag_info.tag_id.as_ref().unwrap()),
                         material_type: filament_info.tray_type,
                         material_subtype: tag_info.filament_subtype.unwrap_or_default(),
                         color_name: tag_info.color_name.unwrap_or_default(),
@@ -172,14 +203,20 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                         weight_advertised: tag_info.weight_advertised,
                         weight_core: tag_info.weight_core,
                         weight_new: tag_info.weight_new,
-                        weight_current: weight,
+                        weight_current: None,
                     };
                     if let Some(spools_db) = store.spools_db.get() {
-                        if weight.is_none() {
-                            if let Some(current_rec) = spools_db.records.borrow().get(&spool_rec.tag_id) {
-                                spool_rec.weight_current = current_rec.data.weight_current;
+                        spool_rec.weight_current = match weight {
+                            WeightStoreDirective::ProvidedCurrentWeight(weight_current) => Some(weight_current),
+                            WeightStoreDirective::UseStoreCurrentWeight => {
+                                if let Some(current_rec) = spools_db.records.borrow().get(&spool_rec.tag_id) {
+                                    current_rec.data.weight_current
+                                } else {
+                                    None
+                                }
                             }
-                        }
+                            WeightStoreDirective::ClearCurrentWeight => None,
+                        };
                         match spools_db.insert(spool_rec).await {
                             Ok(true) => {
                                 info!("Stored tag to spools database");
@@ -198,6 +235,44 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                     } else {
                         store.notify_tag_stored(Err("Store for tags not available, SD card installed?"), cookie);
                     }
+                    // Write tag file (or not)
+                    if !matches!(tag_file, TagFileDirective::SkipWrite) {
+                        if let Some(tag_id) = &tag_info.tag_id.as_ref() {
+                            if tag_id.len() <= 7 {
+                                let encoded_tag_id = encode_to_charset(tag_id, FAT_CHARSET);
+                                if encoded_tag_id.len() > 11 {
+                                    error!("Error - TagId encoded to more than 11 characters");
+                                }
+                                let tag_bucket = fnv1a_hash(tag_id) % 16;
+                                let tag_file_path = format!("/store/tags/{:04X}/{}.{}", tag_bucket, &encoded_tag_id[..8], &encoded_tag_id[8..11]); 
+                                let file_store = framework.borrow().file_store();
+                                let mut file_store = file_store.lock().await;
+                                let write_only_if_missing = match tag_file {
+                                    TagFileDirective::SkipWrite => panic!("Critical Software Bug"),
+                                    TagFileDirective::AlwaysWrite => false,
+                                    TagFileDirective::WriteIfMissing => true,
+                                };
+                                let tag_file_data = TagFile {
+                                    tag: Cow::Borrowed(&tag_info.origin_descriptor)
+                                };
+                                match serde_json::to_string(&tag_file_data) {
+                                    Ok(s) => {
+                                        if let Err(err) = file_store.write_file_str(&tag_file_path, 0, &s, write_only_if_missing).await {
+                                            error!("Error writing tag file to {tag_file_path} : {err}");
+                                        } else {
+                                            info!("Stored tag {tag_id:?} information to file {tag_file_path}");
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("Error serializing tag information to store: {e}");
+                                    }
+                                }
+                            } else {
+                                error!("Can't save tag_id longer than 7 bytes");
+                            }
+                        }
+
+                    }
                 }
             }
         }
@@ -206,17 +281,17 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct SpoolRecord {
-    pub tag_id: String,           // 14 (7*2)
-    pub material_type: String,    // 10
-    pub material_subtype: String, // 10
-    pub color_name: String,       // 10
-    pub color_code: String,       // 8
-    pub note: String,             // 40
-    pub brand: String,            // 30
+    pub tag_id: String,                 // 14 (7*2)
+    pub material_type: String,          // 10
+    pub material_subtype: String,       // 10
+    pub color_name: String,             // 10
+    pub color_code: String,             // 8
+    pub note: String,                   // 40
+    pub brand: String,                  // 30
     pub weight_advertised: Option<i32>, // 4
-    pub weight_core: Option<i32>, // 4
-    pub weight_new: Option<i32>, // 4
-    pub weight_current: Option<i32>, // 4
+    pub weight_core: Option<i32>,       // 4
+    pub weight_new: Option<i32>,        // 4
+    pub weight_current: Option<i32>,    // 4
 }
 
 impl CsvDbId for SpoolRecord {
@@ -226,5 +301,77 @@ impl CsvDbId for SpoolRecord {
 }
 
 pub trait StoreObserver {
-    fn on_tag_stored(&mut self, result: Result<(), String>, cookie:  Box<dyn AnyClone>);
+    fn on_tag_stored(&mut self, result: Result<(), String>, cookie: Box<dyn AnyClone>);
+}
+
+const FAT_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"; // 35 chars
+
+fn encode_to_charset(input: &[u8], charset: &[u8]) -> String {
+    let base = charset.len() as u16;
+    assert!((2..=256).contains(&base));
+
+    let mut bytes = input.to_vec(); // cloned internally
+    let mut output = Vec::new();
+
+    while bytes.iter().any(|&b| b != 0) {
+        let mut rem = 0u16;
+        for b in &mut bytes {
+            let val = (rem << 8) | *b as u16;
+            *b = (val / base) as u8;
+            rem = val % base;
+        }
+        output.push(charset[rem as usize] as char);
+    }
+
+    let min_len = ((input.len() * 8) as f64 / (base as f64).log2()).ceil() as usize;
+    while output.len() < min_len {
+        output.push(charset[0] as char);
+    }
+
+    output.reverse();
+    output.into_iter().collect()
+}
+
+#[allow(dead_code)]
+fn decode_from_charset(s: &str, charset: &[u8]) -> Option<Vec<u8>> {
+    let base = charset.len() as u32;
+    assert!((2..=256).contains(&base));
+
+    // Build char lookup table
+    let mut char_to_val = [None; 256];
+    for (i, &c) in charset.iter().enumerate() {
+        char_to_val[c as usize] = Some(i as u32);
+    }
+
+    // Infer original byte length
+    let bit_len = (s.len() as f64) * (base as f64).log2();
+    let byte_len = (bit_len / 8.0).floor() as usize;
+
+    let mut result = alloc::vec![0u8; byte_len];
+
+    for ch in s.bytes() {
+        let digit = char_to_val[ch as usize]?; // Invalid char
+        let mut carry = digit;
+
+        for byte in result.iter_mut().rev() {
+            let val = (*byte as u32) * base + carry;
+            *byte = (val & 0xFF) as u8;
+            carry = val >> 8;
+        }
+
+        if carry != 0 {
+            return None; // Overflow
+        }
+    }
+
+    Some(result)
+}
+
+pub fn fnv1a_hash(data: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325; // FNV offset basis
+    for byte in data.iter() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }

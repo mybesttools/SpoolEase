@@ -27,7 +27,7 @@ use crate::color_utils::get_color_name;
 use crate::filament_staging::{self, StagingOrigin};
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
-use crate::store::{AnyClone, Cookie, Store, StoreObserver, StoreOp};
+use crate::store::{AnyClone, Cookie, Store, StoreObserver, StoreOp, TagFileDirective, WeightStoreDirective};
 use crate::web_app::EncodeInfoDTO;
 use crate::{
     app_config::AppConfig,
@@ -1080,7 +1080,8 @@ impl SpoolTagObserver for ViewModel {
                     if let Some(tag_info) = tag_info_clone {
                         if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
                             tag_info,
-                            weight: None,
+                            tag_file: TagFileDirective::AlwaysWrite,
+                            weight: WeightStoreDirective::UseStoreCurrentWeight,
                             cookie: Box::new(StoreWriteTagCookie { notify_scale: false }),
                         }) {
                             info!("Error writing tag to store : {}", err);
@@ -1102,7 +1103,8 @@ impl SpoolTagObserver for ViewModel {
                     if let Some(tag_info) = tag_info_clone {
                         if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
                             tag_info,
-                            weight: None,
+                            tag_file: TagFileDirective::WriteIfMissing,
+                            weight: WeightStoreDirective::UseStoreCurrentWeight,
                             cookie: Box::new(StoreWriteTagCookie { notify_scale: false }),
                         }) {
                             info!("Error writing tag to store : {}", err);
@@ -1358,7 +1360,8 @@ impl SpoolScaleObserver for ViewModel {
                         Some(false)
                     } else if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
                         tag_info: tag_info.clone(),
-                        weight: Some(weight),
+                        tag_file: TagFileDirective::WriteIfMissing,
+                        weight: WeightStoreDirective::ProvidedCurrentWeight(weight),
                         cookie: Box::new(StoreWriteTagCookie { notify_scale: true }),
                     }) {
                         info!("Error writing tag to store : {}", err);

@@ -1823,7 +1823,8 @@ pub async fn bambu_mqtt_task(
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct TagInformation {
-    pub tag_id: Option<String>,
+    pub origin_descriptor: String,
+    pub tag_id: Option<Vec<u8>>,
     pub filament: Option<FilamentInfo>,
     pub calibrations: HashMap<String, Calibration>,
     pub calibrations_printer_name: String, // has value only if calibrations has any value
@@ -1929,7 +1930,7 @@ impl TagInformation {
         if !(descriptor.starts_with(FILAMENT_URL_PREFIX)) {
             return Err(Error::ParseError);
         }
-        let descriptor = descriptor.trim_start_matches(FILAMENT_URL_PREFIX);
+        // let descriptor = descriptor.trim_start_matches(FILAMENT_URL_PREFIX);
 
         let mut id = false;
         let mut v = false;
@@ -1938,7 +1939,7 @@ impl TagInformation {
         let mut c = false;
         let mut nn = false;
         let mut nx = false;
-        for param in descriptor.split(['&', '/', '?']) {
+        for param in descriptor.strip_prefix(FILAMENT_URL_PREFIX).unwrap_or(descriptor).split(['&', '/', '?']) {
             if param == "V1" {
                 v = true;
                 continue;
@@ -1949,7 +1950,12 @@ impl TagInformation {
                     // Tag ID
                     "ID" => {
                         id = true;
-                        tag_id = Some(param_value.to_string());
+                        if let Ok(tag_id_bytes) = URL_SAFE_NO_PAD.decode(param_value) {
+                            tag_id = Some(tag_id_bytes);
+                        } else {
+                            error!("Error decoding tag id from tag descriptor {descriptor}");
+                            return Err(Error::ParseError);
+                        }
                     }
                     // Material / Tray Type (material code in some other form)
                     "M" => {
@@ -2077,6 +2083,7 @@ impl TagInformation {
 
         if v && id && m && fi && c && nn && nx {
             Ok(Self {
+                origin_descriptor: descriptor.to_string(),
                 tag_id,
                 filament: Some(filament_info_result),
                 calibrations: calibrations_result,

@@ -168,7 +168,7 @@ where
         if already_exist {
             let mut sdcard = self.sdcard.lock().await;
             sdcard
-                .write_file_bytes(&db_file_name, offset, buffer.as_slice())
+                .write_file_bytes(&db_file_name, offset, buffer.as_slice(), false)
                 .await
                 .context(StoreSnafu)?;
             if let Some(v) = self.records.borrow_mut().get_mut(record.id()) {
@@ -201,7 +201,7 @@ where
         let mut sdcard = self.sdcard.lock().await;
         let db_file_name = self.inner.borrow().db_file_name.clone();
         sdcard
-            .write_file_bytes(&db_file_name, offset, buffer.as_slice())
+            .write_file_bytes(&db_file_name, offset, buffer.as_slice(), false)
             .await
             .context(StoreSnafu)?;
 
