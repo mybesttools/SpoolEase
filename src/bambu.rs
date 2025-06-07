@@ -1900,7 +1900,7 @@ impl TagInformation {
             format!("{k_prefix}{inner_calibrations_part}{k_postfix}")
         };
         self.filament.as_ref().map(|filament| format!(
-                "{FILAMENT_URL_PREFIX}V1?ID={TAG_PLACEHOLDER}{}{}{}&M={}&C={}&NN={}&NX={}{}&FI={}{brand_part}{filament_subtype_part}{color_name_part}{note_part}",
+                "{FILAMENT_URL_PREFIX}V1?ID={TAG_PLACEHOLDER}{}{}{}&M={}&C={}&NN={}&NX={}{brand_part}{filament_subtype_part}{color_name_part}{note_part}&FI={}{calibrations_part}",
                 self.weight_advertised.map(|v| format!("&WA={}", v)).unwrap_or_default(),
                 self.weight_core.map(|v| format!("&WC={}", v)).unwrap_or_default(),
                 self.weight_new.map(|v| format!("&WN={}", v)).unwrap_or_default(),
@@ -1908,7 +1908,6 @@ impl TagInformation {
                 filament.tray_color,
                 filament.nozzle_temp_min,
                 filament.nozzle_temp_max,
-                calibrations_part,
                 filament.tray_info_idx,
             ))
     }
