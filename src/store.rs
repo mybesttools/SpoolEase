@@ -11,10 +11,7 @@ use alloc::{
 };
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
 use framework::{
-    debug, error, info, mk_static,
-    prelude::Framework,
-    settings::{FILE_STORE_MAX_DIRS, FILE_STORE_MAX_FILES},
-    warn,
+    debug, error, info, mk_static, prelude::Framework, settings::{FILE_STORE_MAX_DIRS, FILE_STORE_MAX_FILES}, term_error, term_info
 };
 
 use crate::{
@@ -171,17 +168,17 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
     {
         debug!("Strted store_task");
         let file_store = framework.borrow().file_store();
-        match CsvDb::<SpoolRecord, _, FILE_STORE_MAX_DIRS, FILE_STORE_MAX_FILES>::new(file_store.clone(), "/store/spools", 128, 200).await {
+        match CsvDb::<SpoolRecord, _, FILE_STORE_MAX_DIRS, FILE_STORE_MAX_FILES>::new(file_store.clone(), "/store/spools", 1024, 200, true, true).await {
             Ok(db) => {
                 store
                     .spools_db
                     .set(db)
                     .map_err(|_e| "Fatal Internal Error: Can't assign spools_db to once_cell?")
                     .unwrap();
-                info!("Opened spools database");
+                term_info!("Opened spools database");
             }
             Err(e) => {
-                warn!("Failed to open spools database : {e}");
+                term_error!("Failed to open spools database : {}", e);
                 return;
             }
         }

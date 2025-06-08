@@ -1,40 +1,42 @@
-use core::{cell::RefCell, num::ParseIntError};
+use core::{cell::RefCell, str::Utf8Error};
 
-use framework::prelude::{SDCardStore, SDCardStoreErrorSource};
-use log::info;
-
-use alloc::{format, rc::Rc, string::String, vec::Vec};
+use alloc::{
+    format,
+    rc::Rc,
+    string::{String, ToString},
+    vec::Vec,
+};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embedded_hal_async::spi::SpiDevice;
 use hashbrown::HashMap;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-// use crate::sdcard_store::{SDCardStore, SDCardStoreErrorType};
-
 use snafu::prelude::*;
 
-#[derive(Snafu, Debug)]
+use framework::prelude::{SDCardStore, SDCardStoreErrorSource};
+
+#[derive(Snafu)]
 pub enum CsvDbError {
     #[snafu(display("Failed to open volume"))]
-    Store {
-        source: SDCardStoreErrorSource,
-    },
+    Store { source: SDCardStoreErrorSource },
 
     #[snafu(display("Failed to parse database metadata : {source}"))]
-    Metadata {
-        source: ParseIntError,
-    },
+    Metadata { source: serde_json::error::Error },
 
     #[snafu(display("Failed to deserialize record \"{record}\" : {source}"))]
-    Deserialize {
-        record: String,
-        source: serde_csv_core::de::Error,
-    },
+    Deserialize { record: String, source: serde_csv_core::de::Error },
 
     #[snafu(display("Failed to serialize record: {source}"))]
-    Serialize {
-        source: serde_csv_core::ser::Error
-    },
+    Serialize { source: serde_csv_core::ser::Error },
+
+    #[snafu(display("Failed to UTF8 decode database : {source}"))]
+    Utf8 { source: Utf8Error },
+}
+
+impl core::fmt::Debug for CsvDbError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 pub trait CsvDbId {
@@ -51,7 +53,7 @@ where
     offset: u32,
 }
 
-impl <T> CsvRecordInfo<T> 
+impl<T> CsvRecordInfo<T>
 where
     T: CsvDbId + Serialize + DeserializeOwned + PartialEq + core::fmt::Debug,
 {
@@ -68,16 +70,14 @@ where
 }
 
 #[derive(Serialize, Deserialize)]
-struct DbMeta {
-    version: usize,
-    record_width: usize,
+struct DbMetaFile {
+    version: String,
 }
 
-struct CsvDbInner
-{
+struct CsvDbInner {
     db_file_name: String,
     _dbm_file_name: String,
-    record_width: usize,
+    max_record_width: usize,
 }
 
 pub struct CsvDb<T, SPI: SpiDevice, const MAX_DIRS: usize, const MAX_FILES: usize>
@@ -96,57 +96,85 @@ where
     pub async fn new(
         sdcard: Rc<Mutex<CriticalSectionRawMutex, SDCardStore<SPI, MAX_DIRS, MAX_FILES>>>,
         db_name: &str,
-        min_record_width: usize,
+        max_record_width: usize,
         min_capacity: usize,
+        backup: bool,
+        pack: bool,
     ) -> Result<Self, CsvDbError> {
         let dbm_file_name = format!("{db_name}.dbm");
         let db_file_name = format!("{db_name}.db");
         let sdcard_input = sdcard.clone();
-        let mut record_width = min_record_width;
         let mut records = HashMap::<String, CsvRecordInfo<T>>::with_capacity(min_capacity);
 
         let mut sdcard = sdcard.lock().await;
         let dbm_str = sdcard.read_create_str(&dbm_file_name).await.context(StoreSnafu)?;
         if dbm_str.is_empty() {
-            let dbm_str = format!("version: 1\nrecord_width:{min_record_width}");
+            let dbm = DbMetaFile { version: "1".to_string() };
+            let dbm_str = serde_json::to_string(&dbm).unwrap();
             sdcard.append_text(&dbm_file_name, &dbm_str).await.context(StoreSnafu)?;
             sdcard.create_file(&db_file_name).await.context(StoreSnafu)?;
         } else {
             // Get relevant info from dbm file
-            let mut lines = dbm_str.lines();
-            let _line1 = lines.next();
-            let line2 = lines.next();
-            if let Some(line2) = line2 {
-                if let Some((_left, right)) = line2.split_once(':') {
-                    record_width = right.trim().parse().context(MetadataSnafu)?;
-                }
-            }
+            // let mut lines = dbm_str.lines();
+            let _db_meta: DbMetaFile = serde_json::from_str(&dbm_str).context(MetadataSnafu)?;
+
             // Now read db file
             let db_bytes = sdcard.read_create_bytes(&db_file_name).await.context(StoreSnafu)?;
-            info!("Loading {db_file_name} database, file size: {}",db_bytes.len());
-            let mut reader = serde_csv_core::Reader::<100>::new(); // 100 is max field size
+            let db_str = core::str::from_utf8(&db_bytes).context(Utf8Snafu)?;
+            let mut reader = serde_csv_core::Reader::<256>::new(); // 100 is max field size
             let mut nread = 0;
-            while nread < db_bytes.len() {
-                let db_record = &db_bytes[nread..nread + record_width];
-                if !Self::is_empty_record(db_record) {
-                    let (record, record_length) = reader.deserialize::<T>(db_record).context(DeserializeSnafu {record: String::from_utf8_lossy(db_record)})?;
+            let mut _data_nread = 0;
+            let mut _empty_nread = 0;
+            for line in db_str.lines() {
+                if line.is_empty() {
+                    _empty_nread += 1;
+                } else if line.chars().all(|c| c == '-') {
+                    _empty_nread += line.len() + 1;
+                } else {
+                    _data_nread += line.len() + 1;
+                    let (record, record_length) = reader.deserialize::<T>(line.as_bytes()).context(DeserializeSnafu { record: line })?;
                     let record_info = CsvRecordInfo {
                         data: record,
                         offset: nread as u32,
-                        length: record_length
+                        length: record_length + 1,
                     };
                     records.insert(record_info.data.id().clone(), record_info);
                 }
-                nread += record_width;
+                nread = nread + line.len() + 1;
             }
-            info!("Done reading: {records:?}");
+
+            if backup {
+                let backup_file_name = format!("{db_name}.db1");
+                sdcard.create_write_file_str(&backup_file_name, db_str).await.context(StoreSnafu)?;
+            }
+
+            // Now pack if requested
+            // Check items size and not use current size in case of type change and serialize longer than original read data
+            if pack {
+                let mut record_buffer = alloc::vec![0u8;max_record_width];
+                let mut writer = serde_csv_core::Writer::new();
+                let mut length_required = 0;
+                for record in records.iter() {
+                    let serialized_len = writer.serialize(&record.1.data, record_buffer.as_mut_slice()).context(SerializeSnafu)?;
+                    length_required += serialized_len;
+                }
+                let mut file_buffer = alloc::vec![b'-'; length_required];
+                let mut pos = 0;
+                for record in records.iter_mut() {
+                    let length_written = writer.serialize(&record.1.data, &mut file_buffer[pos..]).context(SerializeSnafu)?;
+                    record.1.offset = pos as u32;
+                    record.1.length = length_written;
+                    pos += length_written;
+                }
+                sdcard.create_write_file_bytes(&db_file_name, &file_buffer).await.context(StoreSnafu)?
+            }
         }
 
         Ok(Self {
             inner: RefCell::new(CsvDbInner {
                 db_file_name,
                 _dbm_file_name: dbm_file_name,
-                record_width,
+                max_record_width,
             }),
             sdcard: sdcard_input.clone(),
             records: Rc::new(RefCell::new(records)),
@@ -154,35 +182,58 @@ where
     }
 
     pub async fn insert(&self, record: T) -> Result<bool, CsvDbError> {
-        let (already_exist, offset) = if let Some(v) = self.records.borrow().get(record.id()) {
+        let (already_exist, prev_offset, prev_length) = if let Some(v) = self.records.borrow().get(record.id()) {
             if v.data == record {
                 return Ok(false);
             }
-            (true, v.offset)
+            (true, v.offset, v.length)
         } else {
-            (false, 0)
+            (false, 0, 0)
         };
-        let mut buffer = Vec::<u8>::with_capacity(self.inner.borrow().record_width);
+        let mut buffer = alloc::vec![0;self.inner.borrow().max_record_width];
         let serialized_len = self.calc_csv_row(&record, &mut buffer)?;
         let db_file_name = self.inner.borrow().db_file_name.clone();
+        let mut final_offset;
+        let mut sdcard = self.sdcard.lock().await;
         if already_exist {
-            let mut sdcard = self.sdcard.lock().await;
-            sdcard
-                .write_file_bytes(&db_file_name, offset, buffer.as_slice(), false)
-                .await
-                .context(StoreSnafu)?;
-            if let Some(v) = self.records.borrow_mut().get_mut(record.id()) {
-                v.data = record;
-                v.length = serialized_len;
+            if serialized_len <= prev_length {
+                buffer[serialized_len..prev_length].fill(b'-');
+                buffer[prev_length - 1] = b'\n';
+                final_offset = Some(prev_offset);
+                sdcard
+                    .write_file_bytes(&db_file_name, prev_offset, &buffer[..prev_length], false)
+                    .await
+                    .context(StoreSnafu)?;
+            } else {
+                let mut empty_buffer = alloc::vec![b'-';prev_length];
+                empty_buffer[prev_length - 1] = b'\n';
+                sdcard
+                    .write_file_bytes(&db_file_name, prev_offset, empty_buffer.as_slice(), false)
+                    .await
+                    .context(StoreSnafu)?;
+                final_offset = None;
             }
         } else {
-            let mut sdcard = self.sdcard.lock().await;
-            let offset = sdcard
-                .append_bytes(&db_file_name, buffer.as_slice())
-                .await
-                .context(StoreSnafu)?;
-            let csv_record_info = CsvRecordInfo { data: record, offset, length: serialized_len };
-            self.records.borrow_mut().insert(csv_record_info.data.id().clone(), csv_record_info);
+            final_offset = None;
+        }
+
+        if final_offset.is_none() {
+            final_offset = Some(sdcard.append_bytes(&db_file_name, &buffer[..serialized_len]).await.context(StoreSnafu)?);
+        }
+
+        let mut records_borrow = self.records.borrow_mut();
+
+        if let Some(v) = records_borrow.get_mut(record.id()) {
+            v.data = record;
+            v.offset = final_offset.unwrap();
+            v.length = serialized_len;
+        } else {
+            let csv_record_info = CsvRecordInfo {
+                data: record,
+                offset: final_offset.unwrap(),
+                length: serialized_len,
+            };
+            records_borrow.insert(csv_record_info.data.id().clone(), csv_record_info);
         }
 
         Ok(true)
@@ -190,14 +241,14 @@ where
 
     #[allow(dead_code)]
     pub async fn delete(self, id: &str) -> Result<Option<T>, CsvDbError> {
-        let offset = if let Some(v) = self.records.borrow().get(id) {
-            v.offset
+        let (offset, length) = if let Some(v) = self.records.borrow().get(id) {
+            (v.offset, v.length)
         } else {
             return Ok(None);
         };
 
-        let mut buffer = Vec::<u8>::with_capacity(self.inner.borrow().record_width);
-        self.calc_empty_record(&mut buffer);
+        let mut buffer = Vec::<u8>::with_capacity(self.inner.borrow().max_record_width);
+        self.calc_empty_record(&mut buffer, length);
         let mut sdcard = self.sdcard.lock().await;
         let db_file_name = self.inner.borrow().db_file_name.clone();
         sdcard
@@ -207,24 +258,24 @@ where
 
         if let Some(record) = self.records.borrow_mut().remove(id) {
             return Ok(Some(record.data));
-        } 
+        }
         Ok(None)
     }
 
-    fn calc_csv_row(&self, record: &T, buffer: &mut Vec<u8>) -> Result<usize, CsvDbError> {
+    fn inner_calc_csv_row(record: &T, buffer: &mut Vec<u8>) -> Result<usize, CsvDbError> {
         let mut writer = serde_csv_core::Writer::new();
-        self.calc_empty_record(buffer);
         let length_written = writer.serialize(record, buffer.as_mut_slice()).context(SerializeSnafu)?;
         Ok(length_written)
     }
 
-    fn calc_empty_record(&self, buffer: &mut Vec<u8>) {
-        let record_width = self.inner.borrow().record_width;
-        buffer.resize(record_width, b'-');
-        buffer[record_width - 1] = b'\n';
+    fn calc_csv_row(&self, record: &T, buffer: &mut Vec<u8>) -> Result<usize, CsvDbError> {
+        buffer.resize(self.inner.borrow().max_record_width, 0);
+        Self::inner_calc_csv_row(record, buffer)
     }
 
-    fn is_empty_record(s: &[u8]) -> bool {
-        s.len() > 1 && s[s.len() - 1] == b'\n' && s[..s.len() - 1].iter().all(|&c| c == b'-')
+    fn calc_empty_record(&self, buffer: &mut Vec<u8>, length: usize) {
+        buffer.clear();
+        buffer.resize(length, b'-');
+        buffer[length - 1] = b'\n';
     }
 }
