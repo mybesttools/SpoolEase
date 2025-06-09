@@ -37,6 +37,7 @@ edge-ws = { git = "https://github.com/yanshay/edge-net" }
 
 [build-dependencies]
 slint-build = "1.9.1"
+walkdir = "2.5.0"
 
 [dependencies]
 #TODO: Important - lock to specific tag when released

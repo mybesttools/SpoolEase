@@ -2,6 +2,8 @@
 // use std::path::Path;
 // use std::process::Command;
 
+use walkdir::WalkDir;
+
 fn main() {
     // // Run wasm-pack build in the second project directory
     //
@@ -44,6 +46,18 @@ fn main() {
     // println!("cargo:rerun-if-changed={}", device_wasm_project_path.display());
 
     // Slint needs to come last, seems like it syncs in some way with the build and waits to the end
+
+    for entry in WalkDir::new("static").into_iter().filter_map(|e| e.ok()) {
+        if entry.file_type().is_file() {
+            println!("cargo:rerun-if-changed={}", entry.path().display());
+        }
+    }
+    for entry in WalkDir::new("../inventory/dist").into_iter().filter_map(|e| e.ok()) {
+        if entry.file_type().is_file() {
+            println!("cargo:rerun-if-changed={}", entry.path().display());
+        }
+    }
+
     slint_build::compile_with_config(
         "ui/appwindow.slint",
         slint_build::CompilerConfiguration::new().embed_resources(slint_build::EmbedResourcesKind::EmbedForSoftwareRenderer),

@@ -82,6 +82,7 @@ dependencies = [
  "smoltcp",
  "snafu",
  "static_cell",
+ "walkdir",
  "xtensa-lx-rt",
 ]
 
@@ -1827,7 +1828,7 @@ dependencies = [
 [[package]]
 name = "embedded-sdmmc"
 version = "0.8.0"
-source = "git+https://github.com/yanshay/embedded-sdmmc-rs?branch=yanshay_bisync#1d5f7c8516813a6c06e8c7f1306bb3097402f60b"
+source = "git+https://github.com/yanshay/embedded-sdmmc-rs?branch=yanshay_bisync#3a9c21a6f9caa33301e24ac8fc51e6c7eaefa6f6"
 dependencies = [
  "bisync",
  "byteorder",
@@ -2095,7 +2096,6 @@ dependencies = [
 [[package]]
 name = "esp-hal-app-framework"
 version = "0.3.1"
-source = "git+https://github.com/yanshay/esp-hal-app/?tag=v0.3.0#3684b1cdf1e2f0e0f8afa2ad1771f01353ea7c93"
 dependencies = [
  "aes",
  "aes-gcm",
