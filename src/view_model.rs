@@ -399,8 +399,9 @@ impl ViewModel {
         let mut id = -1;
         let app_config_clone = self.app_config.clone();
 
-        {  // Add Clear/Unset/No-Core first
-        
+        {
+            // Add Clear/Unset/No-Core first
+
             id += 1;
             let selector_option = crate::app::SelectorOption {
                 id,
@@ -880,7 +881,7 @@ impl ViewModel {
             });
     }
 
-    fn tag_info_to_ui_spool_info_direct(&self, bambu_printer_borrow: &BambuPrinter, tag_info: &TagInformation)-> Option<crate::app::UiSpoolInfo> {
+    fn tag_info_to_ui_spool_info_direct(&self, bambu_printer_borrow: &BambuPrinter, tag_info: &TagInformation) -> Option<crate::app::UiSpoolInfo> {
         tag_info.filament.as_ref()?; // returns None if tag_info.filament is None
         let filament_info = tag_info.filament.as_ref().unwrap();
 
@@ -985,7 +986,13 @@ impl From<&TrayState> for crate::app::UiTrayState {
 }
 
 impl BambuPrinterObserver for ViewModel {
-    fn on_trays_update(&mut self, bambu_printer: &mut BambuPrinter, prev_trays_reading_bits: Option<u32>, new_trays_reading_bits: Option<u32>, removed_tags: &HashMap<usize, TagInformation>) {
+    fn on_trays_update(
+        &mut self,
+        bambu_printer: &mut BambuPrinter,
+        prev_trays_reading_bits: Option<u32>,
+        new_trays_reading_bits: Option<u32>,
+        removed_tags: &HashMap<usize, TagInformation>,
+    ) {
         // note - accepting bambu_printer rather than taking from self, because it's already borrowed and another borrow will panic
         let current_selected_printer = self.bambu_printer_model.index;
 
@@ -1022,11 +1029,15 @@ impl BambuPrinterObserver for ViewModel {
         }
         // Unloaded spool case - load tag if exist on that spool to staging (for weighting)
         if let Some(removed_tag) = removed_tags.iter().next() {
-           let mut filament_staging = self.filament_staging.borrow_mut();
-           if [StagingOrigin::Empty, StagingOrigin::Unloaded].contains(filament_staging.origin()) { // only if empty or was unloaded (so not scanned or encoded)
+            let mut filament_staging = self.filament_staging.borrow_mut();
+            if [StagingOrigin::Empty, StagingOrigin::Unloaded].contains(filament_staging.origin()) {
+                // only if empty or was unloaded (so not scanned or encoded)
                 if let Some(ui_spool_info) = self.tag_info_to_ui_spool_info_direct(bambu_printer, removed_tag.1) {
                     filament_staging.set_tag_info(removed_tag.1.clone(), filament_staging::StagingOrigin::Unloaded);
-                    self.ui_weak.unwrap().global::<crate::app::AppState>().invoke_update_spool_staging(ui_spool_info, crate::app::SpoolStagingState::Unloaded);
+                    self.ui_weak
+                        .unwrap()
+                        .global::<crate::app::AppState>()
+                        .invoke_update_spool_staging(ui_spool_info, crate::app::SpoolStagingState::Unloaded);
                 }
             }
         }
@@ -1075,7 +1086,9 @@ impl SpoolTagObserver for ViewModel {
                     let tag_info_clone = if self.store.is_available() { Some(tag_info.clone()) } else { None };
                     if let Some(ui_spool_info) = self.tag_info_to_ui_spool_info(&tag_info) {
                         self.filament_staging.borrow_mut().set_tag_info(tag_info, StagingOrigin::Encoded);
-                        ui.unwrap().global::<crate::app::AppState>().invoke_update_spool_staging(ui_spool_info, crate::app::SpoolStagingState::Encoded);
+                        ui.unwrap()
+                            .global::<crate::app::AppState>()
+                            .invoke_update_spool_staging(ui_spool_info, crate::app::SpoolStagingState::Encoded);
                         ui.unwrap().global::<crate::app::AppState>().invoke_encoding_succeeded(ams_id, tray_id);
                     } else {
                         ui.unwrap()
@@ -1420,18 +1433,21 @@ impl Cookie for StoreWriteTagCookie {}
 impl StoreObserver for ViewModel {
     fn on_tag_stored(&mut self, result: Result<(), String>, cookie: Box<dyn AnyClone>) {
         if let Ok(cookie) = cookie.into_any().downcast::<StoreWriteTagCookie>() {
+            let ui = self.ui_weak.unwrap();
+            let ui_app_state = ui.global::<crate::app::AppState>();
+            // on success we update only if came as request to store weight from scale 
             if cookie.notify_scale {
                 self.spool_scale_model.borrow().button_response(result.is_ok());
-                let ui = self.ui_weak.unwrap();
-                let ui_app_state = ui.global::<crate::app::AppState>();
                 if result.is_ok() {
                     ui_app_state.invoke_show_spoolscale_dialog("Updated Filament Weight".to_shared_string(), crate::app::StatusType::Success);
-                } else {
-                    ui_app_state.invoke_show_spoolscale_dialog(
-                        "Technical Error\n\nFailed to Update Filament Weight".to_shared_string(),
-                        crate::app::StatusType::Error,
-                    );
                 }
+            }
+            // on error we update on any failure to store using same message - for consistency
+            if let Err(err) = result {
+                ui_app_state.invoke_show_spoolscale_dialog(
+                    format!("Failed to Update Filament Weight/Tag\n\n{err}").to_shared_string(),
+                    crate::app::StatusType::Error,
+                );
             }
         }
     }

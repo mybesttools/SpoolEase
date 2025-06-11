@@ -216,7 +216,7 @@ impl BambuPrinter {
                     printer_borrow.virty_tray_dirty |= virt_tray_dirty;
                     for (x, y) in printer_borrow.ams_trays_dirty.iter_mut().zip(&ams_trays_dirty) { *x |= *y };
                     printer_borrow.nozzle_diameter_dirty |= nozzle_diameter_dirty;
-                    error!("[{}] Failed to store printer restart state : {err}", printer_borrow.printer_index);
+                    error!("[{}] Failed to store printer restart state : {err}", printer_borrow.printer_number);
                 }
             }
         }
@@ -2086,7 +2086,7 @@ impl TagInformation {
                 tag_id,
                 filament: Some(filament_info_result),
                 calibrations: calibrations_result,
-                calibrations_printer_name: calibrations_printer_name.to_string(),
+                calibrations_printer_name:  my_decode_from_url_part(calibrations_printer_name),
                 calibrations_printer_uuid: calibrations_printer_uuid.to_string(),
                 weight_advertised,
                 weight_core,

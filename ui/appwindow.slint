@@ -154,15 +154,15 @@ export component AppWindow inherits Window {
         height: root.height;
     }
 
-    if AppState.spool-scale-dialog-message != "": Rectangle {
+    if AppState.spool-inventory-dialog-message != "": Rectangle {
         Timer {
             property <int> counter: 5;
             interval: 1s;
-            running: AppState.spool-scale-dialog-message != "";
+            running: AppState.spool-inventory-dialog-message != "";
             triggered => {
                 counter = counter - 1;
                 if counter == 0 {
-                    AppState.spool-scale-dialog-message = "";
+                    AppState.spool-inventory-dialog-message = "";
                     counter = 5;
                 }
             }
@@ -172,20 +172,21 @@ export component AppWindow inherits Window {
         y: self.x * (480 / 320) * 1.5;
         width: root.width - self.x * 2;
         height: root.height - self.y * 2;
-        background: AppState.spool-scale-dialog-type == StatusType.Success ? green.brighter(1.0) : AppState.spool-scale-dialog-type == StatusType.Error ? red : skyblue;
+        background: AppState.spool-inventory-dialog-type == StatusType.Success ? green.brighter(1.0) : AppState.spool-inventory-dialog-type == StatusType.Error ? red : skyblue;
         VerticalLayout {
             Title {
                 border-top-left-radius: 10px;
                 border-top-right-radius: 10px;
-                text: "SpoolEase Scale Notice!";
+                text: "SpoolEase Inventory Notice!";
                 background: beige;
             }
 
             Rectangle {
                 MyText {
                     horizontal-alignment: center;
-                    text: AppState.spool-scale-dialog-message;
-                    color: AppState.spool-scale-dialog-type == StatusType.Success ? black : AppState.spool-scale-dialog-type == StatusType.Error ? white : black;
+                    text: AppState.spool-inventory-dialog-message;
+                    color: AppState.spool-inventory-dialog-type == StatusType.Success ? black : AppState.spool-inventory-dialog-type == StatusType.Error ? white : black;
+                    wrap: word-wrap;
                 }
             }
         }

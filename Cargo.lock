@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "SpoolEase"
-version = "0.4.0-alpha1"
+version = "0.4.0-alpha2"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -56,6 +56,7 @@ dependencies = [
  "getrandom 0.2.16",
  "hashbrown 0.15.2",
  "heapless 0.8.0",
+ "hex",
  "hmac",
  "log",
  "mipidsi",

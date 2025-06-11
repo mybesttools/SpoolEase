@@ -3,15 +3,21 @@ use num_traits::Float;
 use once_cell::unsync::OnceCell;
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-
 
 use alloc::{
-    borrow::Cow, boxed::Box, format, rc::Rc, string::{String, ToString}, vec::Vec
+    borrow::Cow,
+    boxed::Box,
+    format,
+    rc::Rc,
+    string::{String, ToString},
+    vec::Vec,
 };
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
 use framework::{
-    debug, error, info, mk_static, prelude::Framework, settings::{FILE_STORE_MAX_DIRS, FILE_STORE_MAX_FILES}, term_error, term_info
+    debug, error, info, mk_static,
+    prelude::Framework,
+    settings::{FILE_STORE_MAX_DIRS, FILE_STORE_MAX_FILES},
+    term_error, term_info,
 };
 
 use crate::{
@@ -51,7 +57,7 @@ pub enum StoreOp {
     },
 }
 
-#[derive(Serialize, Deserialize )]
+#[derive(Serialize, Deserialize)]
 struct TagFile<'a> {
     tag: Cow<'a, String>,
 }
@@ -168,7 +174,9 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
     {
         debug!("Strted store_task");
         let file_store = framework.borrow().file_store();
-        match CsvDb::<SpoolRecord, _, FILE_STORE_MAX_DIRS, FILE_STORE_MAX_FILES>::new(file_store.clone(), "/store/spools", 1024, 200, true, true).await {
+        match CsvDb::<SpoolRecord, _, FILE_STORE_MAX_DIRS, FILE_STORE_MAX_FILES>::new(file_store.clone(), "/store/spools", 1024, 200, true, true)
+            .await
+        {
             Ok(db) => {
                 store
                     .spools_db
@@ -186,11 +194,16 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
     let receiver = store.requests_channel.receiver();
     loop {
         match receiver.receive().await {
-            StoreOp::WriteTag { tag_info, tag_file, weight, cookie } => {
+            StoreOp::WriteTag {
+                tag_info,
+                tag_file,
+                weight,
+                cookie,
+            } => {
                 if tag_info.tag_id.is_some() {
                     let filament_info = tag_info.filament.unwrap_or(FilamentInfo::new());
                     let mut spool_rec = SpoolRecord {
-                        tag_id: URL_SAFE_NO_PAD.encode(tag_info.tag_id.as_ref().unwrap()),
+                        tag_id: hex::encode_upper(tag_info.tag_id.as_ref().unwrap()),
                         material_type: filament_info.tray_type,
                         material_subtype: tag_info.filament_subtype.unwrap_or_default(),
                         color_name: tag_info.color_name.unwrap_or_default(),
@@ -217,20 +230,22 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                         match spools_db.insert(spool_rec).await {
                             Ok(true) => {
                                 info!("Stored tag to spools database");
-                                store.notify_tag_stored(Ok(()), cookie);
+                                store.notify_tag_stored(Ok(()), cookie.clone());
                             }
                             Ok(false) => {
                                 info!("Stored tag to spools database, but no change");
-                                store.notify_tag_stored(Ok(()), cookie);
+                                store.notify_tag_stored(Ok(()), cookie.clone());
                             }
                             Err(e) => {
                                 error!("Error storing record to spools database {e}");
                                 store.notify_tag_stored(Err(&format!("Failed to store Tag : {e}")), cookie);
+                                continue;
                             }
                         }
                         info!("{:?}", spools_db.records.borrow());
                     } else {
-                        store.notify_tag_stored(Err("Store for tags not available, SD card installed?"), cookie);
+                        store.notify_tag_stored(Err("Store for tags not available, SD card removed?"), cookie);
+                        continue;
                     }
                     // Write tag file (or not)
                     if !matches!(tag_file, TagFileDirective::SkipWrite) {
@@ -241,7 +256,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                                     error!("Error - TagId encoded to more than 11 characters");
                                 }
                                 let tag_bucket = fnv1a_hash(tag_id) % 16;
-                                let tag_file_path = format!("/store/tags/{:04X}/{}.{}", tag_bucket, &encoded_tag_id[..8], &encoded_tag_id[8..11]); 
+                                let tag_file_path = format!("/store/tags/{:04X}/{}.{}", tag_bucket, &encoded_tag_id[..8], &encoded_tag_id[8..11]);
                                 let file_store = framework.borrow().file_store();
                                 let mut file_store = file_store.lock().await;
                                 let write_only_if_missing = match tag_file {
@@ -250,25 +265,35 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                                     TagFileDirective::WriteIfMissing => true,
                                 };
                                 let tag_file_data = TagFile {
-                                    tag: Cow::Borrowed(&tag_info.origin_descriptor)
+                                    tag: Cow::Borrowed(&tag_info.origin_descriptor),
                                 };
                                 match serde_json::to_string(&tag_file_data) {
-                                    Ok(s) => {
-                                        if let Err(err) = file_store.write_file_str(&tag_file_path, 0, &s, write_only_if_missing).await {
-                                            error!("Error writing tag file to {tag_file_path} : {err}");
-                                        } else {
-                                            info!("Stored tag {tag_id:?} information to file {tag_file_path}");
+                                    Ok(s) => match file_store.write_file_str(&tag_file_path, 0, &s, write_only_if_missing).await {
+                                        Ok(wrote) => {
+                                            if wrote {
+                                                info!("Stored tag {tag_id:?} information to file {tag_file_path}");
+                                            } else {
+                                                info!("Skipped store tag {tag_id:?} information to file {tag_file_path}, file already exists");
+                                            }
                                         }
-                                    }
+                                        Err(err) => {
+                                            error!("Error writing tag file to {tag_file_path} : {err}");
+                                            store.notify_tag_stored(Err("Error writing tag file (1), check logs for more details"), cookie);
+                                            continue;
+                                        }
+                                    },
                                     Err(e) => {
                                         error!("Error serializing tag information to store: {e}");
+                                        store.notify_tag_stored(Err("Error writing tag file (2), check logs for more details"), cookie);
+                                        continue;
                                     }
                                 }
                             } else {
                                 error!("Can't save tag_id longer than 7 bytes");
+                                store.notify_tag_stored(Err("Error writing tag file (3), check logs for more details"), cookie);
+                                continue;
                             }
                         }
-
                     }
                 }
             }
