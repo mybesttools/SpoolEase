@@ -1,4 +1,5 @@
 use core::{any::Any, cell::RefCell};
+use hashbrown::HashMap;
 use num_traits::Float;
 use once_cell::unsync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -113,6 +114,8 @@ pub struct Store {
     // TODO: make spools_db mutext or something that doesn't need borrow
     // Think if need to make the entire store under mutex (if there are several related dbs could case issues)
     pub spools_db: OnceCell<CsvDb<SpoolRecord, TheSpi, 20, 5>>,
+    last_spool_id: RefCell<i32>,
+    tag_id_index: RefCell<HashMap<String, String>>,
 }
 
 impl Store {
@@ -122,6 +125,8 @@ impl Store {
             observers: RefCell::new(Vec::new()),
             requests_channel,
             spools_db: OnceCell::new(),
+            last_spool_id: RefCell::new(0),
+            tag_id_index: RefCell::new(HashMap::new()),
         });
         framework.borrow().spawner.spawn(store_task(framework.clone(), store.clone())).ok();
         store
@@ -191,6 +196,28 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
             }
         }
     }
+
+    // find largest_id in list, would be better if we persisted that
+
+    let mut largest_id = 0;
+    if let Some(spools_db) = store.spools_db.get() {
+        let records = spools_db.records.borrow();
+        for record in records.iter() {
+            if let Ok(id) = record.1.data.id.parse::<i32>() {
+                if !record.1.data.tag_id.is_empty() {
+                    store
+                        .tag_id_index
+                        .borrow_mut()
+                        .insert(record.1.data.tag_id.clone(), record.1.data.id.clone());
+                }
+                if id > largest_id {
+                    largest_id = id;
+                }
+            }
+        }
+    }
+    *store.last_spool_id.borrow_mut() = largest_id;
+
     let receiver = store.requests_channel.receiver();
     loop {
         match receiver.receive().await {
@@ -202,8 +229,35 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
             } => {
                 if tag_info.tag_id.is_some() {
                     let filament_info = tag_info.filament.unwrap_or(FilamentInfo::new());
+                    let tag_id_hex = hex::encode_upper(tag_info.tag_id.as_ref().unwrap());
+                    let mut tag_id_already_exist = false;
+                    let mut existing_record_current_weight = None;
+                    let mut use_spool_id = String::new();
+
+                    if let Some(spools_db) = store.spools_db.get() {
+                        // get access to db
+                        if let Some(spool_id) = store.tag_id_index.borrow().get(&tag_id_hex) {
+                            // search if tag_id exists (in mapping from tag to id)
+                            tag_id_already_exist = true;
+                            if let Some(current_rec) = spools_db.records.borrow().get(spool_id) {
+                                // get the record, should exist if got here, if not fatal error
+                                existing_record_current_weight = current_rec.data.weight_current;
+                                use_spool_id = current_rec.data.id.clone();
+                            } else {
+                                error!("Fatal Error: Internal error in tag_id to spool_id mapping, tag exist but not found");
+                                store.notify_tag_stored(Err("Internal software error managing store"), cookie);
+                                continue;
+                            }
+                        }
+                    }
+                    if !tag_id_already_exist {
+                        // don't change yet the last_spool_id in case store fail
+                        use_spool_id = (*store.last_spool_id.borrow() + 1).to_string();
+                    }
+
                     let mut spool_rec = SpoolRecord {
-                        tag_id: hex::encode_upper(tag_info.tag_id.as_ref().unwrap()),
+                        id: use_spool_id.clone(),
+                        tag_id: tag_id_hex.clone(),
                         material_type: filament_info.tray_type,
                         material_subtype: tag_info.filament_subtype.unwrap_or_default(),
                         color_name: tag_info.color_name.unwrap_or_default(),
@@ -219,8 +273,8 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                         spool_rec.weight_current = match weight {
                             WeightStoreDirective::ProvidedCurrentWeight(weight_current) => Some(weight_current),
                             WeightStoreDirective::UseStoreCurrentWeight => {
-                                if let Some(current_rec) = spools_db.records.borrow().get(&spool_rec.tag_id) {
-                                    current_rec.data.weight_current
+                                if tag_id_already_exist {
+                                    existing_record_current_weight
                                 } else {
                                     None
                                 }
@@ -246,6 +300,11 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                     } else {
                         store.notify_tag_stored(Err("Store for tags not available, SD card removed?"), cookie);
                         continue;
+                    }
+                    // Store of record succeeded, so need to update index and last_spool_id
+                    if !tag_id_already_exist {
+                        *store.last_spool_id.borrow_mut() = use_spool_id.parse().unwrap();
+                        store.tag_id_index.borrow_mut().insert(tag_id_hex, use_spool_id);
                     }
                     // Write tag file (or not)
                     if !matches!(tag_file, TagFileDirective::SkipWrite) {
@@ -303,6 +362,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct SpoolRecord {
+    pub id: String,
     pub tag_id: String,                 // 14 (7*2)
     pub material_type: String,          // 10
     pub material_subtype: String,       // 10
@@ -318,7 +378,7 @@ struct SpoolRecord {
 
 impl CsvDbId for SpoolRecord {
     fn id(&self) -> &String {
-        &self.tag_id
+        &self.id
     }
 }
 
