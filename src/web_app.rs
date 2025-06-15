@@ -29,25 +29,36 @@ use crate::app_config::{AppConfig, DefaultPrinterConfig, PrinterConfig, Printers
 use crate::store::Store;
 use crate::view_model::ViewModel;
 
-pub struct NestedAppBuilder {
-    pub framework: Rc<RefCell<Framework>>,
-    pub app_config: Rc<RefCell<AppConfig>>,
+#[derive(Clone)]
+pub struct ConsoleAppState {
+    pub app_config:Rc<RefCell<AppConfig>>,
     pub view_model: Rc<RefCell<ViewModel>>,
     pub store: Rc<Store>,
 }
 
-impl NestedAppWithWebAppStateBuilder for NestedAppBuilder {
+impl picoserve::extract::FromRef<WebAppState<ConsoleAppState>> for ConsoleAppState {
+    fn from_ref(state: &WebAppState<ConsoleAppState>) -> Self {
+        state.more_state.clone()
+    }
+}
+
+pub struct NestedAppBuilder {
+    pub framework: Rc<RefCell<Framework>>,
+    pub app_config: Rc<RefCell<AppConfig>>,
+}
+
+impl NestedAppWithWebAppStateBuilder<ConsoleAppState> for NestedAppBuilder {
     fn path_description(&self) -> &'static str {
         "" // this nests it at the root.
     }
 }
 
 impl AppWithStateBuilder for NestedAppBuilder {
-    type State = WebAppState;
-    type PathRouter = impl picoserve::routing::PathRouter<WebAppState>;
+    type State = WebAppState<ConsoleAppState>;
+    type PathRouter = impl picoserve::routing::PathRouter<WebAppState<ConsoleAppState>>;
 
     fn build_app(self) -> picoserve::Router<Self::PathRouter, Self::State> {
-        let app_config = self.app_config.clone();
+        let _app_config = self.app_config.clone();
         let _framework = self.framework.clone();
 
         let router = picoserve::Router::from_service(CustomNotFound {
@@ -57,12 +68,12 @@ impl AppWithStateBuilder for NestedAppBuilder {
 
         // Redirect root to the current active application - either config, or encode or whatever
         // For that, in order to preserve the hash (for sk=...), using a html/js redirect technique
-        let app_config_clone_get = app_config.clone();
         let router = router.route(
             "/",
-            get(move || {
+            get(move | state: State<ConsoleAppState>| {
+                
                 ready({
-                    let redirect_url = &app_config_clone_get.borrow().root_redirect;
+                    let redirect_url = &state.0.app_config.borrow().root_redirect;
                     let redirect_html =
                         format!(r#"<!doctype html><script>location.href=location.hash?"{redirect_url}"+location.hash:"{redirect_url}"</script>"#);
                     HtmlStringResponse::new(redirect_html)
@@ -97,14 +108,12 @@ impl AppWithStateBuilder for NestedAppBuilder {
             )),
         );
 
-        let app_config_clone_post = app_config.clone();
-        let app_config_clone_get = app_config.clone();
         let router = router.route(
             "/api/printer-config",
-            post(move |State(Encryption(key)): State<Encryption>, printers_config_dto: PrintersConfigDTO| {
+            post(move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>, printers_config_dto: PrintersConfigDTO| {
                 let default_printer_serial = printers_config_dto.default_printer_serial.clone();
                 ready(
-                    match app_config_clone_post.borrow_mut().set_printers_config(
+                    match state.0.app_config.borrow_mut().set_printers_config(
                         printers_config_dto.into(),
                         DefaultPrinterConfig {
                             serial: default_printer_serial,
@@ -118,9 +127,9 @@ impl AppWithStateBuilder for NestedAppBuilder {
                     },
                 )
             })
-            .get(move |State(Encryption(key)): State<Encryption>| {
+            .get(move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState> | {
                 ready({
-                    let borrowed_app_config = app_config_clone_get.borrow(); // notice the borrow, can't async here
+                    let borrowed_app_config = state.0.app_config.borrow(); // notice the borrow, can't async here
                     let printers = &borrowed_app_config.configured_printers;
                     let default_printer = &borrowed_app_config.configured_default_printer;
                     let mut printers_config = PrintersConfigDTO::from(printers);
@@ -130,12 +139,10 @@ impl AppWithStateBuilder for NestedAppBuilder {
             }),
         );
 
-        let app_config_clone_post = app_config.clone();
-        let app_config_clone_get = app_config.clone();
         let router = router.route(
             "/api/scale-config",
-            post(move |State(Encryption(key)): State<Encryption>, scale_config_dto: ScaleConfigDTO| {
-                ready(match app_config_clone_post.borrow_mut().set_scale_config(scale_config_dto.into()) {
+            post(move |State(Encryption(key)): State<Encryption>,  state: State<ConsoleAppState>, scale_config_dto: ScaleConfigDTO| {
+                ready(match state.0.app_config.borrow_mut().set_scale_config(scale_config_dto.into()) {
                     Ok(_) => SetConfigResponseDTO { error_text: None }.encrypt(&key.borrow()),
                     Err(e) => SetConfigResponseDTO {
                         error_text: Some(format!("{e:?}")),
@@ -143,9 +150,9 @@ impl AppWithStateBuilder for NestedAppBuilder {
                     .encrypt(&key.borrow()),
                 })
             })
-            .get(move |State(Encryption(key)): State<Encryption>| {
+            .get(move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState> | {
                 ready({
-                    let borrowed_app_config = app_config_clone_get.borrow(); // notice the borrow, can't async here
+                    let borrowed_app_config = state.0.app_config.borrow(); // notice the borrow, can't async here
                     let default_scale_config = ScaleConfig::default();
                     let scale = borrowed_app_config.configured_scale.as_ref().unwrap_or(&default_scale_config);
                     let scale_config = ScaleConfigDTO::from(scale);
@@ -162,11 +169,9 @@ impl AppWithStateBuilder for NestedAppBuilder {
             )),
         );
 
-        let app_config_clone_post = app_config.clone();
-        let app_config_clone_get = app_config.clone();
         let router = router.route(
             "/api/spools-config",
-            post(move |State(Encryption(key)): State<Encryption>, SpoolsConfigDTO { spools }| {
+            post(move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>, SpoolsConfigDTO { spools }| {
                 let spools = if let Some(spools) = spools {
                     if !spools.trim().is_empty() {
                         Some(spools.trim().replace("\r\n", "\n").replace("\n", "\r\n"))
@@ -176,7 +181,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
                 } else {
                     None
                 };
-                ready(match app_config_clone_post.borrow_mut().set_user_cores(spools) {
+                ready(match state.0.app_config.borrow_mut().set_user_cores(spools) {
                     Ok(_) => SetConfigResponseDTO { error_text: None }.encrypt(&key.borrow()),
                     Err(e) => SetConfigResponseDTO {
                         error_text: Some(format!("{e:?}")),
@@ -184,9 +189,9 @@ impl AppWithStateBuilder for NestedAppBuilder {
                     .encrypt(&key.borrow()),
                 })
             })
-            .get(move |State(Encryption(key)): State<Encryption>| {
+            .get(move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState> | {
                 ready({
-                    let borrowed_app_config = app_config_clone_get.borrow(); // notice the borrow, can't async here
+                    let borrowed_app_config = state.0.app_config.borrow(); // notice the borrow, can't async here
                     let spools = &borrowed_app_config.user_cores;
                     let spools_config = SpoolsConfigDTO { spools: spools.clone() };
                     spools_config.encrypt(&key.borrow())
@@ -194,12 +199,10 @@ impl AppWithStateBuilder for NestedAppBuilder {
             }),
         );
 
-        let app_config_clone_post = app_config.clone();
-        let app_config_clone_get = app_config.clone();
         let router = router.route(
             "/api/filaments-config",
             post(
-                move |State(Encryption(key)): State<Encryption>, FilamentsConfigDTO { custom_filaments }| {
+                move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>, FilamentsConfigDTO { custom_filaments }| {
                     let custom_filaments = if let Some(custom_filaments) = custom_filaments {
                         if !custom_filaments.trim().is_empty() {
                             Some(custom_filaments.trim().replace("\r\n", "\n").replace("\n", "\r\n"))
@@ -209,7 +212,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
                     } else {
                         None
                     };
-                    ready(match app_config_clone_post.borrow_mut().set_filaments(custom_filaments) {
+                    ready(match state.0.app_config.borrow_mut().set_filaments(custom_filaments) {
                         Ok(_) => SetConfigResponseDTO { error_text: None }.encrypt(&key.borrow()),
                         Err(e) => SetConfigResponseDTO {
                             error_text: Some(format!("{e:?}")),
@@ -218,9 +221,9 @@ impl AppWithStateBuilder for NestedAppBuilder {
                     })
                 },
             )
-            .get(move |State(Encryption(key)): State<Encryption>| {
+            .get(move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState> | {
                 ready({
-                    let borrowed_app_config = app_config_clone_get.borrow(); // notice the borrow, can't async here
+                    let borrowed_app_config = state.0.app_config.borrow(); // notice the borrow, can't async here
                     let custom_filaments = &borrowed_app_config.custom_filaments;
                     let filaments_config = FilamentsConfigDTO {
                         custom_filaments: custom_filaments.clone(),
@@ -230,37 +233,34 @@ impl AppWithStateBuilder for NestedAppBuilder {
             }),
         );
 
-        let view_model_borrow_post = self.view_model.clone();
-        let view_model_borrow_get = self.view_model.clone();
         let router = router.route(
             "/api/encode-info",
-            post(move |State(Encryption(key)): State<Encryption>, encode_info: EncodeInfoDTO| {
+            post(move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState> , encode_info: EncodeInfoDTO| {
                 ready({
-                    view_model_borrow_post.borrow().web_app_set_encode_info(&encode_info);
+                    state.0.view_model.borrow().web_app_set_encode_info(&encode_info);
                     SetConfigResponseDTO { error_text: None }.encrypt(&key.borrow())
                 })
             })
-            .get(move |State(Encryption(key)): State<Encryption>| {
+            .get(move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>  | {
                 ready({
-                    let encode_info = view_model_borrow_get.borrow().web_app_get_encode_info();
+                    let encode_info = state.0.view_model.borrow().web_app_get_encode_info();
                     encode_info.encrypt(&key.borrow())
                 })
             }),
         );
 
-        let store_get = self.store.clone();
         let router = router.route(
             "/api/spools",
-            get(move |State(Encryption(key)): State<Encryption>| {
-                ready({
-                    match store_get.query_spools() {
+            get(async move |State(Encryption(key)): State<Encryption>, state : State<ConsoleAppState>| {
+                {
+                    match state.0.store.query_spools() {
                         Some(csv) => encrypt(&key.borrow(), &csv),
                         None => {
                             error!("Failed to generate response to spoole query");
                             "".to_string()
                         }
                     }
-                })
+                }
             }),
         );
 

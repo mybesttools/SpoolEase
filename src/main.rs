@@ -24,7 +24,7 @@ mod view_model;
 mod web_app;
 
 use alloc::{format, rc::Rc, string::ToString};
-use core::{cell::RefCell, net::Ipv4Addr};
+use core::{cell::RefCell, marker::PhantomData, net::Ipv4Addr};
 use embassy_futures::yield_now;
 use esp_alloc::{self as _, HeapStats};
 use esp_backtrace as _;
@@ -70,7 +70,7 @@ use settings::{
     OTA_DOMAIN, OTA_PATH, OTA_TOML_FILENAME, WEB_APP_DOMAIN, WEB_APP_KEY_DERIVATION_ITERATIONS, WEB_APP_SALT, WEB_APP_SECURITY_KEY_LENGTH,
     WEB_SERVER_CAPTIVE, WEB_SERVER_HTTPS, WEB_SERVER_PORT, WEB_SERVER_TLS_CERTIFICATE, WEB_SERVER_TLS_PRIVATE_KEY,
 };
-use web_app::NestedAppBuilder;
+use web_app::{ConsoleAppState, NestedAppBuilder};
 const STA_STACK_RESOURCES: usize = WEB_SERVER_NUM_LISTENERS + 1 + MAX_NUM_PRINTERS + FRAMEWORK_STA_STACK_RESOURCES; // web-config listeners + USDP + mqtt*num-of-printers + from framework: potentially https captive +  ota + captive dns + ? initial firmware check if doen't complete
 const AP_STACK_RESOURCES: usize = WEB_SERVER_NUM_LISTENERS + FRAMEWORK_AP_STACK_RESOURCES;
 
@@ -400,26 +400,31 @@ async fn main(spawner: Spawner) {
 
     // == Setup Web Application and Run Web Server ====================================
 
-    let web_app_builder = framework::framework_web_app::WebAppBuilder::<NestedAppBuilder> {
+    let web_app_builder = framework::framework_web_app::WebAppBuilder::<ConsoleAppState, NestedAppBuilder> {
         framework: framework.clone(),
         captive_html_gz: include_bytes_gz!("static/captive.html"),
         web_app_html_gz: include_bytes_gz!("static/config.html"),
         app_builder: NestedAppBuilder {
             framework: framework.clone(),
             app_config: app_config.clone(),
-            view_model: view_model.clone(),
-            store: view_model.borrow().store.clone(),
         },
+        _phantom: PhantomData,
     };
 
     let web_app_router = mk_static!(
-        picoserve::AppRouter<framework::framework_web_app::WebAppBuilder<NestedAppBuilder>>,
+        picoserve::AppRouter<framework::framework_web_app::WebAppBuilder<ConsoleAppState, NestedAppBuilder>>,
         picoserve::AppWithStateBuilder::build_app(web_app_builder)
     );
 
+    let console_app_state = ConsoleAppState {
+        app_config: app_config.clone(),
+        view_model: view_model.clone(),
+        store: view_model.borrow().store.clone(),
+    };
+
     let web_app_state = mk_static!(
-        framework::framework_web_app::WebAppState,
-        framework::framework_web_app::WebAppState::new(framework.borrow().encryption_key)
+        framework::framework_web_app::WebAppState<ConsoleAppState>,
+        framework::framework_web_app::WebAppState::<ConsoleAppState>::new(framework.borrow().encryption_key, framework.clone(), console_app_state)
     );
 
     let config = picoserve::Config::new(picoserve::Timeouts {
@@ -430,7 +435,7 @@ async fn main(spawner: Spawner) {
     .keep_connection_alive();
 
     let web_server_runner = mk_static!(
-        framework::web_server::WebAppRunner<NestedAppBuilder>,
+        framework::web_server::WebAppRunner<ConsoleAppState, NestedAppBuilder>,
         framework::web_server::WebAppRunner::new(framework.clone(), web_app_router, web_app_state, config)
     );
 
@@ -470,7 +475,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task(pool_size = WEB_SERVER_NUM_LISTENERS)]
-async fn web_server_task(runner: &'static framework::web_server::WebAppRunner<NestedAppBuilder>, id: usize) {
+async fn web_server_task(runner: &'static framework::web_server::WebAppRunner<ConsoleAppState, NestedAppBuilder>, id: usize) {
     runner.run(id).await;
 }
 
@@ -479,11 +484,11 @@ pub async fn display_runner(mut runner: WT32SC01PlusRunner<esp_hal::dma::DmaChan
     runner.run().await;
 }
 
- #[embassy_executor::task]
- pub async fn heap_stats_task() {
-     loop {
-         let stats: HeapStats = esp_alloc::HEAP.stats();
-         debug!("{}", stats);
-         Timer::after_secs(30).await;
-     }
- }
+#[embassy_executor::task]
+pub async fn heap_stats_task() {
+    loop {
+        let stats: HeapStats = esp_alloc::HEAP.stats();
+        debug!("{}", stats);
+        Timer::after_secs(30).await;
+    }
+}
