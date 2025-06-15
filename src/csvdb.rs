@@ -240,7 +240,7 @@ where
     }
 
     #[allow(dead_code)]
-    pub async fn delete(self, id: &str) -> Result<Option<T>, CsvDbError> {
+    pub async fn delete(&self, id: &str) -> Result<Option<T>, CsvDbError> {
         let (offset, length) = if let Some(v) = self.records.borrow().get(id) {
             (v.offset, v.length)
         } else {

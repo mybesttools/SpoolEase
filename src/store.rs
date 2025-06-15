@@ -26,10 +26,19 @@ use crate::{
     csvdb::{CsvDb, CsvDbError, CsvDbId},
 };
 
+
+#[derive(Snafu, Debug)]
+pub enum InternalError {
+   TagIdTooLong 
+}
+
 #[derive(Snafu, Debug)]
 pub enum StoreError {
     #[snafu(display("Too many store operations pending"))]
     TooManyOps,
+
+    #[snafu(display("Error deleting spool: {source}"))]
+    DeleteSpoolError { source: CsvDbError },
 }
 
 #[allow(clippy::enum_variant_names, dead_code)]
@@ -109,6 +118,7 @@ type TheSpi = embedded_hal_bus::spi::ExclusiveDevice<
 
 #[allow(private_interfaces)]
 pub struct Store {
+    framework: Rc<RefCell<Framework>>,
     observers: RefCell<Vec<alloc::rc::Weak<RefCell<dyn StoreObserver>>>>,
     pub requests_channel: &'static StoreRequestsChannel,
     // TODO: make spools_db mutext or something that doesn't need borrow
@@ -122,6 +132,7 @@ impl Store {
     pub fn new(framework: Rc<RefCell<Framework>>) -> Rc<Store> {
         let requests_channel = mk_static!(StoreRequestsChannel, StoreRequestsChannel::new());
         let store = Rc::new(Self {
+            framework: framework.clone(),
             observers: RefCell::new(Vec::new()),
             requests_channel,
             spools_db: OnceCell::new(),
@@ -171,6 +182,29 @@ impl Store {
         } else {
             None
         }
+    }
+
+    pub async fn delete_spool(&self, id: &str) -> Result<(), StoreError> {
+        let deleted_record = if let Some(spools_db) = &self.spools_db.get() {
+            let delete_res = spools_db.delete(id).await;
+            if let Ok(Some(record)) = &delete_res {
+                self.tag_id_index.borrow_mut().remove(&record.tag_id);
+            }
+            delete_res.context(DeleteSpoolSnafu)?
+        } else {
+            None
+        };
+
+        if let Some(deleted_record) = deleted_record {
+            if let Ok(tag_id) = hex::decode(deleted_record.tag_id) {
+                if let Ok(tag_file_path) = tag_file_path(&tag_id) {
+                    let file_store = self.framework.borrow().file_store();
+                    let mut file_store = file_store.lock().await;
+                    let _ = file_store.delete_file(&tag_file_path).await;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -310,43 +344,41 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                     if !matches!(tag_file, TagFileDirective::SkipWrite) {
                         if let Some(tag_id) = &tag_info.tag_id.as_ref() {
                             if tag_id.len() <= 7 {
-                                let encoded_tag_id = encode_to_charset(tag_id, FAT_CHARSET);
-                                if encoded_tag_id.len() > 11 {
-                                    error!("Error - TagId encoded to more than 11 characters");
-                                }
-                                let tag_bucket = fnv1a_hash(tag_id) % 16;
-                                let tag_file_path = format!("/store/tags/{:04X}/{}.{}", tag_bucket, &encoded_tag_id[..8], &encoded_tag_id[8..11]);
-                                let file_store = framework.borrow().file_store();
-                                let mut file_store = file_store.lock().await;
-                                let write_only_if_missing = match tag_file {
-                                    TagFileDirective::SkipWrite => panic!("Critical Software Bug"),
-                                    TagFileDirective::AlwaysWrite => false,
-                                    TagFileDirective::WriteIfMissing => true,
-                                };
-                                let tag_file_data = TagFile {
-                                    tag: Cow::Borrowed(&tag_info.origin_descriptor),
-                                };
-                                match serde_json::to_string(&tag_file_data) {
-                                    Ok(s) => match file_store.write_file_str(&tag_file_path, 0, &s, write_only_if_missing).await {
-                                        Ok(wrote) => {
-                                            if wrote {
-                                                info!("Stored tag {tag_id:?} information to file {tag_file_path}");
-                                            } else {
-                                                info!("Skipped store tag {tag_id:?} information to file {tag_file_path}, file already exists");
+                                if let Ok(tag_file_path) = tag_file_path(tag_id) {
+                                    let file_store = framework.borrow().file_store();
+                                    let mut file_store = file_store.lock().await;
+                                    let write_only_if_missing = match tag_file {
+                                        TagFileDirective::SkipWrite => panic!("Critical Software Bug"),
+                                        TagFileDirective::AlwaysWrite => false,
+                                        TagFileDirective::WriteIfMissing => true,
+                                    };
+                                    let tag_file_data = TagFile {
+                                        tag: Cow::Borrowed(&tag_info.origin_descriptor),
+                                    };
+                                    match serde_json::to_string(&tag_file_data) {
+                                        Ok(s) => match file_store.write_file_str(&tag_file_path, 0, &s, write_only_if_missing).await {
+                                            Ok(wrote) => {
+                                                if wrote {
+                                                    info!("Stored tag {tag_id:?} information to file {tag_file_path}");
+                                                } else {
+                                                    info!("Skipped store tag {tag_id:?} information to file {tag_file_path}, file already exists");
+                                                }
                                             }
-                                        }
-                                        Err(err) => {
-                                            error!("Error writing tag file to {tag_file_path} : {err}");
-                                            store.notify_tag_stored(Err("Error writing tag file (1), check logs for more details"), cookie);
+                                            Err(err) => {
+                                                error!("Error writing tag file to {tag_file_path} : {err}");
+                                                store.notify_tag_stored(Err("Error writing tag file (1), check logs for more details"), cookie);
+                                                continue;
+                                            }
+                                        },
+                                        Err(e) => {
+                                            error!("Error serializing tag information to store: {e}");
+                                            store.notify_tag_stored(Err("Error writing tag file (2), check logs for more details"), cookie);
                                             continue;
                                         }
-                                    },
-                                    Err(e) => {
-                                        error!("Error serializing tag information to store: {e}");
-                                        store.notify_tag_stored(Err("Error writing tag file (2), check logs for more details"), cookie);
-                                        continue;
                                     }
-                                }
+                                } else {
+                                    continue;
+                                } 
                             } else {
                                 error!("Can't save tag_id longer than 7 bytes");
                                 store.notify_tag_stored(Err("Error writing tag file (3), check logs for more details"), cookie);
@@ -447,6 +479,20 @@ fn decode_from_charset(s: &str, charset: &[u8]) -> Option<Vec<u8>> {
     }
 
     Some(result)
+}
+
+fn tag_file_path(tag_id: &[u8]) -> Result<String, InternalError> {
+    let encoded_tag_id = encode_to_charset(tag_id, FAT_CHARSET);
+    if encoded_tag_id.len() > 11 {
+        return TagIdTooLongSnafu.fail();
+    }
+    let tag_bucket = fnv1a_hash(tag_id) % 16;
+    Ok(format!(
+        "/store/tags/{:04X}/{}.{}",
+        tag_bucket,
+        &encoded_tag_id[..8],
+        &encoded_tag_id[8..11]
+    ))
 }
 
 pub fn fnv1a_hash(data: &[u8]) -> u64 {

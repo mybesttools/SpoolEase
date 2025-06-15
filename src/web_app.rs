@@ -251,17 +251,43 @@ impl AppWithStateBuilder for NestedAppBuilder {
 
         let router = router.route(
             "/api/spools",
-            get(async move |State(Encryption(key)): State<Encryption>, state : State<ConsoleAppState>| {
-                {
-                    match state.0.store.query_spools() {
-                        Some(csv) => encrypt(&key.borrow(), &csv),
-                        None => {
-                            error!("Failed to generate response to spoole query");
-                            "".to_string()
+             get(async move |State(Encryption(key)): State<Encryption>, state : State<ConsoleAppState>| {
+                 {
+                     match state.0.store.query_spools() {
+                         Some(csv) => encrypt(&key.borrow(), &csv),
+                         None => {
+                             error!("Failed to generate response to spoole query");
+                             "".to_string()
+                            }
                         }
                     }
-                }
-            }),
+                },
+            ),
+        );
+
+        let router = router.route(
+            "/api/spools/delete",
+            post(
+                async move |State(Encryption(key)): State<Encryption>, State(state): State<ConsoleAppState>, delete_spool: DeleteSpoolDTO| {
+                    let store = state.store;
+                    match store.delete_spool(&delete_spool.id).await {
+                        Ok(_) => { 
+                            match store.query_spools() {
+                            Some(csv) => {
+                                encrypt(&key.borrow(), &csv)
+                            }
+                            None => {
+                                error!("Failed to generate response to spoole query");
+                                "".to_string()
+                            }
+                        }}
+                        Err(err) => {
+                            error!("Failed to delete spool {} : {err}", delete_spool.id);
+                            err.to_string()
+                        }
+                    }
+                },
+            ),
         );
 
         let router = router.route(
@@ -408,6 +434,12 @@ pub struct EncodeInfoDTO {
     pub note: String,
 }
 encrypted_input!(EncodeInfoDTO);
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct DeleteSpoolDTO {
+    pub id: String,
+}
+encrypted_input!(DeleteSpoolDTO);
 
 struct HtmlStringResponse {
     html: String,
