@@ -292,12 +292,12 @@ impl AppWithStateBuilder for NestedAppBuilder {
         );
 
         let router = router.route(
-            "/api/spools/add",
+            "/api/spools/add-edit",
             post(
                 async move |State(Encryption(key)): State<Encryption>, State(state): State<ConsoleAppState>, add_spool: AddSpoolDTO| {
                     let store = state.store;
                     let new_spool = crate::store::SpoolRecord {
-                        id: String::new(),
+                        id: add_spool.id,
                         tag_id: String::new(),
                         material_type: add_spool.material,
                         material_subtype: add_spool.subtype,
@@ -310,23 +310,36 @@ impl AppWithStateBuilder for NestedAppBuilder {
                         weight_new: None,
                         weight_current: None,
                     };
-                    match store.add_untagged_spool(new_spool).await {
-                        Ok(new_id) => match store.query_spools() {
-                            Some(csv) => {
-                                AddSpoolDTOResponse {
-                                    id: new_id,
-                                    csv,
-                                }.encrypt(&key.borrow())
+                    if new_spool.id.is_empty() {
+                        match store.add_untagged_spool(new_spool).await {
+                            Ok(new_id) => match store.query_spools() {
+                                Some(csv) => AddSpoolDTOResponse { id: new_id, csv }.encrypt(&key.borrow()),
+                                None => {
+                                    error!("Failed to generate response to spoole query");
+                                    "".to_string()
+                                }
+                            },
+                            Err(err) => {
+                                error!("Failed to add spool : {err}");
+                                err.to_string()
                             }
-                            None => {
-                                error!("Failed to generate response to spoole query");
-                                "".to_string()
-                            }
-                        },
-                        Err(err) => {
-                            error!("Failed to delete spool : {err}");
-                            err.to_string()
                         }
+                    } else {
+                        let id = new_spool.id.clone();
+                        match store.edit_spool_from_web(new_spool).await {
+                            Ok(_) => match store.query_spools() {
+                                Some(csv) => AddSpoolDTOResponse { id, csv }.encrypt(&key.borrow()),
+                                None => {
+                                    error!("Failed to generate response to spoole query");
+                                    "".to_string()
+                                }
+                            },
+                            Err(err) => {
+                                error!("Failed to edit spool : {err}");
+                                err.to_string()
+                            }
+                        }
+
                     }
                 },
             ),
@@ -485,6 +498,7 @@ encrypted_input!(DeleteSpoolDTO);
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct AddSpoolDTO {
+    pub id: String,
     pub rgba: String,
     pub color_name: String,
     pub material: String,

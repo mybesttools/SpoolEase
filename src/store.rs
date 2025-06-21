@@ -41,6 +41,9 @@ pub enum StoreError {
 
     #[snafu(display("Internal store software logic error"))]
     InternalError,
+
+    #[snafu(display("Record not found"))]
+    NotFound { id: String },
 }
 
 #[allow(clippy::enum_variant_names, dead_code)]
@@ -230,6 +233,41 @@ impl Store {
             Err(StoreError::InternalError)
         }
     }
+
+    pub async fn edit_spool_from_web(&self, spool_record: SpoolRecord) -> Result<(), StoreError> {
+        if let Some(spools_db) = &self.spools_db.get() {
+            let updated_record = {
+                let spools_db_borrow = spools_db.records.borrow(); // Important: Note this borrow, dropped when context ends, but if changing need to make sure it is dropped
+                if let Some(current_record) = spools_db_borrow.get(&spool_record.id) {
+                    // Taking this approach with extra clones, so if future fields are added, this won't be missed
+                    let current_record = &current_record.data;
+                    SpoolRecord {
+                        id: spool_record.id,
+                        tag_id: current_record.tag_id.clone(),
+                        material_type: spool_record.material_type,
+                        material_subtype: spool_record.material_subtype,
+                        color_name: spool_record.color_name,
+                        color_code: spool_record.color_code,
+                        note: spool_record.note,
+                        brand: spool_record.brand,
+                        weight_advertised: spool_record.weight_advertised,
+                        weight_core: current_record.weight_core, // TODO: change when added to inventory edit
+                        weight_new: current_record.weight_new,
+                        weight_current: current_record.weight_current,
+                    }
+                } else {
+                    return Err(StoreError::NotFound { id: spool_record.id.clone() });
+                }
+            };
+
+            match spools_db.insert(updated_record).await.context(CsvDbSnafu)? {
+                true => Ok(()),
+                false => Err(StoreError::InternalError),
+            }
+        } else {
+            Err(StoreError::InternalError)
+        }
+    }
 }
 
 #[embassy_executor::task] // up to two printers in parallel
@@ -416,7 +454,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct SpoolRecord {
     pub id: String,
     pub tag_id: String,                 // 14 (7*2)
