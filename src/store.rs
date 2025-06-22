@@ -4,6 +4,7 @@ use num_traits::Float;
 use once_cell::unsync::OnceCell;
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
+use crate::csvdb::deserialize_optional;
 
 use alloc::{
     borrow::Cow,
@@ -464,9 +465,13 @@ pub struct SpoolRecord {
     pub color_code: String,             // 8
     pub note: String,                   // 40
     pub brand: String,                  // 30
+    #[serde(deserialize_with = "deserialize_optional")]
     pub weight_advertised: Option<i32>, // 4
+    #[serde(deserialize_with = "deserialize_optional")]
     pub weight_core: Option<i32>,       // 4
+    #[serde(deserialize_with = "deserialize_optional")]
     pub weight_new: Option<i32>,        // 4
+    #[serde(deserialize_with = "deserialize_optional")]
     pub weight_current: Option<i32>,    // 4
 }
 
