@@ -24,7 +24,8 @@ impl FilamentStaging {
     }
 
     pub fn clear(&mut self) {
-        self.tag_info = None
+        self.tag_info = None;
+        self.origin = StagingOrigin::Empty;
     }
     pub fn tag_info(&self) -> &Option<TagInformation> {
         &self.tag_info
