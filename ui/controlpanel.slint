@@ -34,7 +34,7 @@ export component ControlPanelBase inherits HorizontalLayout {
 
     utils := Utils { }
 
-    private property <int> button1-timer-count: button1-timeout;
+    in-out property <int> button1-timer-count: button1-timeout;
     button1-timer := Timer {
         interval: 1s;
         running: button1-timeout > 0;
@@ -48,7 +48,7 @@ export component ControlPanelBase inherits HorizontalLayout {
         }
     }
 
-    private property <int> button2-timer-count: button2-timeout;
+    in-out property <int> button2-timer-count: button2-timeout;
     button2-timer := Timer {
         interval: 1s;
         running: button2-timeout > 0;
@@ -192,6 +192,12 @@ export component Ready inherits ControlPanelBase {
         AppState.control-state = ControlState.EncodeSelectSource;
         AppBackend.encode-web-app();
     }
+    property <bool> reset-staging-countdown: AppState.reset-staging-countdown;
+    changed reset-staging-countdown => {
+        if reset-staging-countdown {
+            self.button1-timer-count = 60;
+        }
+    }
 }
 
 export component EncodeSelectSource inherits ControlPanelBase {
@@ -275,7 +281,9 @@ export component ControlPanel inherits HorizontalLayout {
     in property <length> button-width;
     padding-top: 5px;
     staging := SpoolStaging {
-        clicked-ota => { root.clicked-ota(); }
+        clicked-ota => {
+            root.clicked-ota();
+        }
         width: staging-section-width;
     }
 

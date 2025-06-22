@@ -142,6 +142,7 @@ export global AppState {
     in-out property <SpoolStagingState> spool-staging-state: SpoolStagingState.Empty;
     in-out property <UiSpoolInfo> spool-staging-info;
     in-out property <int> staging-to-tray: -1; // tray that needs to be updated with filament when recognizing on backend tray is reading
+    in-out property <bool> reset-staging-countdown: false;
 
     in-out property <string> user-message: "Booting ...";
     in-out property <StatusType> user-message-type: StatusType.Normal;
@@ -253,6 +254,10 @@ export global AppState {
     public function empty-spool-staging() {
         self.spool-staging-state = SpoolStagingState.Empty;
         self.spool-staging-info.weight-core = 0;
+    }
+
+    public function spool-loaded-when-staging-loaded() {
+        self.reset-staging-countdown = true;
     }
 
     public function encode-tag-found() {

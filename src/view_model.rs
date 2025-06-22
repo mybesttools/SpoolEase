@@ -1004,26 +1004,49 @@ impl BambuPrinterObserver for ViewModel {
             self.update_ui_from_printer(bambu_printer);
         }
 
-        // ----- Handle loading when there is something in staging -----
-        // If the staging is loaded and only a SINGLE slot SWITCHED to reading update it to the stating filament info
-        // trace!("------------------------------------------------------");
-        // trace!(">>>>> prev : {prev_trays_bits:?}\n >>>>> next: {new_trays_bits:?}");
-        // trace!("------------------------------------------------------");
-        if let Some(new_trays_monitored_bits) = new_trays_bits.tray_read_done_bits {
-            let prev_trays_monitored_bits = prev_trays_bits.tray_read_done_bits.unwrap_or(0);
-            let mut trays_monitored_changed = Vec::new();
-            for tray_id in 0..bambu_printer.ams_trays().len() {
-                let prev_tray_monitored_bit = ((prev_trays_monitored_bits >> tray_id) & 0x01) != 0;
-                let new_tray_monitored_bit = ((new_trays_monitored_bits >> tray_id) & 0x01) != 0;
-                if !prev_tray_monitored_bit && new_tray_monitored_bit {
-                    trays_monitored_changed.push(tray_id);
+        // If staging is loaded from scanned/encoded then check spool load cases
+        if ![StagingOrigin::Unloaded, StagingOrigin::Empty].contains(self.filament_staging.borrow().origin()) {
+            // first - if there is a spool (from scan/encode) in staging, and a spool is loaded then
+            // at the moment of loading notify ui so it can reset the staging timer in case it is too low
+            // and won't reach read_done before timer is out
+            if let Some(new_trays_monitored_bits) = new_trays_bits.tray_exist_bits {
+                let prev_trays_monitored_bits = prev_trays_bits.tray_exist_bits.unwrap_or(0);
+                let mut trays_monitored_loaded = Vec::new();
+                for tray_id in 0..bambu_printer.ams_trays().len() {
+                    let prev_tray_monitored_bit = ((prev_trays_monitored_bits >> tray_id) & 0x01) != 0;
+                    let new_tray_monitored_bit = ((new_trays_monitored_bits >> tray_id) & 0x01) != 0;
+                    if !prev_tray_monitored_bit && new_tray_monitored_bit {
+                        trays_monitored_loaded.push(tray_id);
+                    }
+                }
+                // if bambu_printer.printer_number == 1 { // UNREMARK FOR TESTS WITH ONE PRINTER
+                if trays_monitored_loaded.len() == 1 {
+                    self.ui_weak
+                        .unwrap()
+                        .global::<crate::app::AppState>()
+                        .invoke_spool_loaded_when_staging_loaded();
                 }
             }
-            // if bambu_printer.printer_number == 1 { // UNREMARK FOR TESTS WITH ONE PRINTER
-            if trays_monitored_changed.len() == 1 {
-                let only_monitored_tray = trays_monitored_changed[0];
-                info!("Single tray {only_monitored_tray} is loading now");
-                if *self.filament_staging.borrow().origin() != StagingOrigin::Unloaded {
+
+            // ----- Handle loading when there is something in staging -----
+            // If the staging is loaded and only a SINGLE slot SWITCHED to reading update it to the stating filament info
+            // trace!("------------------------------------------------------");
+            // trace!(">>>>> prev : {prev_trays_bits:?}\n >>>>> next: {new_trays_bits:?}");
+            // trace!("------------------------------------------------------");
+            if let Some(new_trays_monitored_bits) = new_trays_bits.tray_read_done_bits {
+                let prev_trays_monitored_bits = prev_trays_bits.tray_read_done_bits.unwrap_or(0);
+                let mut trays_monitored_loaded = Vec::new();
+                for tray_id in 0..bambu_printer.ams_trays().len() {
+                    let prev_tray_monitored_bit = ((prev_trays_monitored_bits >> tray_id) & 0x01) != 0;
+                    let new_tray_monitored_bit = ((new_trays_monitored_bits >> tray_id) & 0x01) != 0;
+                    if !prev_tray_monitored_bit && new_tray_monitored_bit {
+                        trays_monitored_loaded.push(tray_id);
+                    }
+                }
+                // if bambu_printer.printer_number == 1 { // UNREMARK FOR TESTS WITH ONE PRINTER
+                if trays_monitored_loaded.len() == 1 {
+                    let only_monitored_tray = trays_monitored_loaded[0];
+                    info!("Single tray {only_monitored_tray} is loading now");
                     self.set_staging_to_tray_direct(
                         &self.filament_staging.clone(),
                         bambu_printer,
@@ -1031,9 +1054,11 @@ impl BambuPrinterObserver for ViewModel {
                         only_monitored_tray as i32,
                     );
                 }
+                // }
             }
-            // }
         }
+
+
         // Unloaded spool case - load tag if exist on that spool to staging (for weighting)
         if let Some(removed_tag) = removed_tags.iter().next() {
             let mut filament_staging = self.filament_staging.borrow_mut();
@@ -1105,7 +1130,8 @@ impl SpoolTagObserver for ViewModel {
                     if let Some(tag_info) = tag_info_clone {
                         let mut weight_directive = WeightStoreDirective::UseStoreCurrentWeight;
                         if let Ok(ScaleWeight::Stable(stable_weight)) = serde_json::from_str(cookie) {
-                            if stable_weight != 0 { // The threshold is set in SpoolEase Scale as const 5g
+                            if stable_weight != 0 {
+                                // The threshold is set in SpoolEase Scale as const 5g
                                 weight_directive = WeightStoreDirective::ProvidedCurrentWeight(stable_weight);
                             }
                         }
