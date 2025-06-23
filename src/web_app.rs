@@ -305,8 +305,8 @@ impl AppWithStateBuilder for NestedAppBuilder {
                         color_code: add_spool.rgba,
                         note: add_spool.note,
                         brand: add_spool.brand,
-                        weight_advertised: Some(add_spool.label_weight),
-                        weight_core: None,
+                        weight_advertised: if add_spool.label_weight == 0 { None } else { Some(add_spool.label_weight) },
+                        weight_core: if add_spool.core_weight == 0 { None } else { Some(add_spool.core_weight) },
                         weight_new: None,
                         weight_current: None,
                     };
@@ -504,6 +504,7 @@ pub struct AddSpoolDTO {
     pub material: String,
     pub subtype: String,
     pub brand: String,
+    pub core_weight: i32,
     pub label_weight: i32,
     pub note: String,
 }
