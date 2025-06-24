@@ -30,6 +30,7 @@ use crate::{
 #[derive(Snafu, Debug)]
 pub enum InternalError {
     TagIdTooLong,
+    BadTagId,
 }
 
 #[derive(Snafu, Debug)]
@@ -210,12 +211,10 @@ impl Store {
 
         if let Some(deleted_record) = deleted_record {
             if !deleted_record.tag_id.is_empty() {
-                if let Ok(tag_id) = hex::decode(deleted_record.tag_id) {
-                    if let Ok(tag_file_path) = tag_file_path(&tag_id) {
-                        let file_store = self.framework.borrow().file_store();
-                        let mut file_store = file_store.lock().await;
-                        let _ = file_store.delete_file(&tag_file_path).await;
-                    }
+                if let Ok(ext_rec_file_path) = ext_rec_file_path(&deleted_record) {
+                    let file_store = self.framework.borrow().file_store();
+                    let mut file_store = file_store.lock().await;
+                    let _ = file_store.delete_file(&ext_rec_file_path).await;
                 }
             }
         }
@@ -286,7 +285,7 @@ impl Store {
         }
         None
     }
-    pub fn get_spool_by_tag_id(&self, tag_id:&[u8]) -> Option<SpoolRecord> {
+    pub fn get_spool_by_tag_id(&self, tag_id: &[u8]) -> Option<SpoolRecord> {
         self.get_spool_by_hex_tag(&tag_id_hex(tag_id))
     }
 }
@@ -409,7 +408,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                             }
                         }
 
-                        match spools_db.insert(spool_rec).await {
+                        match spools_db.insert(spool_rec.clone()).await {
                             Ok(true) => {
                                 info!("Stored tag to spools database");
                                 store.notify_tag_stored(Ok(()), cookie.clone());
@@ -438,7 +437,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                     if !matches!(tag_file, TagFileDirective::SkipWrite) {
                         if let Some(tag_id) = &tag_info.tag_id.as_ref() {
                             if tag_id.len() <= 7 {
-                                if let Ok(tag_file_path) = tag_file_path(tag_id) {
+                                if let Ok(tag_file_path) = ext_rec_file_path(&spool_rec) {
                                     let file_store = framework.borrow().file_store();
                                     let mut file_store = file_store.lock().await;
                                     let write_only_if_missing = match tag_file {
@@ -583,24 +582,28 @@ fn tag_id_hex(tag_id: &[u8]) -> String {
     hex::encode_upper(tag_id)
 }
 
-fn tag_file_path(tag_id: &[u8]) -> Result<String, InternalError> {
-    let encoded_tag_id = encode_to_charset(tag_id, FAT_CHARSET);
-    if encoded_tag_id.len() > 11 {
-        return TagIdTooLongSnafu.fail();
-    }
-    let tag_bucket = fnv1a_hash(tag_id) % 16;
-    let file_part = if encoded_tag_id.len() > 8 {
-        let base = &encoded_tag_id[..8];
-        let ext = &encoded_tag_id[8..].get(..3).unwrap_or("");
-        if ext.is_empty() {
-            base.to_string()
-        } else {
-            format!("{}.{}", base, ext)
+fn ext_rec_file_path(ext_rec: &SpoolRecord) -> Result<String, InternalError> {
+    if let Ok(bytes_tag_id) = hex::decode(&ext_rec.tag_id) {
+        let encoded_tag_id = encode_to_charset(&bytes_tag_id, FAT_CHARSET);
+        if encoded_tag_id.len() > 11 {
+            return TagIdTooLongSnafu.fail();
         }
+        let tag_bucket = fnv1a_hash(&bytes_tag_id) % 16;
+        let file_part = if encoded_tag_id.len() > 8 {
+            let base = &encoded_tag_id[..8];
+            let ext = &encoded_tag_id[8..].get(..3).unwrap_or("");
+            if ext.is_empty() {
+                base.to_string()
+            } else {
+                format!("{}.{}", base, ext)
+            }
+        } else {
+            encoded_tag_id.clone()
+        };
+        Ok(format!("/store/tags/{:04X}/{file_part}", tag_bucket,))
     } else {
-        encoded_tag_id.clone()
-    };
-    Ok(format!("/store/tags/{:04X}/{file_part}", tag_bucket,))
+        Err(InternalError::BadTagId)
+    }
 }
 
 pub fn fnv1a_hash(data: &[u8]) -> u64 {
