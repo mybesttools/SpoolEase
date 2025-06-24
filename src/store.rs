@@ -1,7 +1,6 @@
 use crate::csvdb::deserialize_optional;
 use core::{any::Any, cell::RefCell};
 use hashbrown::HashMap;
-use num_traits::Float;
 use once_cell::unsync::OnceCell;
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
@@ -31,6 +30,7 @@ use crate::{
 pub enum InternalError {
     TagIdTooLong,
     BadTagId,
+    BadId,
 }
 
 #[derive(Snafu, Debug)]
@@ -46,6 +46,9 @@ pub enum StoreError {
 
     #[snafu(display("Record not found"))]
     NotFound { id: String },
+
+    #[snafu(display("Can't access databse (SD Card Installed?)"))]
+    NoCsvDb,
 }
 
 #[allow(clippy::enum_variant_names, dead_code)]
@@ -81,10 +84,6 @@ pub enum StoreOp {
     },
 }
 
-#[derive(Serialize, Deserialize)]
-struct TagFile<'a> {
-    tag: Cow<'a, String>,
-}
 
 // Cookie - General code
 pub trait AnyClone: Any + core::fmt::Debug {
@@ -211,10 +210,10 @@ impl Store {
 
         if let Some(deleted_record) = deleted_record {
             if !deleted_record.tag_id.is_empty() {
-                if let Ok(ext_rec_file_path) = ext_rec_file_path(&deleted_record) {
+                if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&deleted_record) {
                     let file_store = self.framework.borrow().file_store();
                     let mut file_store = file_store.lock().await;
-                    let _ = file_store.delete_file(&ext_rec_file_path).await;
+                    let _ = file_store.delete_file(&spool_rec_ext_file_path).await;
                 }
             }
         }
@@ -237,7 +236,7 @@ impl Store {
             }
         } else {
             error!("Internal error, can't access store");
-            Err(StoreError::InternalError)
+            Err(StoreError::NoCsvDb)
         }
     }
 
@@ -272,7 +271,7 @@ impl Store {
                 false => Err(StoreError::InternalError),
             }
         } else {
-            Err(StoreError::InternalError)
+            Err(StoreError::NoCsvDb)
         }
     }
     pub fn get_spool_by_hex_tag(&self, tag_id_hex: &str) -> Option<SpoolRecord> {
@@ -437,7 +436,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                     if !matches!(tag_file, TagFileDirective::SkipWrite) {
                         if let Some(tag_id) = &tag_info.tag_id.as_ref() {
                             if tag_id.len() <= 7 {
-                                if let Ok(tag_file_path) = ext_rec_file_path(&spool_rec) {
+                                if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&spool_rec) {
                                     let file_store = framework.borrow().file_store();
                                     let mut file_store = file_store.lock().await;
                                     let write_only_if_missing = match tag_file {
@@ -445,20 +444,20 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                                         TagFileDirective::AlwaysWrite => false,
                                         TagFileDirective::WriteIfMissing => true,
                                     };
-                                    let tag_file_data = TagFile {
-                                        tag: Cow::Borrowed(&tag_info.origin_descriptor),
+                                    let spool_rec_ext = SpoolRecordExt {
+                                        tag: Some(Cow::Borrowed(&tag_info.origin_descriptor)),
                                     };
-                                    match serde_json::to_string(&tag_file_data) {
-                                        Ok(s) => match file_store.write_file_str(&tag_file_path, 0, &s, write_only_if_missing).await {
+                                    match serde_json::to_string(&spool_rec_ext) {
+                                        Ok(s) => match file_store.write_file_str(&spool_rec_ext_file_path, 0, &s, write_only_if_missing).await {
                                             Ok(wrote) => {
                                                 if wrote {
-                                                    info!("Stored tag {tag_id:?} information to file {tag_file_path}");
+                                                    info!("Stored tag {tag_id:?} information to file {spool_rec_ext_file_path}");
                                                 } else {
-                                                    info!("Skipped store tag {tag_id:?} information to file {tag_file_path}, file already exists");
+                                                    info!("Skipped store tag {tag_id:?} information to file {spool_rec_ext_file_path}, file already exists");
                                                 }
                                             }
                                             Err(err) => {
-                                                error!("Error writing tag file to {tag_file_path} : {err}");
+                                                error!("Error writing tag file to {spool_rec_ext_file_path} : {err}");
                                                 store.notify_tag_stored(Err("Error writing tag file (1), check logs for more details"), cookie);
                                                 continue;
                                             }
@@ -505,6 +504,11 @@ pub struct SpoolRecord {
     pub weight_current: Option<i32>, // 4
 }
 
+#[derive(Serialize, Deserialize)]
+struct SpoolRecordExt<'a> {
+    tag: Option<Cow<'a, String>>,
+}
+
 impl CsvDbId for SpoolRecord {
     fn id(&self) -> &String {
         &self.id
@@ -515,102 +519,88 @@ pub trait StoreObserver {
     fn on_tag_stored(&mut self, result: Result<(), String>, cookie: Box<dyn AnyClone>);
 }
 
-const FAT_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"; // 35 chars
-
-fn encode_to_charset(input: &[u8], charset: &[u8]) -> String {
-    let base = charset.len() as u16;
-    assert!((2..=256).contains(&base));
-
-    let mut bytes = input.to_vec(); // cloned internally
-    let mut output = Vec::new();
-
-    while bytes.iter().any(|&b| b != 0) {
-        let mut rem = 0u16;
-        for b in &mut bytes {
-            let val = (rem << 8) | *b as u16;
-            *b = (val / base) as u8;
-            rem = val % base;
-        }
-        output.push(charset[rem as usize] as char);
-    }
-
-    let min_len = ((input.len() * 8) as f64 / (base as f64).log2()).ceil() as usize;
-    while output.len() < min_len {
-        output.push(charset[0] as char);
-    }
-
-    output.reverse();
-    output.into_iter().collect()
-}
-
-#[allow(dead_code)]
-fn decode_from_charset(s: &str, charset: &[u8]) -> Option<Vec<u8>> {
-    let base = charset.len() as u32;
-    assert!((2..=256).contains(&base));
-
-    // Build char lookup table
-    let mut char_to_val = [None; 256];
-    for (i, &c) in charset.iter().enumerate() {
-        char_to_val[c as usize] = Some(i as u32);
-    }
-
-    // Infer original byte length
-    let bit_len = (s.len() as f64) * (base as f64).log2();
-    let byte_len = (bit_len / 8.0).floor() as usize;
-
-    let mut result = alloc::vec![0u8; byte_len];
-
-    for ch in s.bytes() {
-        let digit = char_to_val[ch as usize]?; // Invalid char
-        let mut carry = digit;
-
-        for byte in result.iter_mut().rev() {
-            let val = (*byte as u32) * base + carry;
-            *byte = (val & 0xFF) as u8;
-            carry = val >> 8;
-        }
-
-        if carry != 0 {
-            return None; // Overflow
-        }
-    }
-
-    Some(result)
-}
 
 fn tag_id_hex(tag_id: &[u8]) -> String {
     hex::encode_upper(tag_id)
 }
 
-fn ext_rec_file_path(ext_rec: &SpoolRecord) -> Result<String, InternalError> {
-    if let Ok(bytes_tag_id) = hex::decode(&ext_rec.tag_id) {
-        let encoded_tag_id = encode_to_charset(&bytes_tag_id, FAT_CHARSET);
-        if encoded_tag_id.len() > 11 {
-            return TagIdTooLongSnafu.fail();
-        }
-        let tag_bucket = fnv1a_hash(&bytes_tag_id) % 16;
-        let file_part = if encoded_tag_id.len() > 8 {
-            let base = &encoded_tag_id[..8];
-            let ext = &encoded_tag_id[8..].get(..3).unwrap_or("");
-            if ext.is_empty() {
-                base.to_string()
-            } else {
-                format!("{}.{}", base, ext)
-            }
-        } else {
-            encoded_tag_id.clone()
-        };
-        Ok(format!("/store/tags/{:04X}/{file_part}", tag_bucket,))
+fn spool_rec_ext_file_path(ext_rec: &SpoolRecord) -> Result<String, InternalError> {
+    if let Ok(id_num) = ext_rec.id.parse::<i32>() {
+        let folder_num = ((id_num/16) % 16)+1;
+        let file_path = format!("/store/spools.ext/{folder_num}/{id_num}.jsn");
+        Ok(file_path)
     } else {
-        Err(InternalError::BadTagId)
+        Err(InternalError::BadId)
     }
 }
 
-pub fn fnv1a_hash(data: &[u8]) -> u64 {
-    let mut hash = 0xcbf29ce484222325; // FNV offset basis
-    for byte in data.iter() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
-}
+// const FAT_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"; // 35 chars
+//
+// fn encode_to_charset(input: &[u8], charset: &[u8]) -> String {
+//     let base = charset.len() as u16;
+//     assert!((2..=256).contains(&base));
+//
+//     let mut bytes = input.to_vec(); // cloned internally
+//     let mut output = Vec::new();
+//
+//     while bytes.iter().any(|&b| b != 0) {
+//         let mut rem = 0u16;
+//         for b in &mut bytes {
+//             let val = (rem << 8) | *b as u16;
+//             *b = (val / base) as u8;
+//             rem = val % base;
+//         }
+//         output.push(charset[rem as usize] as char);
+//     }
+//
+//     let min_len = ((input.len() * 8) as f64 / (base as f64).log2()).ceil() as usize;
+//     while output.len() < min_len {
+//         output.push(charset[0] as char);
+//     }
+//
+//     output.reverse();
+//     output.into_iter().collect()
+// }
+// pub fn fnv1a_hash(data: &[u8]) -> u64 {
+//     let mut hash = 0xcbf29ce484222325; // FNV offset basis
+//     for byte in data.iter() {
+//         hash ^= *byte as u64;
+//         hash = hash.wrapping_mul(0x100000001b3);
+//     }
+//     hash
+// }
+
+// #[allow(dead_code)]
+// fn decode_from_charset(s: &str, charset: &[u8]) -> Option<Vec<u8>> {
+//     let base = charset.len() as u32;
+//     assert!((2..=256).contains(&base));
+//
+//     // Build char lookup table
+//     let mut char_to_val = [None; 256];
+//     for (i, &c) in charset.iter().enumerate() {
+//         char_to_val[c as usize] = Some(i as u32);
+//     }
+//
+//     // Infer original byte length
+//     let bit_len = (s.len() as f64) * (base as f64).log2();
+//     let byte_len = (bit_len / 8.0).floor() as usize;
+//
+//     let mut result = alloc::vec![0u8; byte_len];
+//
+//     for ch in s.bytes() {
+//         let digit = char_to_val[ch as usize]?; // Invalid char
+//         let mut carry = digit;
+//
+//         for byte in result.iter_mut().rev() {
+//             let val = (*byte as u32) * base + carry;
+//             *byte = (val & 0xFF) as u8;
+//             carry = val >> 8;
+//         }
+//
+//         if carry != 0 {
+//             return None; // Overflow
+//         }
+//     }
+//
+//     Some(result)
+// }
