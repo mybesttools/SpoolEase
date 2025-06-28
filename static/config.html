@@ -367,14 +367,15 @@ ProtoPasta 500g - Cardboard - 84g,84"
           id="custom-filaments-text"
           oninput="handleCSVTextAreaInput(event, 'custom-filaments-text', 'custom-filaments-chars-left')"
           placeholder="- Example (normally should be auto generated):
-P714fe8c,ELEGOO PLA Pro
-Pd7bcff9,FLASHFORGE ASA Basic
-Pb79127b,3DHOJOR PLA Basic"
+P714fe8c,ELEGOO PLA Pro,190,240
+Pd7bcff9,FLASHFORGE ASA Basic,240,280
+Pda16356,SUNLU PLA PLA + 2,190,240"
         ></textarea>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <button onclick="copyCustomFilamentsToClipboard()">Copy to Clipboard</button>
-          <span id="custom-filaments-chars-left" class="csv-chars-left">abcd</span>
+            <button onclick="copyCustomFilamentsToClipboard()">Copy to Clipboard *</button>
+          <span id="custom-filaments-chars-left" class="csv-chars-left">0</span>
         </div>
+        <span style="margin-bottom: 8px; display: inline-block;">(* Paste copied text in mobile tag viewer configuration)</span>
         <label>Press "Create List" button and Select Folder</label>
         <label>On MacOS</label>
           <p class="i0">/Users</p>
@@ -1194,10 +1195,10 @@ Pb79127b,3DHOJOR PLA Basic"
           if (parts.length !== 2) return false; // Ensure exactly two columns
 
           firstColumn = parts[0].trim();
-          if (!firstColRegex.test(firstColumn)) return false; // Ensure 1-4 digit number
+          if (!firstColRegex.test(firstColumn)) return false;
 
           const secondColumn = parts[1].trim();
-          if (!secondColRegex.test(secondColumn)) return false; // Ensure 1-4 digit number
+          if (!secondColRegex.test(secondColumn)) return false;
         }
 
         return true;
@@ -1223,9 +1224,35 @@ Pb79127b,3DHOJOR PLA Basic"
         }
       }
 
+      function validateCSV4(text, firstColRegex, secondColRegex, thirdColRegex, forthColRegex) {
+        if (text.trim() == "") {
+          return true;
+        }
+        const lines = text.trim().split("\n");
+
+        for (const line of lines) {
+          const parts = line.split(",");
+          if (parts.length !== 4) return false; // Ensure exactly four columns
+
+          firstColumn = parts[0].trim();
+          if (!firstColRegex.test(firstColumn)) return false;
+
+          const secondColumn = parts[1].trim();
+          if (!secondColRegex.test(secondColumn)) return false;
+
+          const thirdColumn = parts[2].trim();
+          if (!thirdColRegex.test(thirdColumn)) return false; 
+
+          const forthColumn = parts[3].trim();
+          if (!forthColRegex.test(forthColumn)) return false;
+        }
+
+        return true;
+      }
+
       function applyFilamentsSettings() {
         const custom_filaments = document.getElementById("custom-filaments-text").value;
-        if (!validateCSV(custom_filaments, /^.*$/, /^.*$/)) {
+        if (!validateCSV4(custom_filaments, /^.*$/, /^.*$/, /^\d+$/, /^\d+$/)) {
           alert("Invalid custom filaments information");
           return;
         }
@@ -1279,13 +1306,23 @@ Pb79127b,3DHOJOR PLA Basic"
               let name = (json.name ?? "").toString().trim();
               name = name.split("@")[0].trim();
 
-              results.push(`${filamentId},${name}`);
+              let nozzle_temp_low = json.nozzle_temperature_range_low?.[0] ?? "";
+              let nozzle_temp_high = json.nozzle_temperature_range_high?.[0] ?? "";
+
+              results.push(`${filamentId},${csvEscape(name)},${nozzle_temp_low},${nozzle_temp_high}`);
               uniqueFilamentIds.add(filamentId);
             } catch {}
           }
 
           document.getElementById("custom-filaments-text").value = results.join("\n");
           handleCSVTextAreaInput(event, 'custom-filaments-text', 'custom-filaments-chars-left');
+      }
+
+      function csvEscape(value) {
+        if (/[",\n\r]/.test(value)) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
       }
 
       // Because runnig over HTTP, need to use use techniques. New ones don't work over HTTP
@@ -1352,7 +1389,7 @@ Pb79127b,3DHOJOR PLA Basic"
           window.location.hostname === "localhost" ||
           window.location.hostname === "127.0.0.1"
         ) {
-          urlPrefix = "http://192.168.10.46";
+          urlPrefix = "http://consoledev.local";
         }
       });
     </script>

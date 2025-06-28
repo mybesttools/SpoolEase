@@ -759,21 +759,38 @@ impl ViewModel {
                             encode_request.note = spool_rec.note.to_shared_string();
 
                             if encode_request.tray_index == 998 {
-                                let mut view_model_borrow = moved_view_model.borrow_mut();
-                                if view_model_borrow.encode_from_blank.is_none() {
+                                let mut view_model_borrow_mut = moved_view_model.borrow_mut();
+                                if view_model_borrow_mut.encode_from_blank.is_none() {
                                     let blank_tag_info = TagInformation {
                                         filament: Some(FilamentInfo::new()),
                                         ..Default::default()
                                     };
-                                    view_model_borrow.encode_from_blank = Some(blank_tag_info);
+                                    view_model_borrow_mut.encode_from_blank = Some(blank_tag_info);
                                 }
                                 if from_blank_request {
-                                    let filament_info = view_model_borrow.encode_from_blank.as_mut().unwrap().filament.as_mut().unwrap();
+                                    let slicer_filament_enriched_info = if !spool_rec.slicer_filament.is_empty() {
+                                        // if povided slicer filament setting, then set temps accordingly
+                                        get_filament_info(&view_model_borrow_mut, &spool_rec.slicer_filament)
+                                    } else { None };
+
+                                    let filament_info = view_model_borrow_mut.encode_from_blank.as_mut().unwrap().filament.as_mut().unwrap();
+
                                     filament_info.tray_type = spool_rec.material_type;
                                     filament_info.tray_color = spool_rec.color_code;
-                                    filament_info.nozzle_temp_min = 0; // Real values will be used when based on tray_type (material) when needed
-                                    filament_info.nozzle_temp_max = 0; // Real values will be used when based on tray_type (material) when needed
-                                    filament_info.tray_info_idx = String::new(); // Real values will be used when based on tray_type (material) when needed
+                                    filament_info.tray_info_idx = spool_rec.slicer_filament;
+                                    if !filament_info.tray_info_idx.is_empty() {
+                                        if let Some((_, _, nozzle_temp_low, nozzle_temp_high)) = slicer_filament_enriched_info {
+                                            filament_info.nozzle_temp_min = nozzle_temp_low;
+                                            filament_info.nozzle_temp_max = nozzle_temp_high;
+                                        } else {
+                                            error!("Tray_info_idx supplied from inventory without information (something probably changed from encoding to these days in custom filaments config)");
+                                            filament_info.nozzle_temp_min = 0; // Real values will be used when based on tray_type (material) when needed
+                                            filament_info.nozzle_temp_max = 0; // Real values will be used when based on tray_type (material) when needed
+                                        }
+                                    } else {
+                                        filament_info.nozzle_temp_min = 0; // Real values will be used when based on tray_type (material) when needed
+                                        filament_info.nozzle_temp_max = 0; // Real values will be used when based on tray_type (material) when needed
+                                    }
                                 }
                             }
                             ui_app_state.set_curr_encode_request(encode_request);
@@ -923,34 +940,12 @@ impl ViewModel {
                     encode_request_display.filament_type = filament_info.tray_type.into();
                     // TODO: Add support for custom filaments here
 
-                    let mut found_filament_name = false;
-                    for line in BASE_FILAMENTS.lines() {
-                        if let Some((code, name)) = line.split_once(',') {
-                            if code == filament_info.tray_info_idx {
-                                encode_request_display.slicer_name = format!("{name} (Base)").into();
-                                found_filament_name = true;
-                                break;
-                            }
-                        }
-                    }
-                    if !found_filament_name {
-                        let view_model_borrow = moved_view_model.borrow();
-                        let app_config_borrow = view_model_borrow.app_config.borrow();
-                        if let Some(custom_filaments) = &app_config_borrow.custom_filaments {
-                            for line in custom_filaments.lines() {
-                                if let Some((code, name)) = line.split_once(',') {
-                                    if code == filament_info.tray_info_idx {
-                                        encode_request_display.slicer_name = format!("{name} (Custom)").into();
-                                        found_filament_name = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if !found_filament_name {
+                    if let Some((base, slicer_name, _, _)) = get_filament_info(&moved_view_model.borrow(), &filament_info.tray_info_idx) {
+                        encode_request_display.slicer_name = format!("{slicer_name} ({})", if base { "Base" } else { "Custom" }).into();
+                    } else {
                         encode_request_display.slicer_name = "Unknown Filament".into();
                     }
+
                     if encode_request_display.pa_line1.is_empty() && !encode_request_display.pa_line2.is_empty() {
                         // if there is a line 2 but line 1 was not filled (staging case)
                         encode_request_display.pa_line1 = format!(
@@ -1644,6 +1639,38 @@ fn get_brand_from_text(text: &str) -> Option<&'static str> {
         }
     }
     None
+}
+
+fn get_filament_info(view_model_borrow: &ViewModel, search_code: &str) -> Option<(bool, String, u32, u32)> {
+    let app_config_borrow = view_model_borrow.app_config.borrow();
+    let empty_list = String::new();
+    let filament_lists = [BASE_FILAMENTS, app_config_borrow.custom_filaments.as_ref().unwrap_or(&empty_list)];
+
+    let mut base = true;
+    for filament_list in filament_lists {
+        for line in filament_list.lines() {
+            let mut split = line.split(',');
+            if let (Some(code), Some(name), Some(nozzle_temp_low), Some(nozzle_temp_high)) = (split.next(), split.next(), split.next(), split.next())
+            {
+                if code == search_code {
+                    let name = decode_csv_field(name);
+                    let nozzle_temp_low = nozzle_temp_low.parse::<u32>().unwrap_or_default();
+                    let nozzle_temp_high = nozzle_temp_high.parse::<u32>().unwrap_or_default();
+                    return Some((base, name, nozzle_temp_low, nozzle_temp_high));
+                }
+            }
+        }
+        base = false;
+    }
+    None
+}
+
+fn decode_csv_field(s: &str) -> String {
+    if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+        s[1..s.len() - 1].replace("\"\"", "\"")
+    } else {
+        s.to_string()
+    }
 }
 
 #[embassy_executor::task] // up to two printers in parallel

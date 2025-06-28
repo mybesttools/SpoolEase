@@ -250,7 +250,7 @@ impl Store {
                     let current_record = &current_record.data;
                     SpoolRecord {
                         id: spool_record.id,
-                        tag_id: current_record.tag_id.clone(),
+                        tag_id: current_record.tag_id.clone(), // can't change from web
                         material_type: spool_record.material_type,
                         material_subtype: spool_record.material_subtype,
                         color_name: spool_record.color_name,
@@ -258,19 +258,18 @@ impl Store {
                         note: spool_record.note,
                         brand: spool_record.brand,
                         weight_advertised: spool_record.weight_advertised,
-                        weight_core: current_record.weight_core, // TODO: change when added to inventory edit
-                        weight_new: current_record.weight_new,
-                        weight_current: current_record.weight_current,
+                        weight_core: spool_record.weight_core,
+                        weight_new: current_record.weight_new, // can't change from web
+                        weight_current: current_record.weight_current, // can't change from web
+                        slicer_filament: spool_record.slicer_filament,
                     }
                 } else {
                     return Err(StoreError::NotFound { id: spool_record.id.clone() });
                 }
             };
 
-            match spools_db.insert(updated_record).await.context(CsvDbSnafu)? {
-                true => Ok(()),
-                false => Err(StoreError::InternalError),
-            }
+            spools_db.insert(updated_record).await.context(CsvDbSnafu)?;
+            Ok(())
         } else {
             Err(StoreError::NoCsvDb)
         }
@@ -431,6 +430,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                     weight_core: tag_info.weight_core,
                     weight_new: tag_info.weight_new,
                     weight_current: None,
+                    slicer_filament: filament_info.tray_info_idx,
                 };
                 if let Some(spools_db) = store.spools_db.get() {
                     spool_rec.weight_current = match weight {
@@ -561,29 +561,30 @@ pub struct SpoolRecord {
     pub weight_new: Option<i32>, // 4
     #[serde(deserialize_with = "deserialize_optional")]
     pub weight_current: Option<i32>, // 4
-
-                                  // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-                                  // pub price: Option<()>,
-                                  // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-                                  // pub quality: Option<()>,
-                                  // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-                                  // pub diameter: Option<()>,
-                                  //
-                                  // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-                                  // pub location: Option<()>,
-                                  //
-                                  // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-                                  // pub purchased: Option<()>,
-                                  // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-                                  // pub added: Option<()>,
-                                  // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-                                  // pub opened: Option<()>,
-                                  // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-                                  // pub encoded: Option<()>,
-                                  // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-                                  // pub dried: Option<()>,
-                                  // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-                                  // pub used: Option<()>,
+    #[serde(default)]
+    pub slicer_filament: String,
+    // #[serde(default,deserialize_with = "deserialize_optional_unit")]
+    // pub price: Option<()>,
+    // #[serde(default,deserialize_with = "deserialize_optional_unit")]
+    // pub quality: Option<()>,
+    // #[serde(default,deserialize_with = "deserialize_optional_unit")]
+    // pub diameter: Option<()>,
+    //
+    // #[serde(default,deserialize_with = "deserialize_optional_unit")]
+    // pub location: Option<()>,
+    //
+    // #[serde(default,deserialize_with = "deserialize_optional_unit")]
+    // pub purchased: Option<()>,
+    // #[serde(default,deserialize_with = "deserialize_optional_unit")]
+    // pub added: Option<()>,
+    // #[serde(default,deserialize_with = "deserialize_optional_unit")]
+    // pub opened: Option<()>,
+    // #[serde(default,deserialize_with = "deserialize_optional_unit")]
+    // pub encoded: Option<()>,
+    // #[serde(default,deserialize_with = "deserialize_optional_unit")]
+    // pub dried: Option<()>,
+    // #[serde(default,deserialize_with = "deserialize_optional_unit")]
+    // pub used: Option<()>,
 }
 
 #[derive(Serialize, Deserialize)]

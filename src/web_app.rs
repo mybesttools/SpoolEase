@@ -313,6 +313,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
                         weight_core: if add_spool.core_weight == 0 { None } else { Some(add_spool.core_weight) },
                         weight_new: None,
                         weight_current: None,
+                        slicer_filament: add_spool.slicer_filament,
                     };
                     if new_spool.id.is_empty() {
                         match store.add_untagged_spool(new_spool).await {
@@ -510,6 +511,7 @@ pub struct AddSpoolDTO {
     pub core_weight: i32,
     pub label_weight: i32,
     pub note: String,
+    pub slicer_filament: String,
 }
 encrypted_input!(AddSpoolDTO);
 

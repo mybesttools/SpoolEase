@@ -61,3 +61,4 @@ src/certs
 _untracked
 deploy-debug.sh
 deploy-prod.sh
+static/pkg
