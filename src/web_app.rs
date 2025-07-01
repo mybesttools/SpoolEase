@@ -99,15 +99,6 @@ impl AppWithStateBuilder for NestedAppBuilder {
         );
 
         let router = router.route(
-            "/encode",
-            get_service(picoserve::response::File::with_content_type_and_headers(
-                "text/html",
-                include_bytes_gz!("static/encode.html"),
-                &[("Content-Encoding", "gzip")],
-            )),
-        );
-
-        let router = router.route(
             "/api/printer-config",
             post(
                 move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>, printers_config_dto: PrintersConfigDTO| {
@@ -349,11 +340,22 @@ impl AppWithStateBuilder for NestedAppBuilder {
             ),
         );
 
+        // Web App //
+
         let router = router.route(
-            "/vendor.js",
+            "/encode",
+            get_service(picoserve::response::File::with_content_type_and_headers(
+                "text/html",
+                include_bytes!("../../inventory/dist/src/apps/encode/index.html.gz"),
+                &[("Content-Encoding", "gzip")],
+            )),
+        );
+
+        let router = router.route(
+            "/encode.js",
             get_service(picoserve::response::File::with_content_type_and_headers(
                 "application/javascript; charset=utf-8",
-                include_bytes!("../../inventory/dist/vendor.js.gz"),
+                include_bytes!("../../inventory/dist/encode.js.gz"),
                 &[("Content-Encoding", "gzip")],
             )),
         );
@@ -371,6 +373,15 @@ impl AppWithStateBuilder for NestedAppBuilder {
             get_service(picoserve::response::File::with_content_type_and_headers(
                 "application/javascript; charset=utf-8",
                 include_bytes!("../../inventory/dist/inventory.js.gz"),
+                &[("Content-Encoding", "gzip")],
+            )),
+        );
+
+        let router = router.route(
+            "/shared-libs.js",
+            get_service(picoserve::response::File::with_content_type_and_headers(
+                "application/javascript; charset=utf-8",
+                include_bytes!("../../inventory/dist/shared-libs.js.gz"),
                 &[("Content-Encoding", "gzip")],
             )),
         );
@@ -493,11 +504,18 @@ impl From<&ScaleConfig> for ScaleConfigDTO {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, Default)]
 pub struct EncodeInfoDTO {
-    pub brand: String,
+    pub id: String,
+    pub tag_id: String,
+    pub color_code: String,
     pub color_name: String,
+    pub material: String,
     pub filament_subtype: String,
+    pub slicer_filament: String,
+    pub brand: String,
+    pub weight_advertised: i32,
+    pub weight_core: i32,
     pub note: String,
 }
 encrypted_input!(EncodeInfoDTO);

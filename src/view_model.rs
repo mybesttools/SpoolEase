@@ -23,6 +23,7 @@ use framework::{
     terminal::{self, term_mut, TerminalObserver},
 };
 
+use crate::app::EncodeRequest;
 use crate::app_config::{BASE_FILAMENTS, FILAMENT_BRAND_NAMES, SPOOLS_CATALOG};
 use crate::bambu::{FilamentInfo, TrayBits};
 use crate::color_utils::get_color_name;
@@ -572,11 +573,22 @@ impl ViewModel {
         // Initialize UI FrameworkState with framework information
         let ui_app_state = ui.global::<crate::app::AppState>();
         let encode_request = ui_app_state.get_curr_encode_request();
-        EncodeInfoDTO {
-            brand: encode_request.brand.into(),
-            color_name: encode_request.color_name.into(),
-            filament_subtype: encode_request.filament_subtype.into(),
-            note: encode_request.note.into(),
+        if let Ok(tag_info) = self.tag_info_to_encode(&encode_request) {
+            EncodeInfoDTO {
+                brand:  tag_info.brand.unwrap_or_default(),
+                color_name: tag_info.color_name.unwrap_or_default(),
+                filament_subtype: tag_info.filament_subtype.unwrap_or_default(),
+                note: tag_info.note.unwrap_or_default(),
+                id: tag_info.id.unwrap_or_default(),
+                weight_advertised: tag_info.weight_advertised.unwrap_or_default(),
+                weight_core: tag_info.weight_core.unwrap_or_default(),
+                tag_id: hex::encode_upper(tag_info.tag_id.unwrap_or_default()),
+                color_code: tag_info.filament.as_ref().unwrap_or(&FilamentInfo::default()).tray_color.clone(),
+                material: tag_info.filament.as_ref().unwrap_or(&FilamentInfo::default()).tray_type.clone(),
+                slicer_filament: tag_info.filament.unwrap_or_default().tray_info_idx,
+            }
+        } else {
+            EncodeInfoDTO::default()
         }
     }
 
@@ -633,6 +645,44 @@ impl ViewModel {
         }
     }
 
+pub fn tag_info_to_encode(&self, encode_request: &EncodeRequest) -> Result<TagInformation, String> {
+    let moved_filament_staging = self.filament_staging.clone();
+    let moved_bambu_printer = self.bambu_printer_model.clone();
+    let tray_id = if let Ok(tray_id) = usize::try_from(encode_request.tray_id) {tray_id} else { return Err("Currently Not Encoding".to_string()) };
+    let borrowed_filament_staging = moved_filament_staging.borrow();
+    let mut tag_info_to_encode = if tray_id == 999 {
+        // Encode from Staging
+        if let Some(tag_info) = &borrowed_filament_staging.tag_info() {
+            tag_info.clone()
+        } else {
+            return Err("Internal Error Encoding from Staging".to_string());
+        }
+    } else if tray_id == 998 {
+        // Encode from blank, manual data only
+        let tag_info = self.encode_from_blank.clone();
+        tag_info.unwrap() // when we get here this should always pass
+    } else {
+        match moved_bambu_printer.borrow().get_tag_info_to_encode(tray_id) {
+            Ok(tag_info) => tag_info,
+            Err(err) => {
+                // hopefully no borrowing issues since calling into ui in a callback
+                return Err(err); // signals an error, UI will not continue
+            }
+        }
+    };
+    // let spool_scale_weight = moved_spool_scale.borrow().weight;
+    tag_info_to_encode.id = if !encode_request.id.is_empty() { Some(encode_request.id.clone().into()) } else { None };
+    tag_info_to_encode.weight_new = (encode_request.weight_new != 0).then_some(encode_request.weight_new);
+    tag_info_to_encode.weight_advertised = (encode_request.weight_advertised != 0).then_some(encode_request.weight_advertised);
+    tag_info_to_encode.weight_core = (encode_request.weight_core != 0).then_some(encode_request.weight_core);
+    tag_info_to_encode.brand = (!encode_request.brand.trim().is_empty()).then(|| encode_request.brand.trim().to_string());
+    tag_info_to_encode.filament_subtype =
+        (!encode_request.filament_subtype.trim().is_empty()).then(|| encode_request.filament_subtype.trim().to_string());
+    tag_info_to_encode.color_name = (!encode_request.color_name.trim().is_empty()).then(|| encode_request.color_name.trim().to_string());
+    tag_info_to_encode.note = (!encode_request.note.trim().is_empty()).then(|| encode_request.note.trim().to_string());
+    Ok(tag_info_to_encode)
+}
+
     fn register_printer_related_listeners(&mut self) {
         // handler for request from UI to move to staging, need to work only on selected printer
         let moved_filament_staging = self.filament_staging.clone();
@@ -646,7 +696,6 @@ impl ViewModel {
             });
 
         // handler for request from UI to encode a spool, need to work only on selected printer
-        let moved_filament_staging = self.filament_staging.clone();
         let moved_bambu_printer = self.bambu_printer_model.clone();
         let moved_spool_tag = self.spool_tag_model.clone();
         let moved_ui = self.ui_weak.clone();
@@ -661,44 +710,26 @@ impl ViewModel {
                     .add_to_previously_used_cores(encode_request.core_name.as_str(), encode_request.weight_core);
             }
 
-            // Continue to encode
-            let spool_tag = moved_spool_tag.borrow();
             let tray_id = usize::try_from(encode_request.tray_id).unwrap();
-            let borrowed_filament_staging = moved_filament_staging.borrow();
-            let mut tag_info_to_encode = if tray_id == 999 {
-                // Encode from Staging
-                if let Some(staging_tag_info) = borrowed_filament_staging.tag_info().clone() {
-                    staging_tag_info
-                } else {
-                    return 0; // signals an error, UI will not continue
-                }
-            } else if tray_id == 998 {
-                // Encode from blank, manual data only
-                let tag_info = moved_view_model.borrow_mut().encode_from_blank.take();
-                tag_info.unwrap() // when we get here this should always pass
-            } else {
-                match moved_bambu_printer.borrow().get_tag_info_to_encode(tray_id) {
-                    Ok(tag_info) => tag_info,
-                    Err(err) => {
-                        // hopefully no borrowing issues since calling into ui in a callback
-                        moved_ui
-                            .unwrap()
-                            .global::<crate::app::AppState>()
-                            .invoke_encoding_failed(err.to_shared_string());
-                        return 0; // signals an error, UI will not continue
-                    }
+            // Fill in tag information
+            let tag_info_to_encode = match moved_view_model.borrow().tag_info_to_encode(&encode_request) {
+                Ok(tag_info) => tag_info,
+                Err(err) => {
+                    moved_ui
+                        .unwrap()
+                        .global::<crate::app::AppState>()
+                        .invoke_encoding_failed(err.to_shared_string());
+                    return 0;
                 }
             };
-            // let spool_scale_weight = moved_spool_scale.borrow().weight;
-            tag_info_to_encode.weight_new = (encode_request.weight_new != 0).then_some(encode_request.weight_new);
-            tag_info_to_encode.weight_advertised = (encode_request.weight_advertised != 0).then_some(encode_request.weight_advertised);
-            tag_info_to_encode.weight_core = (encode_request.weight_core != 0).then_some(encode_request.weight_core);
-            tag_info_to_encode.brand = (!encode_request.brand.trim().is_empty()).then(|| encode_request.brand.trim().to_string());
-            tag_info_to_encode.filament_subtype =
-                (!encode_request.filament_subtype.trim().is_empty()).then(|| encode_request.filament_subtype.trim().to_string());
-            tag_info_to_encode.color_name = (!encode_request.color_name.trim().is_empty()).then(|| encode_request.color_name.trim().to_string());
-            tag_info_to_encode.note = (!encode_request.note.trim().is_empty()).then(|| encode_request.note.trim().to_string());
 
+            // In case of encode from blank, clean the scratch-pad used
+            // If want to allow to return in case of cancel, need to move this to after encode success
+            if tray_id == 998 {
+                moved_view_model.borrow_mut().encode_from_blank = None;
+            }
+
+            // Next encode
             let bambu_printer_borrow = moved_bambu_printer.borrow();
             let descriptor_res = if tray_id == 999 || tray_id == 998 {
                 &tag_info_to_encode.to_descriptor(None, None)
@@ -708,6 +739,7 @@ impl ViewModel {
                     Some(&bambu_printer_borrow.printer_uuid_to_encode),
                 )
             };
+            let spool_tag = moved_spool_tag.borrow();
             if let Some(descriptor) = descriptor_res {
                 let encode_cookie = EncodeCookie {
                     scale_weight: moved_spool_scale.borrow().weight,
@@ -1705,3 +1737,4 @@ pub async fn printers_scheduled_store_state_task(framework: Rc<RefCell<Framework
         }
     }
 }
+

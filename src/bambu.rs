@@ -1314,7 +1314,7 @@ pub enum Filament {
     Known(FilamentInfo),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct FilamentInfo {
     pub tray_info_idx: String, // e.g. "GFL99"
     pub tray_type: String,     // e.g. "PLA"
