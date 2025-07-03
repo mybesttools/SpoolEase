@@ -3,6 +3,9 @@ import { NumPad } from "numpad.slint";
 import { AppState, AppBackend, ControlState, SpoolScaleState } from "app.slint";
 
 export component AdvertisedWeightSelector inherits HorizontalSelector {
+    public function index-from-weight(weight: int) -> int {
+        weight == 200 ? 0 : weight == 250 ? 1 : weight == 500 ? 2 : weight == 750 ? 3 : weight == 800 ? 4 : weight == 1000 ? 5 : weight == 0 ? 6 : weight == 1100 ? 7 : weight == 2000 ? 8 : weight == 2268 ? 9 : weight == 2500 ? 10 : weight == 3000 ? 12 : 6;
+    }
     property <[int]> weights-grams: [200, 250, 500, 750, 800, 1000, 0, 1100, 2000, 2268, 2500, 3000];
     out property <int> selected-weight: weights-grams[self.selected-option-index];
     options: [
@@ -19,7 +22,7 @@ export component AdvertisedWeightSelector inherits HorizontalSelector {
         "2.5kg",
         "3kg"
     ];
-    default-option-index: 6;  // 1kg
+    default-option-index: 6;  // 0 
         }
 
 export component CoreEstimate inherits Rectangle {
@@ -243,7 +246,7 @@ export component Keyboard inherits Rectangle {
     property <[[string]]> keys: [
         ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
         ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
-        ["Z", "X", "C", "V", "B", "N", "M" ],
+        ["Z", "X", "C", "V", "B", "N", "M"],
         ["3", "-", " "],
     ];
     callback key-clicked(char: string);
@@ -260,10 +263,12 @@ export component Keyboard inherits Rectangle {
         }
 
         for row[y] in keys: HorizontalLayout {
-            Rectangle { width: y*(buttons-width * 1.6/1.9/2); } // ratio taken roughly from Mac Keyboard)
+            Rectangle {
+                width: y * (buttons-width * 1.6 / 1.9 / 2);
+            } // ratio taken roughly from Mac Keyboard)
             for col in row: MyButton {
                 height: buttons-height;
-                width: self.text == " " ? 2*buttons-width : buttons-width;
+                width: self.text == " " ? 2 * buttons-width : buttons-width;
                 text: col;
                 clicked => {
                     root.typed-text = "\{root.typed-text}\{self.text}";
@@ -276,7 +281,7 @@ export component Keyboard inherits Rectangle {
         x: root.width - buttons-width * 4;
         y: root.height - buttons-height;
         MyButton {
-            width: buttons-width*2;
+            width: buttons-width * 2;
             height: buttons-height;
             text: "Ok";
             clicked => {
@@ -285,7 +290,7 @@ export component Keyboard inherits Rectangle {
         }
 
         MyButton {
-            width: buttons-width*2;
+            width: buttons-width * 2;
             height: buttons-height;
             text: "Cancel";
             clicked => {
@@ -307,12 +312,26 @@ export component SpoolCoreWeight inherits Rectangle {
 
     background: black;
     select-if-new-spool := SelectIfNewSpool {
+        // The following two tracking properties are tricky - to update the selected spool advertised weight
+        // when core-select dialog is displayed and when request label weight is changed from web ui
+        property <bool> track-spool-core-visible: AppState.encoding-spool-core-visible;
+        changed track-spool-core-visible => {
+            if track-spool-core-visible {
+                advertised-weight.selected-option-index = advertised-weight.index-from-weight(AppState.curr-encode-request.weight-advertised);
+                advertised-weight.centerd-option-index = advertised-weight.selected-option-index;
+            }
+        }
+        property <int> track-request-weight-advertised: AppState.curr-encode-request.weight-advertised;
+        changed track-request-weight-advertised => {
+            advertised-weight.selected-option-index = advertised-weight.index-from-weight(AppState.curr-encode-request.weight-advertised);
+            advertised-weight.centerd-option-index = advertised-weight.selected-option-index;
+        }
         visible: state == SpoolCoreWeightState.NewSpoolSelect;
         cancel-clicked => {
             root.state = SpoolCoreWeightState.EntryTabs;
         }
         no-clicked => {
-            AppState.encode-set-core-info(advertised-weight.selected-weight ,AppState.core-weight-to-encode-after-select-if-new, 0, AppState.core-name-to-encode-after-select-if-new);
+            AppState.encode-set-core-info(advertised-weight.selected-weight,AppState.core-weight-to-encode-after-select-if-new, 0, AppState.core-name-to-encode-after-select-if-new);
             AppState.encoding-spool-core-visible = false;
             root.state = SpoolCoreWeightState.EntryTabs; // for next time
         }

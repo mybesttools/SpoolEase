@@ -353,9 +353,9 @@ export component HorizontalSelector inherits Window {
     in property <length> min-button-width: 100px;
     in property <[string]> options;
     in property <int> default-option-index;
-    out property <int> selected-option-index: default-option-index;
+    in-out property <int> selected-option-index: default-option-index;
     out property <string> selected-option: options[selected-option-index];
-    property <int> centerd-option-index: default-option-index;
+    in-out property <int> centerd-option-index: default-option-index;
 
     left-arrow := MyButton {
         x: 0px;
