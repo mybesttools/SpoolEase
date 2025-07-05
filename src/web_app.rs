@@ -6,7 +6,9 @@ use alloc::format;
 use alloc::rc::Rc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use framework::framework_web_app::encrypt;
+use embedded_sdmmc::asynchronous::LfnBuffer;
+use framework::framework_web_app::{encrypt, encrypt_bytes, FrameworkState};
+use picoserve::response::chunked::{ChunkWriter, ChunkedResponse, ChunksWritten};
 use picoserve::routing::{get, get_service};
 use picoserve::{
     extract::{FromRequest, State},
@@ -24,6 +26,7 @@ use framework::{
     prelude::*,
 };
 use framework_macros::include_bytes_gz;
+use serde::{Deserialize, Serialize};
 
 use crate::app_config::{AppConfig, DefaultPrinterConfig, PrinterConfig, PrintersConfig, ScaleConfig, SPOOLS_CATALOG};
 use crate::store::Store;
@@ -387,6 +390,17 @@ impl AppWithStateBuilder for NestedAppBuilder {
             )),
         );
 
+        let router = router.route(
+            "/api/store-backup",
+            get(move |State(Encryption(key)), State(FrameworkState(framework))| async move {
+                ChunkedResponse::new(StoreBackupChunks {
+                    framework: framework.clone(),
+                    key,
+                })
+                .into_response()
+            }),
+        );
+
         #[allow(clippy::let_and_return)]
         let router = router.route(
             "/style.css",
@@ -401,6 +415,115 @@ impl AppWithStateBuilder for NestedAppBuilder {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct BackupMeta {
+    spoolease_console_ver: &'static str,
+}
+
+#[derive(Serialize, Deserialize)]
+struct FileMeta {
+    path: String,
+    length: usize,
+}
+
+struct StoreBackupChunks {
+    framework: Rc<RefCell<Framework>>,
+    key: &'static RefCell<Vec<u8>>,
+}
+
+impl picoserve::response::chunked::Chunks for StoreBackupChunks {
+    fn content_type(&self) -> &'static str {
+        "text/plain"
+    }
+
+    async fn write_chunks<W: picoserve::io::Write>(self, mut chunk_writer: ChunkWriter<W>) -> Result<ChunksWritten, W::Error> {
+        info!("Backup Store Started");
+        let file_store = self.framework.borrow().file_store();
+        let mut files: Vec<String> = Vec::new();
+        let mut dirs: Vec<String> = Vec::new();
+        dirs.push("/store".to_string());
+        let mut lfn_buffer_storage = alloc::vec![0u8;32];
+        let mut lfn_buffer = LfnBuffer::new(lfn_buffer_storage.as_mut_slice());
+        let backup_meta = BackupMeta {
+            spoolease_console_ver: self.framework.borrow().settings.app_cargo_pkg_version,
+        };
+        let mut backup_meta_str = serde_json::to_string(&backup_meta).unwrap();
+        backup_meta_str += "\n";
+        let encrypted = encrypt(&self.key.borrow(), &backup_meta_str);
+        chunk_writer.write_chunk(encrypted.as_bytes()).await?;
+        chunk_writer.write_chunk("|".as_bytes()).await?;
+        while !dirs.is_empty() {
+            let curr_dir_path = dirs.remove(0);
+            {
+                info!("Traversing directory: {curr_dir_path}");
+                {
+                    let mut file_store = file_store.lock().await;
+                    match file_store.open_dir(&curr_dir_path, framework::sdcard_store::Mode::ReadOnly).await {
+                        Ok(rawdir) => {
+                            let dir = rawdir.to_directory(file_store.volume_mgr());
+                            if let Err(e) = dir
+                                .iterate_dir_lfn(&mut lfn_buffer, |dir_entry, long_name| {
+                                    let dir_entry_name = if let Some(long_name) = long_name {
+                                        long_name.to_string()
+                                    } else {
+                                        dir_entry.name.to_string()
+                                    };
+                                    if !dir_entry_name.starts_with(".") {
+                                        let full_path = format!("{}/{}", curr_dir_path, dir_entry.name);
+                                        if dir_entry.attributes.is_directory() {
+                                            dirs.push(full_path);
+                                        } else {
+                                            files.push(full_path);
+                                        }
+                                    }
+                                })
+                                .await
+                            {
+                                error!("Error iterating directory {curr_dir_path} : {e:?}");
+                            }
+                            let rawdir = dir.to_raw_directory();
+                            if let Err(e) = file_store.close_dir(rawdir).await {
+                                error!("Error closing sdcard directory : {e:?}");
+                            }
+                        }
+                        Err(_) => todo!(),
+                    }
+                }
+                let mut buffer = Vec::<u8>::with_capacity(1024);
+
+                for file_path in files.drain(..) {
+                    info!("Backing up file {file_path}");
+                    buffer.clear();
+                    let file_content = {
+                        let mut file_store = file_store.lock().await;
+                        if let Ok(file_content) = file_store.read_file_str(&file_path).await {
+                            file_content
+                        } else {
+                            error!("Error reading file {file_path}");
+                            format!("Error reading file {file_path}")
+                        }
+                    };
+
+                    let file_meta = FileMeta {
+                        path: file_path,
+                        length: file_content.len(),
+                    };
+                    let file_meta_str = serde_json::to_string(&file_meta).unwrap();
+                    buffer.extend_from_slice(file_meta_str.as_bytes());
+                    buffer.extend_from_slice("\n".as_bytes());
+                    buffer.extend_from_slice(file_content.as_bytes());
+                    buffer.extend_from_slice("\n".as_bytes());
+                    let encrypted = encrypt_bytes(&self.key.borrow(), &buffer);
+                    chunk_writer.write_chunk(encrypted.as_bytes()).await?;
+                    chunk_writer.write_chunk("|".as_bytes()).await?;
+                }
+            }
+        }
+        let res = chunk_writer.finalize().await;
+        info!("Backup Store Completed");
+        res
+    }
+}
 #[derive(serde::Deserialize, serde::Serialize)]
 struct PrinterConfigDTO {
     ip: Option<String>,
