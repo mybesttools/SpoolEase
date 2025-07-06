@@ -60,6 +60,7 @@ export component EncodeButtons inherits HorizontalLayout {
     }
 
     MyButton {
+        enabled: AppState.curr-encode-request-display.filament-type != "" && AppState.curr-encode-request-display.color-code != "";
         horizontal-stretch: 1;
         height: 56px;
         text: "Encode";

@@ -638,7 +638,10 @@ impl ViewModel {
                 slicer_filament: tag_info.filament.unwrap_or_default().tray_info_idx,
             }
         } else {
-            EncodeInfoDTO { tray_id: -1, ..Default::default() }
+            EncodeInfoDTO {
+                tray_id: -1,
+                ..Default::default()
+            }
         }
     }
 
@@ -1304,7 +1307,7 @@ impl SpoolTagObserver for ViewModel {
                 let ams_id = ams_id as i32;
                 let tray_id = tray_id as i32;
 
-                if let (Ok(tag_info), Ok(encode_cooke)) = (
+                if let (Ok(tag_info), Ok(encode_cookie)) = (
                     TagInformation::from_descriptor(encoded_descriptor),
                     serde_json::from_str::<EncodeCookie>(cookie),
                 ) {
@@ -1322,14 +1325,14 @@ impl SpoolTagObserver for ViewModel {
                     }
                     if let Some(mut tag_info) = tag_info_clone {
                         let mut weight_directive = WeightStoreDirective::UseStoreCurrentWeight;
-                        if let ScaleWeight::Stable(stable_weight) = encode_cooke.scale_weight {
+                        if let ScaleWeight::Stable(stable_weight) = encode_cookie.scale_weight {
                             if stable_weight != 0 {
                                 // The threshold is set in SpoolEase Scale as const 5g
                                 weight_directive = WeightStoreDirective::ProvidedCurrentWeight(stable_weight);
                             }
                         }
-                        if !encode_cooke.spool_id.is_empty() {
-                            tag_info.id = Some(encode_cooke.spool_id);
+                        if !encode_cookie.spool_id.is_empty() {
+                            tag_info.id = Some(encode_cookie.spool_id);
                         }
                         if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
                             tag_info,
@@ -1477,10 +1480,7 @@ impl FrameworkObserver for ViewModel {
             term_info!(&"-".repeat(66));
             term_info!("Initialization completed successfully");
             term_info!(&"-".repeat(66));
-            self.ui_weak
-                .unwrap()
-                .global::<crate::app::AppState>()
-                .invoke_initialization_completed();
+            self.ui_weak.unwrap().global::<crate::app::AppState>().invoke_initialization_completed();
         } else {
             // TODO: This event here goes to the AppState and not to Framework, think about that.
             self.ui_weak
@@ -1691,16 +1691,19 @@ struct StoreWriteTagCookie {
 impl Cookie for StoreWriteTagCookie {}
 
 impl StoreObserver for ViewModel {
-    fn on_tag_stored(&mut self, result: Result<String, String>, cookie: Box<dyn AnyClone>) {
+    fn on_tag_stored(&mut self, result: Result<Option<String>, String>, cookie: Box<dyn AnyClone>) {
         if let Ok(cookie) = cookie.into_any().downcast::<StoreWriteTagCookie>() {
             let ui = self.ui_weak.unwrap();
             let ui_app_state = ui.global::<crate::app::AppState>();
             // on error we update on any failure to store using same message - for consistency
+            // id == None means no database (sd card) available
             match result {
                 Ok(id) => {
                     if [StoreRequestOrigin::Scan, StoreRequestOrigin::Encode].contains(&cookie.store_request_origin) {
                         if let Some(ref mut tag_info) = self.filament_staging.borrow_mut().tag_info_mut() {
-                            tag_info.id = Some(id.clone());
+                            if let Some(id) = &id {
+                                tag_info.id = Some(id.clone());
+                            }
                             let ui = self.ui_weak.clone();
                             if let Some(ui_spool_info) = self.tag_info_to_ui_spool_info(tag_info) {
                                 ui.unwrap()
@@ -1710,8 +1713,17 @@ impl StoreObserver for ViewModel {
                         }
                     }
                     if cookie.notify_scale {
-                        self.spool_scale_model.borrow().button_response(true);
-                        ui_app_state.invoke_show_spoolscale_dialog("Updated Filament Weight".to_shared_string(), crate::app::StatusType::Success);
+                        if let Some(id) = &id {
+                            self.spool_scale_model.borrow().button_response(true);
+                            ui_app_state.invoke_show_spoolscale_dialog(format!("Updated Filament Weight\n\nFor Spool {id}").into(), crate::app::StatusType::Success);
+                        } else {
+                            self.spool_scale_model.borrow().button_response(false);
+                            // We use the same UI style message on any error writing to store for consistency, so it's not really 'spoolscale' dialog
+                            ui_app_state.invoke_show_spoolscale_dialog(
+                                "Operation Not Allowed\n\nDatabase Missing or Unavailable".to_shared_string(),
+                                crate::app::StatusType::Error,
+                            );
+                        }
                     }
                 }
                 Err(err) => {

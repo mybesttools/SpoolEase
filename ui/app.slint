@@ -229,7 +229,7 @@ export global AppState {
     public function initialization_completed() {
         if self.control-state == ControlState.Booting {
             self.control-state = ControlState.Ready;
-          }
+        }
     }
 
     public function boot-failed(status: string) {
@@ -298,8 +298,9 @@ export global AppState {
     public function encoding-succeeded(ams-id: int, tray-id: int) {
       // 254 - External Tray
       // 999 - Staging
+      // 998 - From blank
         self.control-state = ControlState.PostAction;
-        self.user-message = (tray-id == 999 ? "Encoding\nStaging Filament\nSucceeded" : tray-id == 254 ? "Encoding\nExternal Tray Filament\nSucceeded" : "Encoding\nAMS \{ams-id + 1}, Slot \{tray-id + 1} Filament\nSucceeded");
+        self.user-message = (tray-id == 998) ? "Encoding Succeeded" : (tray-id == 999 ? "Encoding\nStaging Filament\nSucceeded" : tray-id == 254 ? "Encoding\nExternal Slot Filament\nSucceeded" : "Encoding\nAMS \{ams-id + 1}, Slot \{tray-id + 1} Filament\nSucceeded");
         self.user-message-type = StatusType.Success;
         self.stop-highlight-tray();
     }

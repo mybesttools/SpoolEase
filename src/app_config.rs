@@ -355,7 +355,6 @@ impl AppConfig {
                 }
             }
             if !skip_store {
-                debug!(">>>>> Filaments to store: {custom_filaments}");
                 self.framework
                     .borrow()
                     .store(CUSTOM_FILAMENTS_CONFIG_KEY.to_string(), custom_filaments.clone())?;

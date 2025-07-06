@@ -75,6 +75,7 @@ pub struct BambuPrinter {
     virty_tray_dirty: bool,
     pub calibrations: HashMap<String, HashMap<i32, Calibration>>,
     write_packets: Rc<embassy_sync::channel::Channel<embassy_sync::blocking_mutex::raw::NoopRawMutex, crate::my_mqtt::BufferedMqttPacket, 3>>,
+    #[allow(dead_code)]
     restart_printer: Rc<embassy_sync::signal::Signal<embassy_sync::blocking_mutex::raw::NoopRawMutex, i32>>,
     observers: Vec<alloc::rc::Weak<RefCell<dyn BambuPrinterObserver>>>,
     app_config: Rc<RefCell<AppConfig>>,
@@ -371,6 +372,7 @@ impl BambuPrinter {
         }
     }
 
+    #[allow(dead_code)]
     pub fn reset_printer(&mut self) {
         let empty = Self::internal_new(
             self.printer_number,
