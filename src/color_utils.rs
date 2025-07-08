@@ -93,7 +93,7 @@ pub fn get_color_name(r: u8, g: u8, b: u8) -> (&'static str, &'static str) {
     (closest_simple_color, closest_complex_color)
 }
 
-static COLOR_NAMES: [(&str, RGB, &str); 147] = [
+static COLOR_NAMES: [(&str, RGB, &str); 148] = [
     // css name, rgb, simple color name
     ("aqua", RGB::new(0, 255, 255), "Cyan"),
     ("aliceblue", RGB::new(240, 248, 255), "Light Blue"),
@@ -175,6 +175,7 @@ static COLOR_NAMES: [(&str, RGB, &str); 147] = [
     ("darkgoldenrod", RGB::new(184, 134, 11), "Brown"),
     ("mediumorchid", RGB::new(186, 85, 211), "Purple"),
     ("rosybrown", RGB::new(188, 143, 143), "Light Red"),
+    ("lightred", RGB::new(255, 127, 127), "Light Red"),
     ("darkkhaki", RGB::new(189, 183, 107), "Olive"),
     ("silver", RGB::new(192, 192, 192), "Gray"),
     ("mediumvioletred", RGB::new(199, 21, 133), "Magenta"),
