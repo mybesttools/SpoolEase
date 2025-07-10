@@ -375,7 +375,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                     if let Some(spools_db) = store.spools_db.get() {
                         if !use_spool_id.is_empty() && !spools_db.records.borrow().contains_key(&use_spool_id) {
                             error!("Software Logic Error, encoded from id that isn't found");
-                            store.notify_tag_stored(Err("Internal Software Error, encoded ID not found"), cookie);
+                            store.notify_tag_stored(Err(&format!("Internal Software Error, encoded ID not found {use_spool_id}")), cookie);
                             continue;
                         }
                         let spool_id_from_tag_id_clone = store.tag_id_index.borrow().get(&tag_id_hex).cloned();
