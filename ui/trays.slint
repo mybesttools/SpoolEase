@@ -92,7 +92,7 @@ component Spool inherits Rectangle {
     }
 
     tray-border := Rectangle {
-        border-width: area.pressed || (AppState.highlight-trays && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-tray == tray-state.id && AppState.highlight-tray-flash)  ? 4px 
+        border-width: area.pressed || (AppState.highlight-trays && tray-state.spool-state == UiTrayState.Ready && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-tray == tray-state.id && AppState.highlight-tray-flash)  ? 4px 
                       : 1px;
         border-color: self.border-width == 1px ? black : utils.contrasting_color(root.background);
     }
