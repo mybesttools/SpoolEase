@@ -23,14 +23,16 @@ use framework::{
     terminal::{self, term_mut, TerminalObserver},
 };
 
-use crate::app::EncodeRequest;
+use crate::app::{EncodeRequest, FilamentInfoMode};
 use crate::app_config::{BASE_FILAMENTS, FILAMENT_BRAND_NAMES, SPOOLS_CATALOG};
 use crate::bambu::{FilamentInfo, TrayBits};
 use crate::color_utils::get_color_name;
 use crate::filament_staging::{self, StagingOrigin};
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
-use crate::store::{store_safe_time_now, AnyClone, Cookie, FieldsOverrideDirective, Store, StoreObserver, StoreOp, TagFileDirective, WeightStoreDirective};
+use crate::store::{
+    store_safe_time_now, AnyClone, Cookie, FieldsOverrideDirective, Store, StoreObserver, StoreOp, TagFileDirective, WeightStoreDirective,
+};
 use crate::web_app::EncodeInfoDTO;
 use crate::{
     app_config::AppConfig,
@@ -784,7 +786,7 @@ impl ViewModel {
                 }
             };
 
-            tag_info_to_encode.encode_time =  store_safe_time_now();
+            tag_info_to_encode.encode_time = store_safe_time_now();
 
             // In case of encode from blank, clean the scratch-pad used
             // If want to allow to return in case of cancel, need to move this to after encode success
@@ -932,6 +934,19 @@ impl ViewModel {
 
         let staging_borrow = self.filament_staging.borrow();
         let bambu_borrow = self.bambu_printer_model.borrow();
+
+        // This is a bit delicate here
+        // To display/encode there are two potential sources of information - the tray information and the tag information.
+        // tray information exists with tray_is is external tray or ams trays
+        // tag information exist when a tray has a tag inside (not always) or in staging
+        // when from blank (998) nothing is available at start but built in encode_from_blank variable
+        // Then, tray takes precedence over tag information
+        // Tag information is used based on if there are differences in tray information and tag information (so for example color name will be used if color codes are the same)
+        // On top of that, there are differences in case of encode and in case of display
+        //  In case of display we show the inventory-id, but in case of encode we don't want to override the inventory-id so it won't show the inventory-id and will be empty
+        //  Later either the user can set an explicit ID to use, or on the tag_id itself when encoded if match will mark off the previous id record and create a new one,
+
+        // Start first with getting the relevant tag information and the filament information
         let (filament_info, tag_info) = match tray_id {
             -1 => {
                 // Special case to avoid a call after encode_request is cleared
@@ -973,9 +988,9 @@ impl ViewModel {
                 // Standard trays
                 // let bambu = moved_bambu.borrow();
                 let tray = &bambu_borrow.ams_trays()[tray_id as usize];
-                if let Some(calibration) = bambu_borrow.get_tray_calibration(tray) {
-                    encode_request_display.pa_line2 = format!("{}, {}", calibration.k_value, calibration.name,).into();
-                }
+                // if let Some(calibration) = bambu_borrow.get_tray_calibration(tray) {
+                //     encode_request_display.pa_line2 = format!("{}, {}", calibration.k_value, calibration.name,).into();
+                // }
                 if let bambu::Filament::Known(filament_info) = &tray.filament {
                     (Some(filament_info.clone()), &tray.tag_info)
                 } else {
@@ -989,28 +1004,51 @@ impl ViewModel {
         };
 
         // Case when tag used already contains id
-        if let Some(tag_info) = tag_info {
-            if let Some(id) = &tag_info.id {
-                encode_request.id = id.to_shared_string();
+        if mode == FilamentInfoMode::View {
+            if let Some(tag_info) = tag_info {
+                if let Some(id) = &tag_info.id {
+                    encode_request.id = id.to_shared_string();
+                }
             }
         }
 
         // Case when id was selected (differently) from UI
         // In such case need to fetch from store the data and fill it in
 
+        let first_request_to_display = encode_request_display.filament_type.is_empty();
+
         if let Some(filament_info) = filament_info {
-            let first_request_to_display = encode_request_display.filament_type.is_empty(); // checking tray_type is empty to know if it is the first time, later if user changes to empty some value it shouldn't be overriden
             if first_request_to_display {
+                // checking tray_type is empty to know if it is the first time, later if user changes to empty some value it shouldn't be overriden
                 if let Some(tag_info) = tag_info {
-                    if encode_request.brand.is_empty() && tag_info.brand.is_some() {
-                        encode_request.brand = tag_info.brand.as_ref().unwrap().to_shared_string();
+                    let mut material_changed_from_tag = false;
+                    let mut color_code_changed_from_tag = false;
+                    if let Some(tag_filament_info) = &tag_info.filament {
+                        if tag_filament_info.tray_color != filament_info.tray_color {
+                            color_code_changed_from_tag = true;
+                        }
+                        if tag_filament_info.tray_type != filament_info.tray_type || tag_filament_info.tray_info_idx != filament_info.tray_info_idx {
+                            material_changed_from_tag = true;
+                        }
                     }
-                    if encode_request.filament_subtype.is_empty() && tag_info.filament_subtype.is_some() {
-                        encode_request.filament_subtype = tag_info.filament_subtype.as_ref().unwrap().to_shared_string();
+                    // if tray filament type didn't change from the tag, then we can use the brand, subtype,
+                    if !material_changed_from_tag {
+                        if encode_request.brand.is_empty() && tag_info.brand.is_some() {
+                            encode_request.brand = tag_info.brand.as_ref().unwrap().to_shared_string();
+                        }
+                        if encode_request.filament_subtype.is_empty() && tag_info.filament_subtype.is_some() {
+                            encode_request.filament_subtype = tag_info.filament_subtype.as_ref().unwrap().to_shared_string();
+                        }
                     }
-                    if encode_request.color_name.is_empty() && tag_info.color_name.is_some() {
-                        encode_request.color_name = tag_info.color_name.as_ref().unwrap().to_shared_string();
+
+                    // if tray filament color code didn't change from tag we can use tag color name, otherwise we calculate name again
+                    #[allow(clippy::collapsible_if)]
+                    if !color_code_changed_from_tag {
+                        if encode_request.color_name.is_empty() && tag_info.color_name.is_some() {
+                            encode_request.color_name = tag_info.color_name.as_ref().unwrap().to_shared_string();
+                        }
                     }
+                    // If there is tag_info,  there is always also filament_info so can do it here instead of a separate tag_info unwrapping outside the if filament_info
                     if encode_request.note.is_empty() && tag_info.note.is_some() {
                         encode_request.note = tag_info.note.as_ref().unwrap().to_shared_string();
                     }
@@ -1020,8 +1058,12 @@ impl ViewModel {
                     if encode_request.weight_core == 0 && tag_info.weight_core.is_some() {
                         encode_request.weight_core = tag_info.weight_core.unwrap();
                     }
-                    if encode_request.weight_new == 0 && tag_info.weight_new.is_some() {
-                        encode_request.weight_new = tag_info.weight_new.unwrap();
+                    // in case of encode we don't copy weight_new
+                    #[allow(clippy::collapsible_if)]
+                    if mode == FilamentInfoMode::View {
+                        if encode_request.weight_new == 0 && tag_info.weight_new.is_some() {
+                            encode_request.weight_new = tag_info.weight_new.unwrap();
+                        }
                     }
                 }
 
@@ -1717,7 +1759,10 @@ impl StoreObserver for ViewModel {
                     if cookie.notify_scale {
                         if let Some(id) = &id {
                             self.spool_scale_model.borrow().button_response(true);
-                            ui_app_state.invoke_show_spoolscale_dialog(format!("Updated Filament Weight\n\nFor Spool {id}").into(), crate::app::StatusType::Success);
+                            ui_app_state.invoke_show_spoolscale_dialog(
+                                format!("Updated Filament Weight\n\nFor Spool {id}").into(),
+                                crate::app::StatusType::Success,
+                            );
                         } else {
                             self.spool_scale_model.borrow().button_response(false);
                             // We use the same UI style message on any error writing to store for consistency, so it's not really 'spoolscale' dialog
