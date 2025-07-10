@@ -1,5 +1,6 @@
 import { Utils } from "utils.slint";
 import { AppConsts, AppState, ControlState, SpoolScaleState, AppBackend, UiTray, UiFilamentState, UiTrayState } from "app.slint";
+import { MyText } from "framework/widgets.slint";
 
 /////////////////////////////////////////////
 
@@ -7,6 +8,12 @@ component AmsButton inherits Window {
     in property <int> ams-id;
     in property <bool> active;
     in property <[UiTray]> trays-state;
+    function slot-with-spool(tray: UiTray) -> bool {
+        return tray.spool-state == UiTrayState.Ready || tray.spool-state == UiTrayState.Loading || tray.spool-state == UiTrayState.Loaded || tray.spool-state == UiTrayState.Unloading;
+    }
+    function slot-with-known-color(tray: UiTray) -> bool {
+        return tray.filament.state != UiFilamentState.Unknown;
+    }
 
     if ams-id != -1: Rectangle {
         height: parent.height;
@@ -23,12 +30,29 @@ component AmsButton inherits Window {
             spacing: 3px + (active ? 0px : 3px);
             for tray-id in [0, 1, 2, 3]: Rectangle {
                 height: parent.height - parent.padding-top - parent.padding-bottom - 3px * 2;
-                background: trays-state[ams-id * 4 + tray-id + 1].filament.state == UiFilamentState.Unknown ? AppConsts.no-color : trays-state[ams-id * 4 + tray-id + 1].filament.color;
+                background: slot-with-spool(trays-state[ams-id * 4 + tray-id + 1]) && slot-with-known-color(trays-state[ams-id * 4 + tray-id + 1]) ? trays-state[ams-id * 4 + tray-id + 1].filament.color : AppConsts.no-color;
                 Rectangle {
                     height: parent.height;
                     width: parent.width;
                     border-color: black;
                     border-width: 1px;
+                    if !slot-with-known-color(trays-state[ams-id * 4 + tray-id + 1]) && slot-with-spool(trays-state[ams-id * 4 + tray-id + 1]): MyText {
+                        text: "?";
+                        color: white;
+                    }
+                }
+
+                if !slot-with-spool(trays-state[ams-id * 4 + tray-id + 1]): Rectangle {
+                    height: Math.min(parent.height, parent.width) - 4px;
+                    width: self.height;
+                    border-color: black;
+                    border-width: 1px;
+                    background: white;
+                    border-radius: Math.min(self.width, self.height) / 2;
+                    MyText {
+                        text: trays-state[ams-id * 4 + tray-id + 1].spool-state == UiTrayState.Unknown ? "?" : "−";
+                        color: black;
+                    }
                 }
             }
         }
@@ -66,7 +90,7 @@ component Spool inherits Rectangle {
             utils := Utils { }
 
             Text {
-                text: tray-state.spool-state == UiTrayState.Unknown ? "?" : tray-state.spool-state == UiTrayState.Empty ? "" : tray-state.spool-state == UiTrayState.Spool ? "!" : tray-state.spool-state == UiTrayState.Reading ? "..." : "✓";
+                text: tray-state.spool-state == UiTrayState.Unknown ? "?" : tray-state.spool-state == UiTrayState.Empty ? "−" : tray-state.spool-state == UiTrayState.Spool ? "↺" : tray-state.spool-state == UiTrayState.Reading ? "↻" : "✓";
                 color: utils.contrasting_color(parent.background);
                 font-size: 60px;
             }
@@ -92,20 +116,19 @@ component Spool inherits Rectangle {
     }
 
     tray-border := Rectangle {
-        border-width: area.pressed || (AppState.highlight-trays && tray-state.spool-state == UiTrayState.Ready && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-tray == tray-state.id && AppState.highlight-tray-flash)  ? 4px 
-                      : 1px;
+        border-width: area.pressed || (AppState.highlight-trays && tray-state.spool-state == UiTrayState.Ready && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-tray == tray-state.id && AppState.highlight-tray-flash) ? 4px : 1px;
         border-color: self.border-width == 1px ? black : utils.contrasting_color(root.background);
     }
 
     if tray-state.tagged: tag := Rectangle {
-      x: 10px;
-      y: 10px;
-      width: 15px;
-      height: 20px;
-      background: green;
-      border-radius: 3px;
-      border-color: black;
-      border-width: 1px;
+        x: 10px;
+        y: 10px;
+        width: 15px;
+        height: 20px;
+        background: green;
+        border-radius: 3px;
+        border-color: black;
+        border-width: 1px;
     }
 
     area := TouchArea {
@@ -187,7 +210,7 @@ export component Trays {
                         AppBackend.set-staging-to-tray(trays-state[index].id);
                     } else if AppState.control-state == ControlState.EncodeSelectSource && trays-state[index].filament.state == UiFilamentState.Known {
                         AppState.encode-select-tray(index);
-                    } else if (AppState.control-state == ControlState.Ready || AppState.control-state == ControlState.PostAction ) && trays-state[index].filament.state == UiFilamentState.Known {
+                    } else if (AppState.control-state == ControlState.Ready || AppState.control-state == ControlState.PostAction) && trays-state[index].filament.state == UiFilamentState.Known {
                         AppState.show-filament-information(index);
                     }
                 }
