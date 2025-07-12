@@ -30,9 +30,7 @@ use crate::color_utils::get_color_name;
 use crate::filament_staging::{self, StagingOrigin};
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
-use crate::store::{
-    store_safe_time_now, AnyClone, Cookie, FieldsOverrideDirective, Store, StoreObserver, StoreOp, TagFileDirective, WeightStoreDirective,
-};
+use crate::store::{store_safe_time_now, AnyClone, Cookie, Store, StoreObserver, StoreOp, TagOperation};
 use crate::web_app::EncodeInfoDTO;
 use crate::{
     app_config::AppConfig,
@@ -595,7 +593,8 @@ impl ViewModel {
         encode_request.filament_subtype = encode_info.filament_subtype.to_shared_string();
         encode_request.color_name = encode_info.color_name.to_shared_string();
         encode_request.note = encode_info.note.to_shared_string();
-        if encode_request.tray_id == 998 {
+        if encode_request.tray_id == 998 || encode_request.tray_id == 999 {
+            // Allow full editing only for staging and tray, enforced also on client so maybe redundant here
             let slicer_filament_enriched_info = if !encode_info.slicer_filament.is_empty() {
                 self.get_filament_info(&encode_info.slicer_filament)
             } else {
@@ -701,22 +700,13 @@ impl ViewModel {
     }
 
     pub fn tag_info_to_encode(&self, encode_request: &EncodeRequest) -> Result<TagInformation, String> {
-        let moved_filament_staging = self.filament_staging.clone();
         let moved_bambu_printer = self.bambu_printer_model.clone();
         let tray_id = if let Ok(tray_id) = usize::try_from(encode_request.tray_id) {
             tray_id
         } else {
             return Err("Currently Not Encoding".to_string());
         };
-        let borrowed_filament_staging = moved_filament_staging.borrow();
-        let mut tag_info_to_encode = if tray_id == 999 {
-            // Encode from Staging
-            if let Some(tag_info) = &borrowed_filament_staging.tag_info() {
-                tag_info.clone()
-            } else {
-                return Err("Internal Error Encoding from Staging".to_string());
-            }
-        } else if tray_id == 998 {
+        let mut tag_info_to_encode = if tray_id == 998 || tray_id == 999 {
             // Encode from blank, manual data only
             let tag_info = self.encode_from_blank.clone();
             tag_info.unwrap() // when we get here this should always pass
@@ -788,9 +778,9 @@ impl ViewModel {
 
             tag_info_to_encode.encode_time = store_safe_time_now();
 
-            // In case of encode from blank, clean the scratch-pad used
+            // In case of encode from blank or staging (which is copied to blank), clean the scratch-pad used
             // If want to allow to return in case of cancel, need to move this to after encode success
-            if tray_id == 998 {
+            if tray_id == 998 || tray_id == 999 {
                 moved_view_model.borrow_mut().encode_from_blank = None;
             }
 
@@ -840,7 +830,7 @@ impl ViewModel {
                 let mut encode_request = ui_app_state.get_curr_encode_request();
                 let encode_request_display = ui_app_state.get_curr_encode_request_display();
                 if let Some(spool_rec) = moved_store.get_spool_by_id(spool_id.as_str()) {
-                    let from_blank_request = encode_request.tray_index == 998;
+                    let from_blank_request = encode_request.tray_index == 998 || encode_request.tray_index == 999;
                     if spool_rec.tag_id.is_empty() {
                         if spool_rec.material_type.as_str() == encode_request_display.filament_type.as_str() || from_blank_request {
                             encode_request.id = spool_id;
@@ -855,7 +845,7 @@ impl ViewModel {
                             encode_request.color_name = spool_rec.color_name.to_shared_string();
                             encode_request.note = spool_rec.note.to_shared_string();
 
-                            if encode_request.tray_index == 998 {
+                            if encode_request.tray_index == 998 || encode_request.tray_index == 999{
                                 let mut view_model_borrow_mut = moved_view_model.borrow_mut();
                                 if from_blank_request {
                                     let slicer_filament_enriched_info = if !spool_rec.slicer_filament.is_empty() {
@@ -906,7 +896,15 @@ impl ViewModel {
             .unwrap()
             .global::<crate::app::AppBackend>()
             .on_notify_start_encode(move |tray_id| {
-                if tray_id == 998 {
+                if tray_id == 999 {
+                    let staging_tag_info = moved_view_model.borrow().filament_staging.borrow().tag_info().clone();
+                    if staging_tag_info.is_some() {
+                        moved_view_model.borrow_mut().encode_from_blank = staging_tag_info;
+                        return;
+                    }
+                }
+                if tray_id == 998 || tray_id == 999 {
+                    // 999 if previous if didn't work out
                     let blank_tag_info = TagInformation {
                         filament: Some(FilamentInfo::new()),
                         ..Default::default()
@@ -953,7 +951,8 @@ impl ViewModel {
                 return;
             }
             999 | 998 => {
-                let tag_info_source = if tray_id == 999 {
+                // For staging (999) for View - use the staging data, for encode use blank data (which is copied into when encode starts)
+                let tag_info_source = if tray_id == 999 && mode == FilamentInfoMode::View {
                     staging_borrow.tag_info()
                 } else {
                     &self.encode_from_blank
@@ -1003,12 +1002,9 @@ impl ViewModel {
             }
         };
 
-        // Case when tag used already contains id
-        if mode == FilamentInfoMode::View {
-            if let Some(tag_info) = tag_info {
-                if let Some(id) = &tag_info.id {
-                    encode_request.id = id.to_shared_string();
-                }
+        if let Some(tag_info) = tag_info {
+            if let Some(id) = &tag_info.id {
+                encode_request.id = id.to_shared_string();
             }
         }
 
@@ -1368,11 +1364,11 @@ impl SpoolTagObserver for ViewModel {
                             .invoke_encoding_failed(SharedString::from("Descriptor Generation Error"));
                     }
                     if let Some(mut tag_info) = tag_info_clone {
-                        let mut weight_directive = WeightStoreDirective::UseStoreCurrentWeight;
+                        let mut weight = None;
                         if let ScaleWeight::Stable(stable_weight) = encode_cookie.scale_weight {
                             if stable_weight != 0 {
                                 // The threshold is set in SpoolEase Scale as const 5g
-                                weight_directive = WeightStoreDirective::ProvidedCurrentWeight(stable_weight);
+                                weight = Some(stable_weight);
                             }
                         }
                         if !encode_cookie.spool_id.is_empty() {
@@ -1380,9 +1376,7 @@ impl SpoolTagObserver for ViewModel {
                         }
                         if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
                             tag_info,
-                            tag_file: TagFileDirective::AlwaysWrite,
-                            weight: weight_directive,
-                            fields: FieldsOverrideDirective::TagOverride, // when encoding, the encode data should overide conflicting fields
+                            tag_operation: TagOperation::EncodeTag { weight },
                             cookie: Box::new(StoreWriteTagCookie {
                                 notify_scale: false,
                                 store_request_origin: StoreRequestOrigin::Encode,
@@ -1407,9 +1401,7 @@ impl SpoolTagObserver for ViewModel {
                     if let Some(tag_info) = tag_info_clone {
                         if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
                             tag_info,
-                            tag_file: TagFileDirective::WriteIfMissing,
-                            weight: WeightStoreDirective::UseStoreCurrentWeight,
-                            fields: FieldsOverrideDirective::StoreOverride, // when scanning, the store should overide conflicting fields
+                            tag_operation: TagOperation::ReadTag,
                             cookie: Box::new(StoreWriteTagCookie {
                                 notify_scale: false,
                                 store_request_origin: StoreRequestOrigin::Scan,
@@ -1669,9 +1661,7 @@ impl SpoolScaleObserver for ViewModel {
                         Some(false)
                     } else if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
                         tag_info: tag_info.clone(),
-                        tag_file: TagFileDirective::WriteIfMissing,
-                        weight: WeightStoreDirective::ProvidedCurrentWeight(weight),
-                        fields: FieldsOverrideDirective::StoreOverride,
+                        tag_operation: TagOperation::UpdateWeight { weight },
                         cookie: Box::new(StoreWriteTagCookie {
                             notify_scale: true,
                             store_request_origin: StoreRequestOrigin::UpdateWeight,

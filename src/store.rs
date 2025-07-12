@@ -1,11 +1,11 @@
 use crate::csvdb::deserialize_optional;
+use alloc::borrow::ToOwned;
 use core::{any::Any, cell::RefCell};
 use embassy_time::Instant;
 use hashbrown::HashMap;
 use once_cell::unsync::OnceCell;
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
-use alloc::borrow::ToOwned;
 
 use alloc::{
     borrow::Cow,
@@ -59,31 +59,22 @@ pub enum StoreError {
 pub enum WeightStoreDirective {
     ProvidedCurrentWeight(i32),
     UseStoreCurrentWeight,
-    ClearCurrentWeight,
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-pub enum TagFileDirective {
-    SkipWrite,
-    AlwaysWrite,
-    WriteIfMissing,
 }
 
 #[derive(Debug)]
-pub enum FieldsOverrideDirective {
-    TagOverride,
-    StoreOverride,
+pub enum TagOperation {
+    EncodeTag { weight: Option<i32> },
+    ReadTag,
+    UpdateWeight { weight: i32 },
 }
 
 #[derive(Debug)]
 pub enum StoreOp {
     WriteTag {
         tag_info: TagInformation,
-        tag_file: TagFileDirective,
-        weight: WeightStoreDirective,
+        tag_operation: TagOperation,
+        // weight: WeightStoreDirective,
         cookie: Box<dyn AnyClone>,
-        fields: FieldsOverrideDirective,
     },
 }
 
@@ -357,209 +348,307 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
         match receiver.receive().await {
             StoreOp::WriteTag {
                 tag_info,
-                tag_file,
-                weight,
-                fields,
+                tag_operation,
                 cookie,
             } => {
-                if db_available {
-                    let filament_info = tag_info.filament.unwrap_or(FilamentInfo::new());
-                    let tag_id_hex = tag_id_hex(tag_info.tag_id.as_ref().unwrap());
-                    let tag_id_already_exist;
-                    let mut existing_record_current_weight = None;
-                    let mut existing_record_current_note = "".to_string();
-                    let mut use_spool_id = tag_info.id.unwrap_or_default();
+                let mut spool_rec; // to database and to file
 
+                if let Some(spools_db) = store.spools_db.get() {
+                    let request_tag_id = tag_id_hex(tag_info.tag_id.as_ref().unwrap());
+                    let request_spool_id = tag_info.id.clone();
                     // debug!(">>>> on entry use_spool_id={use_spool_id}");
 
-                    if let Some(spools_db) = store.spools_db.get() {
-                        if !use_spool_id.is_empty() && !spools_db.records.borrow().contains_key(&use_spool_id) {
-                            error!("Software Logic Error, encoded from id that isn't found");
-                            store.notify_tag_stored(Err(&format!("Internal Software Error, encoded ID not found {use_spool_id}")), cookie);
+                    let use_spool_id; // "" if need to add, otherwise the one to use
+                    let matching_spool_id = store.tag_id_index.borrow().get(&request_tag_id).cloned();
+                    let matching_tag_id = if let Some(request_spool_id) = request_spool_id.as_ref() {
+                        if let Some((tag_id, _spool_id)) = store.tag_id_index.borrow().iter().find(|v| v.1 == request_spool_id) {
+                        Some(tag_id.clone()) 
+                        } else { None }
+                    } else { None };
+
+                    // This is tricky - here is the logic, below in code comments are repeated for clarity
+                    // The outtpub is eventually use_spool_id - which record to write to eventually, existing and which or new
+                    //
+                    // If there isn't an ID
+                    //   if found matching_spool_id for tag_id
+                    //     if encode-tag
+                    //       strike matching_spool_id
+                    //       create new record
+                    //     if read-tag 
+                    //       use matching spool_id
+                    //   else
+                    //     create new record
+                    //
+                    // If there is ID 
+                    //   if it isn't tagged
+                    //     if found matching_spool_id for request_tag_id
+                    //       strike matching_spool_id
+                    //     use ID
+                    //   else (the ID is tagged already)
+                    //     if matching_tag_id == request_tag_id
+                    //       Use ID
+                    //     else
+                    //       if found matching_spool_id for request_tag_id
+                    //         strike old record with request_tag_id
+                    //       use new record (because it is used already, no switches of tags on same record)
+
+                    match tag_info.id {
+                        None => {
+                            // If there isn't an ID
+                            if let Some(matching_spool_id) = matching_spool_id {
+                                //   if found matching_spool_id for tag_id
+                                match tag_operation {
+                                    TagOperation::EncodeTag {weight: _}=> {
+                                        //     if encode-tag
+                                        //       strike matching_spool_id
+                                        // TODO: to function
+                                        let mut record_to_strike = {
+                                            let records_borrow = spools_db.records.borrow();
+                                            let record_wrapper = records_borrow.get(&matching_spool_id).unwrap();
+                                            record_wrapper.data.clone()
+                                        };
+                                        record_to_strike.tag_id = format!("-{}", record_to_strike.tag_id);
+                                        let _ = spools_db.insert(record_to_strike).await;
+                                        store.tag_id_index.borrow_mut().remove(&request_tag_id);
+
+                                        //       create new record
+                                        use_spool_id = None;
+                                    }
+                                    TagOperation::ReadTag => {
+                                        //       use matching spool_id
+                                        use_spool_id = Some(matching_spool_id.clone());
+                                    }
+                                    TagOperation::UpdateWeight {weight: _ }=> {
+                                        error!("Error: Update weight without ID");
+                                        store.notify_tag_stored(Err("Internal Software Error, update weight Spool-ID not found"), cookie);
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                //     create new record
+                                use_spool_id = None;
+                            }
+                        }
+                        Some(request_spool_id) => {
+                            // If there is ID
+                            match matching_tag_id {
+                                None => {
+                                    //   if it isn't tagged
+                                    if let Some(matching_spool_id) = matching_spool_id {
+                                        //     if found matching_spool_id for request_tag_id
+                                        //       strike matching_spool_id
+                                        let mut record_to_strike = {
+                                            let records_borrow = spools_db.records.borrow();
+                                            let record_wrapper = records_borrow.get(&matching_spool_id).unwrap();
+                                            record_wrapper.data.clone()
+                                        };
+                                        record_to_strike.tag_id = format!("-{}", record_to_strike.tag_id);
+                                        let _ = spools_db.insert(record_to_strike).await;
+                                        store.tag_id_index.borrow_mut().remove(&request_tag_id);
+                                    }
+                                    //     use ID
+                                    use_spool_id = Some(request_spool_id.clone());
+                                }
+                                Some(matching_tag_id) => {
+                                    //   else (the ID is tagged already)
+                                    if request_tag_id == matching_tag_id {
+                                        //     if matching_tag_id == request_tag_id
+                                        //       Use ID
+                                        use_spool_id = Some(request_spool_id.clone());
+                                    } else {
+                                        //     if matching_tag_id == request_tag_id
+                                        if matching_tag_id == request_tag_id { 
+                                            use_spool_id = Some(request_spool_id.clone());
+                                        } else {
+                                            //       if found matching_spool_id for request_tag_id
+                                            if let Some(matching_spool_id) = matching_spool_id {
+                                                //         strike old record with request_tag_id
+                                                let mut record_to_strike = {
+                                                    let records_borrow = spools_db.records.borrow();
+                                                    let record_wrapper = records_borrow.get(&matching_spool_id).unwrap();
+                                                    record_wrapper.data.clone()
+                                                };
+                                                record_to_strike.tag_id = format!("-{}", record_to_strike.tag_id);
+                                                let _ = spools_db.insert(record_to_strike).await;
+                                                store.tag_id_index.borrow_mut().remove(&request_tag_id);
+                                            }
+                                            //       use new record (because it is used already, no switches of tags on same record)
+                                            use_spool_id = None;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    info!("use_spool_id = {use_spool_id:?}");
+
+                    // if let Some(spools_db) = store.spools_db.get() {
+                    //     if !use_spool_id.is_empty() && !spools_db.records.borrow().contains_key(&use_spool_id) {
+                    //         error!("Software Logic Error, encoded from id that isn't found");
+                    //         store.notify_tag_stored(Err(&format!("Internal Software Error, encoded ID not found {use_spool_id}")), cookie);
+                    //         continue;
+                    //     }
+                    //     let spool_id_from_tag_id_clone = store.tag_id_index.borrow().get(&tag_id_hex).cloned();
+                    //     if let Some(spool_id_from_tag_id) = spool_id_from_tag_id_clone {
+                    //         // debug!(">>>>> Found tag_id {spool_id_from_tag_id}");
+                    //         if !use_spool_id.is_empty() && spool_id_from_tag_id != use_spool_id {
+                    //             // debug!(">>>> spool_id_from_tag_id ({spool_id_from_tag_id} != use_spool_id {use_spool_id}");
+                    //             // This is a case where encoding using an inventory spool-id when the tag_id is already in use
+                    //             // in such case we need to 'strikeout' the tag_id (add a "-" to the beginning)
+                    //             // practically this means tag_id doen't exist after we are done here
+                    //             let mut record_to_strike = {
+                    //                 let records_borrow = spools_db.records.borrow();
+                    //                 let record_wrapper = records_borrow.get(&spool_id_from_tag_id).unwrap();
+                    //                 record_wrapper.data.clone()
+                    //             };
+                    //             record_to_strike.tag_id = format!("-{}", record_to_strike.tag_id);
+                    //             let _ = spools_db.insert(record_to_strike).await;
+                    //             store.tag_id_index.borrow_mut().remove(&tag_id_hex);
+                    //             tag_id_already_exist = false;
+                    //         } else if let Some(current_rec) = spools_db.records.borrow().get(&spool_id_from_tag_id) {
+                    //             // debug!(
+                    //             //     ">>>> spool_id_from_tag_id ({spool_id_from_tag_id} == use_spool_id {use_spool_id}, and gained access to the record"
+                    //             // );
+                    //             // get the record, should exist if got here, if not fatal error
+                    //             existing_record_current_weight = current_rec.data.weight_current;
+                    //             existing_record_current_note = current_rec.data.note.clone();
+                    //             use_spool_id = current_rec.data.id.clone();
+                    //             tag_id_already_exist = true;
+                    //         } else {
+                    //             error!("Fatal Error: Internal error in tag_id to spool_id mapping, tag exist but not found");
+                    //             store.notify_tag_stored(Err("Internal software error, tag exists but not found"), cookie);
+                    //             continue;
+                    //         }
+                    //     } else {
+                    //         // debug!(">>>>> tag_id doesn't exist (1)");
+                    //         tag_id_already_exist = false;
+                    //     }
+                    // } else {
+                    //     // debug!(">>>>> tag_id doesn't exist (2)");
+                    //     tag_id_already_exist = false;
+                    //     mistake here, this else is on no access to db
+                    // }
+
+                    let (id, added_new_record) = match use_spool_id {
+                        Some(existing_spool_id) => (existing_spool_id, false),
+                        None => ((*store.last_spool_id.borrow() + 1).to_string(), true),
+                    };
+
+                    let curr_record = if added_new_record {
+                        None
+                    } else {
+                        #[allow(clippy::collapsible_if)]
+                        if let Some(curr_csv_rec) = spools_db.records.borrow().get(&id) {
+                            Some(curr_csv_rec.data.clone())
+                        } else {
+                            store.notify_tag_stored(Err(&format!("Internal Software Error\n Using existing record not found {id}")), cookie);
                             continue;
                         }
-                        let spool_id_from_tag_id_clone = store.tag_id_index.borrow().get(&tag_id_hex).cloned();
-                        if let Some(spool_id_from_tag_id) = spool_id_from_tag_id_clone {
-                            // debug!(">>>>> Found tag_id {spool_id_from_tag_id}");
-                            if !use_spool_id.is_empty() && spool_id_from_tag_id != use_spool_id {
-                                // debug!(">>>> spool_id_from_tag_id ({spool_id_from_tag_id} != use_spool_id {use_spool_id}");
-                                // This is a case where encoding using an inventory spool-id when the tag_id is already in use
-                                // in such case we need to 'strikeout' the tag_id (add a "-" to the beginning)
-                                // practically this means tag_id doen't exist after we are done here
-                                let mut record_to_strike = {
-                                    let records_borrow = spools_db.records.borrow();
-                                    let record_wrapper = records_borrow.get(&spool_id_from_tag_id).unwrap();
-                                    record_wrapper.data.clone()
-                                };
-                                record_to_strike.tag_id = format!("-{}", record_to_strike.tag_id);
-                                let _ = spools_db.insert(record_to_strike).await;
-                                store.tag_id_index.borrow_mut().remove(&tag_id_hex);
-                                tag_id_already_exist = false;
-                            } else if let Some(current_rec) = spools_db.records.borrow().get(&spool_id_from_tag_id) {
-                                // debug!(
-                                //     ">>>> spool_id_from_tag_id ({spool_id_from_tag_id} == use_spool_id {use_spool_id}, and gained access to the record"
-                                // );
-                                // get the record, should exist if got here, if not fatal error
-                                existing_record_current_weight = current_rec.data.weight_current;
-                                existing_record_current_note = current_rec.data.note.clone();
-                                use_spool_id = current_rec.data.id.clone();
-                                tag_id_already_exist = true;
-                            } else {
-                                error!("Fatal Error: Internal error in tag_id to spool_id mapping, tag exist but not found");
-                                store.notify_tag_stored(Err("Internal software error, tag exists but not found"), cookie);
-                                continue;
-                            }
-                        } else {
-                            // debug!(">>>>> tag_id doesn't exist (1)");
-                            tag_id_already_exist = false;
-                        }
-                    } else {
-                        // debug!(">>>>> tag_id doesn't exist (2)");
-                        tag_id_already_exist = false;
-                    }
-                    let added_new_record;
-                    if use_spool_id.is_empty() {
-                        // debug!(">>>>> use_spool_id is empty");
-                        // don't change yet the last_spool_id in case store fail
-                        use_spool_id = (*store.last_spool_id.borrow() + 1).to_string();
-                        added_new_record = true;
-                    } else {
-                        // debug!(">>>>> use_spool_id is NOT empty");
-                        added_new_record = false;
-                    }
+                    };
 
-                    let mut spool_rec = SpoolRecord {
-                        id: use_spool_id.clone(),
-                        tag_id: tag_id_hex.clone(),
-                        material_type: filament_info.tray_type,
+                    let tag_info_filament_info = tag_info.filament.unwrap_or(FilamentInfo::new());
+                    spool_rec = SpoolRecord {
+                        id: id.clone(),
+                        tag_id: request_tag_id.clone(),
+
+                        slicer_filament: tag_info_filament_info.tray_info_idx,
+                        material_type: tag_info_filament_info.tray_type,
+
                         material_subtype: tag_info.filament_subtype.unwrap_or_default(),
                         color_name: tag_info.color_name.unwrap_or_default(),
-                        color_code: filament_info.tray_color,
+                        color_code: tag_info_filament_info.tray_color,
                         note: tag_info.note.unwrap_or_default(),
                         brand: tag_info.brand.unwrap_or_default(),
                         weight_advertised: tag_info.weight_advertised,
                         weight_core: tag_info.weight_core,
                         weight_new: tag_info.weight_new,
-                        weight_current: None,
-                        slicer_filament: filament_info.tray_info_idx,
-                        added_time: None,
                         encode_time: tag_info.encode_time,
+                        weight_current: curr_record.as_ref().and_then(|rec| rec.weight_current), // potentially modified later
+                        added_time: curr_record.as_ref().and_then(|rec| rec.added_time).or(store_safe_time_now()),
                     };
-                    if let Some(spools_db) = store.spools_db.get() {
-                        spool_rec.weight_current = match weight {
-                            WeightStoreDirective::ProvidedCurrentWeight(weight_current) => Some(weight_current),
-                            WeightStoreDirective::UseStoreCurrentWeight => {
-                                if tag_id_already_exist {
-                                    existing_record_current_weight
-                                } else {
-                                    None
-                                }
-                            }
-                            WeightStoreDirective::ClearCurrentWeight => None,
-                        };
 
-                        if tag_id_already_exist {
-                            match fields {
-                                FieldsOverrideDirective::TagOverride => (),
-                                FieldsOverrideDirective::StoreOverride => spool_rec.note = existing_record_current_note,
+                    match tag_operation {
+                        TagOperation::EncodeTag { weight }=> {
+                            if let Some(weight) = weight {
+                                spool_rec.weight_current = Some(weight);
+                            }
+                            spool_rec.encode_time = store_safe_time_now();
+                        }
+                        TagOperation::ReadTag => {
+                            if let Some(existing_spool_rec) = curr_record {
+                                spool_rec.note = existing_spool_rec.note;
                             }
                         }
-
-                        if !added_new_record {
-                            if let Some(current_rec) = spools_db.records.borrow().get(&use_spool_id) {
-                                spool_rec.added_time = current_rec.data.added_time;
+                        TagOperation::UpdateWeight { weight } => {
+                            if let Some(existing_spool_rec) = curr_record {
+                                spool_rec.note = existing_spool_rec.note;
                             }
+                            spool_rec.weight_current = Some(weight);
                         }
-
-                        // debug!(">>>> Storing {spool_rec:?}");
-
-                        match spools_db.insert(spool_rec.clone()).await {
-                            Ok(true) => {
-                                info!("Stored tag to spools database");
-                                store.notify_tag_stored(Ok(Some(&spool_rec.id)), cookie.clone());
-                            }
-                            Ok(false) => {
-                                info!("Stored tag to spools database, but no change");
-                                store.notify_tag_stored(Ok(Some(&spool_rec.id)), cookie.clone());
-                            }
-                            Err(e) => {
-                                error!("Error storing record to spools database {e}");
-                                store.notify_tag_stored(Err(&format!("Failed to store Tag : {e}")), cookie);
-                                continue;
-                            }
-                        }
-                    } else {
-                        error!("Store for tags not available, SD card removed?");
-                        store.notify_tag_stored(Err("Store for tags not available, SD card removed?"), cookie);
-                        continue;
                     }
 
+                    if !added_new_record {
+                        if let Some(current_rec) = spools_db.records.borrow().get(&id) {
+                            spool_rec.added_time = current_rec.data.added_time;
+                        }
+                    }
+
+                    // debug!(">>>> Storing {spool_rec:?}");
+
+                    match spools_db.insert(spool_rec.clone()).await {
+                        Ok(true) => {
+                            info!("Stored tag to spools database");
+                            store.notify_tag_stored(Ok(Some(&spool_rec.id)), cookie.clone());
+                        }
+                        Ok(false) => {
+                            info!("Stored tag to spools database, but no change");
+                            store.notify_tag_stored(Ok(Some(&spool_rec.id)), cookie.clone());
+                        }
+                        Err(e) => {
+                            error!("Error storing record to spools database {e}");
+                            store.notify_tag_stored(Err(&format!("Failed to store Tag : {e}")), cookie);
+                            continue;
+                        }
+                    }
                     // Store of record succeeded and case of new record added, so need to update index and last_spool_id
                     if added_new_record {
-                        *store.last_spool_id.borrow_mut() = use_spool_id.parse().unwrap();
+                        *store.last_spool_id.borrow_mut() = id.parse().unwrap();
                     }
 
-                    if !tag_id_already_exist {
-                        // add to index if required
-                        store.tag_id_index.borrow_mut().insert(tag_id_hex, use_spool_id);
-                    }
+                    store.tag_id_index.borrow_mut().insert(request_tag_id, id);
+                } else {
+                    store.notify_tag_stored(Ok(None), cookie.clone());
+                    continue;
+                }
 
-                    //////////////////////////////////////////////////////////////////////////////////////////
-                    // Write tag file (or not) ///////////////////////////////////////////////////////////////
-                    //////////////////////////////////////////////////////////////////////////////////////////
-                    if !matches!(tag_file, TagFileDirective::SkipWrite) {
-                        if let Some(tag_id) = &tag_info.tag_id.as_ref() {
-                            if tag_id.len() <= 7 {
-                                if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&spool_rec) {
-                                    let file_store = framework.borrow().file_store();
-                                    let mut file_store = file_store.lock().await;
-                                    let write_only_if_missing = match tag_file {
-                                        TagFileDirective::SkipWrite => panic!("Critical Software Bug"),
-                                        TagFileDirective::AlwaysWrite => false,
-                                        TagFileDirective::WriteIfMissing => true,
-                                    };
-                                    let spool_rec_ext = SpoolRecordExt {
-                                        tag: Some(Cow::Borrowed(&tag_info.origin_descriptor)),
-                                    };
-                                    match serde_json::to_string(&spool_rec_ext) {
-                                        Ok(s) => match file_store.write_file_str(&spool_rec_ext_file_path, 0, &s, write_only_if_missing).await {
-                                            Ok(wrote) => {
-                                                if wrote {
-                                                    info!("Stored tag {tag_id:?} information to file {spool_rec_ext_file_path}");
-                                                } else {
-                                                    info!("Skipped store tag {tag_id:?} information to file {spool_rec_ext_file_path}, file already exists");
-                                                }
-                                            }
-                                            Err(err) => {
-                                                error!("Error writing tag file to {spool_rec_ext_file_path} : {err}");
-                                                store.notify_tag_stored(
-                                                    Err("Inventory updated, but failed writing extended info (1), check logs"),
-                                                    cookie,
-                                                );
-                                                continue;
-                                            }
-                                        },
-                                        Err(e) => {
-                                            error!("Error serializing tag information to store: {e}");
-                                            store.notify_tag_stored(
-                                                Err("Inventory updated, but failed writing extended info (2), check logs"),
-                                                cookie,
-                                            );
-                                            continue;
-                                        }
-                                    }
-                                } else {
-                                    continue;
-                                }
-                            } else {
-                                error!("Can't save tag_id longer than 7 bytes");
-                                store.notify_tag_stored(Err("Inventory updated, but failed writing extended info (3), check logs"), cookie);
+                //////////////////////////////////////////////////////////////////////////////////////////
+                // Write extr info file  ////////////////////////////////////////////////////////////////
+                //////////////////////////////////////////////////////////////////////////////////////////
+                if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&spool_rec) {
+                    let file_store = framework.borrow().file_store();
+                    let mut file_store = file_store.lock().await;
+                    let spool_rec_ext = SpoolRecordExt {
+                        tag: Some(Cow::Borrowed(&tag_info.origin_descriptor)),
+                    };
+                    match serde_json::to_string(&spool_rec_ext) {
+                        Ok(s) => match file_store.write_file_str(&spool_rec_ext_file_path, 0, &s, false).await {
+                            Ok(_) => {
+                                info!("Stored extra spool {} information to file {spool_rec_ext_file_path}", spool_rec.id);
+                            }
+                            Err(err) => {
+                                error!("Error writing tag file to {spool_rec_ext_file_path} : {err}");
+                                store.notify_tag_stored(Err("Inventory updated, but failed writing extended info (1), check logs"), cookie);
                                 continue;
                             }
+                        },
+                        Err(e) => {
+                            error!("Error serializing tag information to store: {e}");
+                            store.notify_tag_stored(Err("Inventory updated, but failed writing extended info (2), check logs"), cookie);
+                            continue;
                         }
                     }
                 } else {
-                    store.notify_tag_stored(Ok(None), cookie.clone());
+                    continue;
                 }
             }
         }
@@ -644,74 +733,3 @@ fn spool_rec_ext_file_path(ext_rec: &SpoolRecord) -> Result<String, InternalErro
 pub fn store_safe_time_now() -> Option<i32> {
     Instant::now().to_date_time().map(|date_time| date_time.timestamp() as i32)
 }
-
-// const FAT_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"; // 35 chars
-//
-// fn encode_to_charset(input: &[u8], charset: &[u8]) -> String {
-//     let base = charset.len() as u16;
-//     assert!((2..=256).contains(&base));
-//
-//     let mut bytes = input.to_vec(); // cloned internally
-//     let mut output = Vec::new();
-//
-//     while bytes.iter().any(|&b| b != 0) {
-//         let mut rem = 0u16;
-//         for b in &mut bytes {
-//             let val = (rem << 8) | *b as u16;
-//             *b = (val / base) as u8;
-//             rem = val % base;
-//         }
-//         output.push(charset[rem as usize] as char);
-//     }
-//
-//     let min_len = ((input.len() * 8) as f64 / (base as f64).log2()).ceil() as usize;
-//     while output.len() < min_len {
-//         output.push(charset[0] as char);
-//     }
-//
-//     output.reverse();
-//     output.into_iter().collect()
-// }
-// pub fn fnv1a_hash(data: &[u8]) -> u64 {
-//     let mut hash = 0xcbf29ce484222325; // FNV offset basis
-//     for byte in data.iter() {
-//         hash ^= *byte as u64;
-//         hash = hash.wrapping_mul(0x100000001b3);
-//     }
-//     hash
-// }
-
-// #[allow(dead_code)]
-// fn decode_from_charset(s: &str, charset: &[u8]) -> Option<Vec<u8>> {
-//     let base = charset.len() as u32;
-//     assert!((2..=256).contains(&base));
-//
-//     // Build char lookup table
-//     let mut char_to_val = [None; 256];
-//     for (i, &c) in charset.iter().enumerate() {
-//         char_to_val[c as usize] = Some(i as u32);
-//     }
-//
-//     // Infer original byte length
-//     let bit_len = (s.len() as f64) * (base as f64).log2();
-//     let byte_len = (bit_len / 8.0).floor() as usize;
-//
-//     let mut result = alloc::vec![0u8; byte_len];
-//
-//     for ch in s.bytes() {
-//         let digit = char_to_val[ch as usize]?; // Invalid char
-//         let mut carry = digit;
-//
-//         for byte in result.iter_mut().rev() {
-//             let val = (*byte as u32) * base + carry;
-//             *byte = (val & 0xFF) as u8;
-//             carry = val >> 8;
-//         }
-//
-//         if carry != 0 {
-//             return None; // Overflow
-//         }
-//     }
-//
-//     Some(result)
-// }
