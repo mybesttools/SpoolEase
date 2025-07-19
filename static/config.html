@@ -1227,7 +1227,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
         }
       }
 
-      function validateCSV4(text, firstColRegex, secondColRegex, thirdColRegex, forthColRegex) {
+      function validateCSV5(text, firstColRegex, secondColRegex, thirdColRegex, forthColRegex, fifthColRegex) {
         if (text.trim() == "") {
           return true;
         }
@@ -1235,7 +1235,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
 
         for (const line of lines) {
           const parts = line.split(",");
-          if (parts.length !== 4) return false; // Ensure exactly four columns
+          if (parts.length !== 5) return false; // Ensure exactly five columns
 
           firstColumn = parts[0].trim();
           if (!firstColRegex.test(firstColumn)) return false;
@@ -1248,6 +1248,9 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
 
           const forthColumn = parts[3].trim();
           if (!forthColRegex.test(forthColumn)) return false;
+
+          const fifthColumn = parts[4].trim();
+          if (!fifthColRegex.test(fifthColumn)) return false;
         }
 
         return true;
@@ -1255,7 +1258,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
 
       function applyFilamentsSettings() {
         const custom_filaments = document.getElementById("custom-filaments-text").value;
-        if (!validateCSV4(custom_filaments, /^.*$/, /^.*$/, /^\d+$/, /^\d+$/)) {
+        if (!validateCSV5(custom_filaments, /^.*$/, /^.*$/, /^\d+$/, /^\d+$/, /^.*$/)) {
           alert("Invalid custom filaments information");
           return;
         }
@@ -1311,8 +1314,9 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
 
               let nozzle_temp_low = json.nozzle_temperature_range_low?.[0] ?? "";
               let nozzle_temp_high = json.nozzle_temperature_range_high?.[0] ?? "";
-
-              results.push(`${filamentId},${csvEscape(name)},${nozzle_temp_low},${nozzle_temp_high}`);
+              let filament_type = json.filament_type?.[0] ?? "";
+              
+              results.push(`${filamentId},${csvEscape(name)},${nozzle_temp_low},${nozzle_temp_high},${filament_type}`);
               uniqueFilamentIds.add(filamentId);
             } catch {}
           }
