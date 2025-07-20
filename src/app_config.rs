@@ -89,6 +89,7 @@ pub struct ScaleConfig {
     pub name: Option<String>,
     #[serde(serialize_with = "serialize_option_ipv4", deserialize_with = "deserialize_option_ipv4")]
     pub ip: Option<Ipv4Address>,
+    pub key: Option<String>, 
 }
 
 pub struct AppConfig {
@@ -97,6 +98,7 @@ pub struct AppConfig {
     pub configured_printers: PrintersConfig,
     pub configured_default_printer: DefaultPrinterConfig,
     pub configured_scale: Option<ScaleConfig>,
+    pub scale_encryption_key: &'static RefCell<Vec<u8>>,
 
     config_processed_ok: Option<bool>,
     pn532_ok: Option<bool>,
@@ -137,6 +139,7 @@ impl AppConfig {
             configured_printers: PrintersConfig { printers: Vec::new() },
             configured_default_printer: DefaultPrinterConfig { serial: None },
             configured_scale: None,
+            scale_encryption_key: crate::mk_static!(RefCell<Vec<u8>>, RefCell::new(alloc::vec![])),
 
             config_processed_ok: None,
             pn532_ok: None,
@@ -199,6 +202,7 @@ impl AppConfig {
         if let Ok(Some(scale_store)) = config {
             if let Ok(scale_config) = serde_json::from_str::<ScaleConfig>(&scale_store) {
                 self.configured_scale = Some(scale_config);
+                self.update_scale_encryption_key();
             }
         }
 
@@ -314,7 +318,19 @@ impl AppConfig {
             self.framework.borrow().store(String::from(SCALE_CONFIG_KEY), scale_store)?;
             self.configured_scale = Some(scale_config);
         }
+        self.update_scale_encryption_key();
         Ok(())
+    }
+
+    pub fn update_scale_encryption_key(&mut self) {
+        if let Some(configured_scale) = &self.configured_scale {
+            if let Some(scale_security_key) = &configured_scale.key {
+                let encryption_key = self.framework.borrow().derive_encryption_key(scale_security_key);
+                self.scale_encryption_key.replace(encryption_key);
+                return;        
+            }
+        }
+        self.scale_encryption_key.replace(alloc::vec![]);
     }
 
     pub fn set_previously_used_cores(

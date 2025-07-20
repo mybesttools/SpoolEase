@@ -22,7 +22,7 @@ use embassy_net::Stack;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
 use embassy_time::{Instant, Timer};
 use embedded_io_async::Write;
-use framework::{debug, error, info, mk_static, prelude::Framework, term_error, term_info, utils::random_u32, warn};
+use framework::{debug, error, framework_web_app::encrypt, info, mk_static, prelude::Framework, term_error, term_info, utils::random_u32, warn};
 use hashbrown::HashSet;
 use shared::scale::{ConsoleToScale, ScaleToConsole};
 
@@ -72,6 +72,12 @@ impl SpoolScale {
         self.console_to_scale
             .try_send(ConsoleToScale::ButtonResponse(success))
             .unwrap_or_else(|e| error!("Failed sending button response request to scale {e:?}"));
+    }
+
+    pub fn get_print_info(&self) {
+        self.console_to_scale
+            .try_send(ConsoleToScale::GetPrintInfo{ test: "It worked !!!".to_string()})
+            .unwrap_or_else(|e| error!("Failed sending get print info request to scale {e:?}"));
     }
 
     pub fn process_message(&mut self, _frame_header: &FrameHeader, payload: &[u8]) {
@@ -569,7 +575,10 @@ pub async fn spool_scale_task(
                 embassy_futures::select::Either3::Third(console_to_scale) => {
                     let json_res = serde_json::to_string(&console_to_scale);
                     match json_res {
-                        Ok(json) => {
+                        Ok(mut json) => {
+                            if matches!(console_to_scale, ConsoleToScale::GetPrintInfo { .. }) {
+                                json = encrypt(&app_config.borrow().scale_encryption_key.borrow(), &json);
+                            }
                             let send_to_scale_header = FrameHeader {
                                 frame_type: FrameType::Text(false),
                                 payload_len: json.len() as u64,

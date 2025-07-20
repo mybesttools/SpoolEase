@@ -607,6 +607,7 @@ struct ScaleConfigDTO {
     available: bool,
     name: Option<String>,
     ip: Option<String>,
+    key: Option<String>,
 }
 encrypted_input!(ScaleConfigDTO);
 
@@ -616,6 +617,7 @@ impl From<ScaleConfigDTO> for ScaleConfig {
             available: v.available,
             ip: v.ip.and_then(|s| s.parse::<Ipv4Addr>().ok()),
             name: v.name.filter(|s| !s.is_empty()),
+            key: v.key.filter(|s| !s.is_empty()),
         }
     }
 }
@@ -625,6 +627,7 @@ impl From<&ScaleConfig> for ScaleConfigDTO {
             available: v.available,
             ip: v.ip.map(|ip| ip.to_string()),
             name: v.name.clone(),
+            key: v.key.clone(),
         }
     }
 }

@@ -212,6 +212,21 @@
         <div class="form-row" style="display: flex; flex-direction: row; gap: 6px;">
           <input type="Checkbox" id="scale-available"><label for="scale-available">SpoolEase Scale Available</label>
         </div>
+
+        <div class="form-row">
+          <label for="scale-key"
+            >Scale Security Key: *
+            </label
+          >
+          <input
+            type="text"
+            id="scale-key"
+            placeholder="Enter Scale Security Key"
+            autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off"
+          />
+        </div>
+
+
         <div class="form-row">
           <label for="scale-name"
             >Scale Device Name:<span
@@ -1346,6 +1361,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
 
       function applyScaleSettings() {
         const scaleForm = document.getElementById("scale-section");
+        const key = document.getElementById("scale-key").value;
         const name = document.getElementById("scale-name").value;
         const available = document.getElementById("scale-available").checked; 
         const ipParts = Array.from(scaleForm.querySelectorAll(".ip-part"));
@@ -1357,7 +1373,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
         }
 
         const applyButton = document.getElementById("scale-apply");
-        const data = { available, name, ip };
+        const data = { available, name, ip, key };
         sendConfigData("/api/scale-config", data, applyButton);
       }
 
@@ -1382,6 +1398,9 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
 
         if (data) {
           document.getElementById("scale-name").value = data.name;
+        }
+        if (data) {
+          document.getElementById("scale-key").value = data.key;
         }
       }
     </script>
