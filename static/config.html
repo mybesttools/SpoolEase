@@ -855,11 +855,17 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
                 </div>
 
                 <div class = "form-row" >
+                  <div style="display: flex; align-items: center; margin-bottom: 0px; margin-top: 0px; padding-bottom: 0px;">
+                    <input class="track-print-consume" type="checkbox" id="tack-print-consume" checked>
+                    <label for="track-print-consume" style="margin-top: 0px; margin-bottom:0px; padding-left: 2px;">Track prints filament consumption</label>
+                  </div>
+                </div>
+                <div class = "form-row">
                   <div style="display: flex; align-items: center; margin-bottom: 0px;">
                     <input class="auto-restore-k" type="checkbox" id="auto-restore-k" checked>
-                    <label for="auto-restore-k" style="margin-top: 6px; padding-left: 2px;">Auto Restore K Values On Printer Restart</label>
+                    <label for="auto-restore-k" style="margin-top: 0px; margin-bottom: 0px; padding-left: 2px;">Auto Restore K Values On Printer Restart</label>
                   </div>
-                  <span>Mainly affects X1, which forgets K on restart.</span>
+                  <span >Mainly affects X1, which forgets K on restart.</span>
                 </div>
 
                 <div style="display: flex; align-items: center;">
@@ -923,6 +929,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
           newPrinterForm.querySelector(".printer-log-filter").checked =
             logsEnabled;
           newPrinterForm.querySelector(".auto-restore-k").checked = printer.auto_restore_k;
+          newPrinterForm.querySelector(".track-print-consume").checked = printer.track_print_consume;
         });
 
         // Setup IP fields for all printers
@@ -1137,6 +1144,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
             ".printer-log-filter",
           ).checked;
           const autoRestoreK = form.querySelector(".auto-restore-k").checked;
+          const trackPrintConsume = form.querySelector(".track-print-consume").checked;
 
           const ipParts = Array.from(form.querySelectorAll(".ip-part"));
           const ipValid = ipParts.every((part) => part.value.trim() !== "");
@@ -1166,6 +1174,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
           }
 
           printer.auto_restore_k = autoRestoreK;
+          printer.track_print_consume = trackPrintConsume;
 
           printers.push(printer);
 

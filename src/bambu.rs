@@ -2,7 +2,7 @@
 // Deal with when to clear tag information, when we know spool taken out
 // Deal with when to copy tag information between trays if only some data change but we know the spool is there
 
-mod bambu_print;
+pub mod bambu_print;
 
 use crate::{
     app_config::{PrinterConfig, MATERIALS},
@@ -11,6 +11,7 @@ use crate::{
 };
 use alloc::{
     borrow::Cow,
+    boxed::Box,
     format,
     rc::Rc,
     string::{String, ToString},
@@ -20,6 +21,7 @@ use bambu_print::PrintProject;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use core::{cell::RefCell, mem::swap, str::FromStr};
 use derivative::Derivative;
+use embassy_executor::raw::TaskStorage;
 use embassy_futures::select::{select, Either};
 use embassy_net::Ipv4Address;
 use embassy_sync::{
@@ -66,6 +68,7 @@ pub struct BambuPrinter {
     pub configured_printer_name: Option<String>,
     pub configured_printer_ip: Option<Ipv4Address>,
     pub auto_restore_k: bool,
+    pub track_print_consume: bool,
     pub printer_name: String,
     pub printer_selector_name: String, // configured_printer_name or if not set then printer_serial which is always available
     pub printer_ip: Ipv4Address,
@@ -89,7 +92,7 @@ pub struct BambuPrinter {
     pub ams_exist_bits: Option<u32>,
     printer_was_disconnected: bool,
     pending_k_restore_sequence: bool,
-    curr_print_project: Option<PrintProject>,
+    pub curr_print_project: Option<PrintProject>,
     tray_tar: i32,
     tray_now: i32,
     tray_pre: i32,
@@ -104,6 +107,7 @@ pub trait BambuPrinterObserver {
         removed_tags: &HashMap<usize, TagInformation>,
     );
     fn on_printer_connect_status(&self, bambu_printer: &mut BambuPrinter, status: bool);
+    fn on_request_gcode_analysis(&self, bambu_printer: &mut BambuPrinter, print_project: &PrintProject);
 }
 
 // Special access to trays fields for dirty tracking
@@ -181,6 +185,8 @@ impl BambuPrinter {
         self.inner_virt_tray = state.virt_tray.into_owned();
         self.inner_nozzle_diameter = state.nozzle_diameter;
         self.ams_exist_bits = state.ams_exist_bits;
+        self.tray_exist_bits = state.tray_exist_bits;
+        self.tray_read_done_bits = state.tray_read_done_bits;
     }
 
     pub async fn load_printer_state(framework: &Rc<RefCell<Framework>>, printer: &Rc<RefCell<BambuPrinter>>) {
@@ -226,6 +232,8 @@ impl BambuPrinter {
                     virt_tray: Cow::Borrowed(printer_borrow.virt_tray()),
                     nozzle_diameter: printer_borrow.inner_nozzle_diameter.clone(),
                     ams_exist_bits: printer_borrow.ams_exist_bits,
+                    tray_exist_bits: printer_borrow.tray_exist_bits,
+                    tray_read_done_bits: printer_borrow.tray_read_done_bits,
                 };
                 printer_state_str = Some(serde_json::to_string(&printer_state).unwrap());
             }
@@ -276,6 +284,7 @@ impl BambuPrinter {
         printer_name: &Option<String>,
         printer_ip: &Option<Ipv4Address>,
         auto_restore_k: bool,
+        track_print_consume: bool,
         write_packets: Rc<embassy_sync::channel::Channel<embassy_sync::blocking_mutex::raw::NoopRawMutex, crate::my_mqtt::BufferedMqttPacket, 3>>,
         app_config: Rc<RefCell<AppConfig>>,
         restart_printer: Rc<embassy_sync::signal::Signal<embassy_sync::blocking_mutex::raw::NoopRawMutex, i32>>,
@@ -289,6 +298,7 @@ impl BambuPrinter {
             printer_name,
             printer_ip,
             auto_restore_k,
+            track_print_consume,
             write_packets,
             app_config,
             restart_printer,
@@ -307,6 +317,7 @@ impl BambuPrinter {
         printer_name: &Option<String>,
         printer_ip: &Option<Ipv4Address>,
         auto_restore_k: bool,
+        track_print_consume: bool,
         write_packets: Rc<embassy_sync::channel::Channel<embassy_sync::blocking_mutex::raw::NoopRawMutex, crate::my_mqtt::BufferedMqttPacket, 3>>,
         app_config: Rc<RefCell<AppConfig>>,
         restart_printer: Rc<embassy_sync::signal::Signal<embassy_sync::blocking_mutex::raw::NoopRawMutex, i32>>,
@@ -343,6 +354,7 @@ impl BambuPrinter {
             configured_printer_ip: *printer_ip,
             configured_printer_name: printer_name.clone(),
             auto_restore_k,
+            track_print_consume,
             printer_ip: printer_ip.unwrap_or(Ipv4Address::new(0, 0, 0, 0)),
             printer_name: printer_name.clone().unwrap_or("Unknown".to_string()),
             printer_selector_name,
@@ -400,6 +412,7 @@ impl BambuPrinter {
             &self.configured_printer_name,
             &self.configured_printer_ip,
             self.auto_restore_k,
+            self.track_print_consume,
             self.write_packets.clone(),
             self.app_config.clone(),
             self.restart_printer.clone(),
@@ -632,7 +645,7 @@ impl BambuPrinter {
     }
 
     fn get_tray_detailed_ready_state(&self, tray_id: Option<usize>) -> TrayState {
-        if self.tray_now <0 || tray_id.is_none() {
+        if self.tray_now < 0 || tray_id.is_none() {
             // because converting to usize
             return TrayState::Ready;
         }
@@ -645,7 +658,7 @@ impl BambuPrinter {
             loaded = Some(self.tray_now as usize);
         }
         // loading/unloading is more complex, should also use "ams_status" and maybe "ams_rfid" from mqtt
-        // See Bambustudio statuspanel.cpp & DeviceManager.cpp 
+        // See Bambustudio statuspanel.cpp & DeviceManager.cpp
         // ams_status_main and ams_status_sub
         // It seems to be as follows, but not implemented, not needed and not sure fully reliable
         // assume switch from slot 2 to slot 1:
@@ -660,12 +673,11 @@ impl BambuPrinter {
         // else
         // if self.tray_now == self.tray_pre && self.tray_tar != self.tray_now {
         //     unloading = Some(self.tray_now as usize);
-        // } 
-        // else 
+        // }
+        // else
         // if self.tray_tar == self.tray_now && self.tray_pre != self.tray_now {
         //     loading = Some(self.tray_now as usize);
-        // } else 
-
+        // } else
 
         // if tray_id == loading {
         //     return TrayState::Loading;
@@ -820,6 +832,7 @@ impl BambuPrinter {
     #[allow(non_snake_case)]
     pub fn process_print_message__common(&mut self, print: &bambu_api::PrintData) -> (bool, HashMap<usize, TagInformation>) {
         let mut removed_tags = HashMap::<usize, TagInformation>::new();
+        // let command = print.command.unwrap_or_default();
 
         // Get a snapshot of current trays and diameter before any later change, to later be able to update cali_idx if removed
         // leave this section here because later changes will affect it (like self.nozzle_diameter)
@@ -863,14 +876,23 @@ impl BambuPrinter {
             if let Some(prev_state) = prev_state {
                 if self.ams_trays()[..] != prev_state.0 || *self.virt_tray() != prev_state.1 {
                     let spawner = self.app_config.borrow().framework.borrow().spawner;
-                    spawner
-                        .spawn(fix_k_on_restart(
+                    let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| {
+                        fix_k_on_restart(
                             self.bambu_model.as_ref().unwrap().clone(),
                             prev_state.0, // ams_trays
                             prev_state.1, // virt_tray
                             prev_state.2, // nozzle_diameter
-                        ))
-                        .ok();
+                        )
+                    });
+                    spawner.spawn(task).ok();
+                    // spawner
+                    //     .spawn(fix_k_on_restart(
+                    //         self.bambu_model.as_ref().unwrap().clone(),
+                    //         prev_state.0, // ams_trays
+                    //         prev_state.1, // virt_tray
+                    //         prev_state.2, // nozzle_diameter
+                    //     ))
+                    //     .ok();
                     triggered_k_restore_sequence = true;
                 }
             }
@@ -1017,12 +1039,13 @@ impl BambuPrinter {
         // important: Can't issue event from here because this method is called with a mut reference (even if behind RefCell)
         // Therefore, to issue an event need to call update_ams_trays_done afterwards through a non mut reference (so not borrow_mut if refcell)
         //   in order to issue the event on observers
-        let (mut change_made, removed_tags) = self.process_print_message__common(print);
 
+        let mut change_made = false;
+        let mut removed_tags = HashMap::new();
+        let mut processed_specific_command = false;
         if let Some(command) = &print.command {
-            if command == "push_status" {
-                // nothing specific here but important one, so keeping it here
-            } else if command == "ams_filament_setting" {
+            processed_specific_command = true;
+            if command == "ams_filament_setting" {
                 change_made = change_made || self.process_print_message__ams_filament_setting(print)
             } else if command == "extrusion_cali_set" || command == "extrusion_cali_del" {
                 // trigger request command for cali_get (request, not response)
@@ -1039,10 +1062,15 @@ impl BambuPrinter {
                 change_made = change_made || self.process_print_message__extrusion_cali_get(print);
             } else if command == "project_file" {
                 change_made = change_made || self.process_print_message__project_file(print);
+            } else {
+                processed_specific_command = false;
             }
             if self.log_filter >= log::Level::Debug {
                 debug!("[{}]    {command} message", &self.printer_number);
             }
+        }
+        if !processed_specific_command {
+                (change_made, removed_tags) = self.process_print_message__common(print);
         }
         (change_made, removed_tags)
     }
@@ -1052,6 +1080,14 @@ impl BambuPrinter {
         for weak_observer in observers.iter_mut() {
             let observer = weak_observer.upgrade().unwrap();
             observer.borrow_mut().on_printer_connect_status(self, status);
+        }
+    }
+
+    pub fn notify_request_gcode_analysis(&mut self, print_project: &PrintProject) {
+        let mut observers = self.observers.clone(); // to avoid two references - can probably optimize in various ways
+        for weak_observer in observers.iter_mut() {
+            let observer = weak_observer.upgrade().unwrap();
+            observer.borrow_mut().on_request_gcode_analysis(self, print_project);
         }
     }
 
@@ -1657,6 +1693,10 @@ pub struct PrinterPersistentState<'a> {
     pub nozzle_diameter: Option<String>,
     #[serde(default)]
     pub ams_exist_bits: Option<u32>,
+    #[serde(default)]
+    pub tray_exist_bits: Option<u32>,
+    #[serde(default)]
+    pub tray_read_done_bits: Option<u32>,
 }
 
 fn formatted_k_value(k: &str) -> String {
@@ -1732,6 +1772,7 @@ pub fn init(
         log::LevelFilter::Warn
     };
     let auto_restore_k = printer_config.auto_restore_k;
+    let track_print_consume = printer_config.track_print_consume;
 
     // == Setup MQTT ==================================================================
     let write_packets = Rc::new(embassy_sync::channel::Channel::<
@@ -1758,6 +1799,7 @@ pub fn init(
         &printer_name,
         &printer_ip,
         auto_restore_k,
+        track_print_consume,
         write_packets.clone(),
         app_config.clone(),
         restart_printer.clone(),
@@ -2436,7 +2478,7 @@ impl TryFrom<SSDPInfo> for BambuSSDPInfo {
 }
 
 // TODO: make this task instead of being spawned in parallel accept requests over channel and so no need to waste memory on task state
-#[embassy_executor::task(pool_size = 3)] // up to three printers in parallel
+// #[embassy_executor::task(pool_size = 3)] // up to three printers in parallel
 pub async fn fix_k_on_restart(
     bambu_printer: Rc<RefCell<BambuPrinter>>,
     prev_ams_trays: Vec<Tray>,

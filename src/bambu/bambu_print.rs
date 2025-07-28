@@ -8,21 +8,26 @@ use framework::{debug, error, info};
 
 use crate::{
     bambu::BambuPrinter,
-    bambu_api::{self, AmsMapping2Entry, GcodeState},
+    bambu_api::{self, AmsMapping2Entry, GcodeState}, gcode_analysis::FilamentUsageEntry,
 };
 
+// #[derive(Debug, PartialEq)]
+// pub(super) struct FilamentUsageEntry {
+//     layer: i32,
+//     gcode_filament_id: i32, // 0 based
+//     weight_g: f32,
+// }
 #[derive(Debug, PartialEq)]
-pub(super) struct FilamentUsageEntry {
-    layer: i32,
-    gcode_filament_id: i32, // 0 based
-    weight_g: f32,
-}
-#[derive(Debug, PartialEq)]
-pub(super) struct FilamentUsage {
+pub struct FilamentUsage {
     data: Vec<FilamentUsageEntry>,
 }
 
 impl FilamentUsage {
+    pub fn new(data: Vec<FilamentUsageEntry>) -> Self {
+        Self {
+            data
+        }
+    }
     pub fn from_csv(csv: &str) -> FilamentUsage {
         let mut filament_usage = FilamentUsage { data: Vec::new() };
         filament_usage.load_csv(csv);
@@ -51,26 +56,27 @@ impl FilamentUsage {
 }
 
 #[derive(Debug, PartialEq)]
-pub(super) enum GcodeAnalysis {
+pub enum GcodeAnalysis {
     WaitingForPrinter,
     Requested { at: Instant },
     Received { at: Instant, usage: FilamentUsage },
 }
 
 pub struct PrintProject {
-    pub(super) subtask_name: String,
-    pub(super) plate_idx: u32,
+    pub subtask_name: String,
+    pub plate_idx: u32,
     pub(super) ams_mapping: Vec<i32>,
     pub(super) ams_mapping2: Vec<AmsMapping2Entry>,
-    pub(super) gcode_analysis: GcodeAnalysis,
+    pub gcode_analysis: GcodeAnalysis,
 
     // track printer state fields
     pub(super) gcode_state: GcodeState,
     pub(super) layer_num: i32,
+    pub(super) total_layer_num: i32,
 
     //
     pub(super) need_consume: bool,
-    pub(super) consume_index: i32,
+    pub consume_index: i32,
 }
 
 impl PrintProject {
@@ -83,13 +89,14 @@ impl PrintProject {
             gcode_analysis: GcodeAnalysis::WaitingForPrinter,
             gcode_state: GcodeState::Unknown,
             layer_num: -1,
+            total_layer_num: -1,
             need_consume: false,
             consume_index: -1,
         }
     }
 
     pub(super) fn get_ams_id(&self, filament_id: i32) -> Option<i32> {
-        if filament_id > 0 {
+        if filament_id >= 0 {
             self.ams_mapping.get(filament_id as usize).copied()
         } else {
             None
@@ -100,7 +107,7 @@ impl PrintProject {
             return None;
         }
         if let GcodeAnalysis::Received { at: _, usage } = &self.gcode_analysis {
-            debug!("$$$$$ GcodeAnalysis received, consume_index {}/{}", self.consume_index,usage.data.len());
+            debug!("$$$$$ GcodeAnalysis received, consume_index {}/{}", self.consume_index, usage.data.len());
             usage.data.get(self.consume_index as usize)
         } else {
             None
@@ -111,11 +118,16 @@ impl PrintProject {
 impl BambuPrinter {
     #[allow(non_snake_case)]
     pub fn process_print_message__project_file(&mut self, print: &bambu_api::PrintData) -> bool {
+        let printer_log_id = self.printer_number;
+        if !self.track_print_consume {
+            info!("[{printer_log_id}] Print project started but configured not to track print filament usage");
+            return false;
+        }
         // TODO: theoretically all are options so could 'take' instead of clone
         if let (Some(subtask_name), Some(plate_idx), Some(ams_mapping), Some(ams_mapping2)) =
             (&print.subtask_name, print.plate_idx, &print.ams_mapping, &print.ams_mapping2)
         {
-            info!("Print project started: name: {subtask_name}, plate: {plate_idx}, using ams slots: {ams_mapping:?}, {ams_mapping2:?}");
+            info!("[{printer_log_id}] Print project started: name: '{subtask_name}', plate: {plate_idx}, using ams slots: {ams_mapping:?}, {ams_mapping2:?}");
             self.curr_print_project = Some(PrintProject::new(subtask_name, plate_idx, ams_mapping, ams_mapping2));
         }
 
@@ -126,16 +138,17 @@ impl BambuPrinter {
     pub fn process_print_message__print_project_logic(&mut self, print: &bambu_api::PrintData) -> bool {
         let mut changed = false;
         // Order when printing is: tray_pre, then tray_tar, then tray_now
-
+        // debug!(">>>>> In print_project_logic");
         let mut curr_gcode_state = GcodeState::Unknown;
 
         let mut curr_print_project = self.curr_print_project.take();
 
         if let Some(curr_print_project) = &mut curr_print_project {
+            // debug!(">>>>> curr_print_project available");
             let mut layer_num_change = false;
             let mut tray_tar_change_from_tray_now = false; // plan to switch filament
             let mut tray_now_change = false; // new filament is loaded
-            // let mut tray_pre_change_to_tray_now = false; // meaning, starting to pull out filament
+                                             // let mut tray_pre_change_to_tray_now = false; // meaning, starting to pull out filament
             let mut gcode_state_change = false;
             let mut new_tray_now = 255;
             let mut new_layer_num = curr_print_project.layer_num;
@@ -149,6 +162,10 @@ impl BambuPrinter {
                     gcode_state_change = true;
                     new_gcode_state = gcode_state;
                 }
+            }
+
+            if let Some(total_layer_num) = print.total_layer_num {
+                curr_print_project.total_layer_num = total_layer_num;
             }
 
             if let Some(layer_num) = print.layer_num {
@@ -234,7 +251,6 @@ impl BambuPrinter {
                 curr_print_project.need_consume = true;
             }
 
-
             // Update all new values
             curr_print_project.gcode_state = new_gcode_state;
             curr_print_project.layer_num = new_layer_num;
@@ -242,23 +258,25 @@ impl BambuPrinter {
 
             curr_gcode_state = curr_print_project.gcode_state;
 
-            // actions post updates, 
+            // actions post updates,
             // be aware that still can't rely on updated self.tray_tar/now/pre which will be updated later
+            // debug!(">>>> {:?}, {:?}, {}", curr_print_project.gcode_analysis, curr_print_project.gcode_state, curr_print_project.layer_num);
             if curr_print_project.gcode_analysis == GcodeAnalysis::WaitingForPrinter
                 && curr_print_project.gcode_state == GcodeState::RUNNING
-                && curr_print_project.layer_num == 0
+                && curr_print_project.total_layer_num != -1
             {
                 debug!(">>>>> Need to request gcode analysis");
                 // request scale to fetch gcode from printer and analyze it
                 curr_print_project.gcode_analysis = GcodeAnalysis::Requested { at: Instant::now() };
                 curr_print_project.need_consume = true;
+                self.notify_request_gcode_analysis(&curr_print_project);
                 // TODO: replace with real code of send/recceive
-                let filament_usage = FilamentUsage::from_csv(include_str!("../../_untracked/test1/Cube + Cube_plate_1.usage"));
-                curr_print_project.gcode_analysis = GcodeAnalysis::Received {
-                    at: Instant::now(),
-                    usage: filament_usage,
-                };
-                curr_print_project.consume_index = 0;
+                // let filament_usage = FilamentUsage::from_csv(include_str!("../../_untracked/test1/Cube + Cube_plate_1.usage"));
+                // curr_print_project.gcode_analysis = GcodeAnalysis::Received {
+                //     at: Instant::now(),
+                //     usage: filament_usage,
+                // };
+                // curr_print_project.consume_index = 0;
             }
         }
 
@@ -286,7 +304,10 @@ impl BambuPrinter {
                     {
                         self.update_ams_tray(usage_entry_tray_id as usize, |ams_tray| {
                             ams_tray.meta_info.consumed_since_load += usage_entry.weight_g;
-                            debug!("Print project consumed consumed {:.2}g, from filament at slot {} to a total of {:.2}g", usage_entry.weight_g, usage_entry_tray_id, ams_tray.meta_info.consumed_since_load);
+                            debug!(
+                                "Print project consumed consumed {:.2}g, from filament at slot {} to a total of {:.2}g",
+                                usage_entry.weight_g, usage_entry_tray_id, ams_tray.meta_info.consumed_since_load
+                            );
                         });
                         consumed = true;
                         print_project.consume_index += 1;

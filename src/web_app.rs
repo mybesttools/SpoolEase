@@ -540,6 +540,7 @@ struct PrinterConfigDTO {
     access_code: Option<String>,
     log_filter: Option<log::LevelFilter>,
     auto_restore_k: bool,
+    track_print_consume: bool,
 }
 encrypted_input!(PrinterConfigDTO);
 impl From<PrinterConfigDTO> for PrinterConfig {
@@ -551,6 +552,7 @@ impl From<PrinterConfigDTO> for PrinterConfig {
             access_code: v.access_code,
             log_filter: v.log_filter,
             auto_restore_k: v.auto_restore_k,
+            track_print_consume: v.track_print_consume,
         }
     }
 }
@@ -563,6 +565,7 @@ impl From<&PrinterConfig> for PrinterConfigDTO {
             access_code: v.access_code.clone(),
             log_filter: v.log_filter,
             auto_restore_k: v.auto_restore_k,
+            track_print_consume: v.track_print_consume,
         }
     }
 }

@@ -72,6 +72,8 @@ pub struct PrinterConfig {
     #[derivative(Default(value = "true"))]
     #[serde(default = "default_true")]
     pub auto_restore_k: bool,
+    #[serde(default = "default_true")]
+    pub track_print_consume: bool,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Default)]

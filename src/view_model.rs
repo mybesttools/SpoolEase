@@ -10,8 +10,9 @@ use alloc::{
     string::ToString,
     vec::Vec,
 };
+use embassy_executor::raw::TaskStorage;
 use embassy_net::Stack;
-use embassy_time::Timer;
+use embassy_time::{Instant, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
@@ -25,9 +26,11 @@ use framework::{
 
 use crate::app::{EncodeRequest, FilamentInfoMode};
 use crate::app_config::{BASE_FILAMENTS, FILAMENT_BRAND_NAMES, SPOOLS_CATALOG};
+use crate::bambu::bambu_print::{FilamentUsage, GcodeAnalysis, PrintProject};
 use crate::bambu::{FilamentInfo, Tray, TrayBits};
 use crate::color_utils::get_color_name;
 use crate::filament_staging::{self, StagingOrigin};
+use crate::gcode_analysis_task::{fetch_gcode_analysis_task, GcodeAnalysisRequest, GcodeAnalysisRequestChannel, GcodeAnalyzerObserver};
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
 use crate::store::{store_safe_time_now, AnyClone, Cookie, Store, StoreObserver, StoreOp, TagOperation};
@@ -63,6 +66,7 @@ pub struct ViewModel {
     spools_cores_filter: String,
     pub store: Rc<Store>,
     encode_from_blank: Option<TagInformation>,
+    gcode_analysis_request_channel: Rc<GcodeAnalysisRequestChannel>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -99,7 +103,9 @@ impl ViewModel {
 
         // Initialize ssdp
         let ssdp_pub_sub = mk_static!(SSDPPubSubChannel, SSDPPubSubChannel::new());
-        spawner.spawn(ssdp_task(framework.clone(), ssdp_pub_sub)).ok();
+        let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| ssdp_task(framework.clone(), ssdp_pub_sub));
+        spawner.spawn(task).ok();
+        // spawner.spawn(ssdp_task(framework.clone(), ssdp_pub_sub)).ok();
 
         // Initialize store
         let store = Store::new(framework.clone());
@@ -111,6 +117,8 @@ impl ViewModel {
         let spools_cores_weights: HashMap<i32, i32> = HashMap::with_capacity(300);
         let selector_options_vec: slint::VecModel<crate::app::SelectorOption> = slint::VecModel::default();
         let selector_options_vec_rc = slint::ModelRc::from(Rc::new(selector_options_vec));
+
+        let gcode_analysis_request_channel = Rc::new(GcodeAnalysisRequestChannel::new());
 
         // Create the ViewModel
         let view_model = ViewModel {
@@ -132,6 +140,7 @@ impl ViewModel {
             spools_cores_filter: String::new(),
             store,
             encode_from_blank: None,
+            gcode_analysis_request_channel,
         };
         let view_model_rc = Rc::new(RefCell::new(view_model));
 
@@ -365,10 +374,24 @@ impl ViewModel {
                     self.view_model.clone().unwrap(),
                 ))
                 .ok();
+
             self.framework
                 .borrow()
                 .spawner
                 .spawn(store_printers_consume(self.view_model.clone().unwrap()))
+                .ok();
+
+            let trait_for_gcode_analyzer_rc: Rc<RefCell<dyn GcodeAnalyzerObserver>> = self.view_model.as_ref().unwrap().clone();
+            let trait_for_gcode_analyzer_weak: Weak<RefCell<dyn GcodeAnalyzerObserver>> = Rc::downgrade(&trait_for_gcode_analyzer_rc);
+
+            self.framework
+                .borrow()
+                .spawner
+                .spawn(fetch_gcode_analysis_task(
+                    self.framework.clone(),
+                    self.gcode_analysis_request_channel.clone(),
+                    trait_for_gcode_analyzer_weak,
+                ))
                 .ok();
         }
 
@@ -1222,11 +1245,21 @@ impl ViewModel {
             if let Some(id) = &tag_info.id {
                 if let Some(spool) = self.store.get_spool_by_id(id) {
                     if let (Some(weight_core), Some(weight_current)) = (spool.weight_core, spool.weight_current) {
-                        let realtime_weight = (weight_current as f32
-                            - (tray.meta_info.consumed_since_load - tray.meta_info.consumed_since_load_saved))
-                            - weight_core as f32;
+                        let realtime_weight = (weight_current - weight_core) as f32 - tray.meta_info.consumed_since_load;
+                        res = slint::format!("{:.1}g", realtime_weight);
+                    } else if let (Some(weight_current), Some(weight_new), Some(weight_advertised)) =
+                        (spool.weight_current, spool.weight_new, spool.weight_advertised)
+                    {
+                        let realtime_weight = (weight_current - (weight_new - weight_advertised)) as f32 - tray.meta_info.consumed_since_load;
                         res = slint::format!("{:.1}g", realtime_weight);
                     }
+
+                    // weight_left:
+                    //   weight_current && weight_core
+                    //     ? weight_current - weight_core
+                    //     : weight_current && weight_advertised && weight_new
+                    //       ? weight_current - (weight_new - weight_advertised)
+                    //       : null,
                 }
             }
         }
@@ -1350,6 +1383,30 @@ impl BambuPrinterObserver for ViewModel {
                 .invoke_printer_connected(bambu_printer.printer_selector_name.to_shared_string());
         } else {
             term_info!("[{}] Printer disconnected", bambu_printer.printer_number);
+        }
+    }
+
+    fn on_request_gcode_analysis(&self, printer: &mut BambuPrinter, print_project: &PrintProject) {
+        let ip = printer.printer_ip;
+        let serial = printer.printer_serial.clone();
+        let access_code = printer.printer_access_code.clone();
+        let printer_number = printer.printer_number;
+        let printer_index = printer.printer_index;
+
+        let subtask_name = print_project.subtask_name.clone();
+        let plate_idx = print_project.plate_idx;
+        info!("[{printer_number}] Received request for gcode analysis {subtask_name}, plate {plate_idx}");
+
+        if let Err(_err) = self.gcode_analysis_request_channel.try_send(GcodeAnalysisRequest {
+            ip,
+            serial,
+            access_code,
+            printer_number,
+            printer_index,
+            subtask_name,
+            plate_idx,
+        }) {
+            error!("Failed sending request for gcode analysis");
         }
     }
 }
@@ -1933,6 +1990,27 @@ pub async fn store_printers_consume(view_model: Rc<RefCell<ViewModel>>) {
                 }
             }
         }
-        Timer::after_secs(5).await;
+        Timer::after_secs(1).await;
     }
 }
+
+impl GcodeAnalyzerObserver for ViewModel {
+    fn on_gcode_analysis(&mut self, printer_index: usize, filament_usage: FilamentUsage) {
+        if let Some(printer) = self.bambu_printer_model.printers.get(printer_index) {
+            let mut printer_borrow = printer.borrow_mut();
+            if let Some(curr_print_project) = &mut printer_borrow.curr_print_project {
+                // TODO: turn to a function on print_project or on printer
+                curr_print_project.gcode_analysis = GcodeAnalysis::Received {
+                    at: Instant::now(),
+                    usage: filament_usage,
+                };
+                if curr_print_project.consume_index == -1 {
+                    curr_print_project.consume_index = 0;
+                }
+            } else {
+                error!("Internal Error setting gcode analysis to printer index {printer_index}");
+            }
+        }
+    }
+}
+

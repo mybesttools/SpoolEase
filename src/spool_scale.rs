@@ -4,7 +4,6 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use serde::{Deserialize, Serialize};
 use core::{
     cell::RefCell,
     net::{Ipv4Addr, SocketAddr},
@@ -16,7 +15,7 @@ use edge_http::{
 };
 use edge_nal_embassy::{Tcp, TcpBuffers};
 use edge_ws::{FrameHeader, FrameType};
-use embassy_executor::Spawner;
+use embassy_executor::{raw::TaskStorage, Spawner};
 use embassy_futures::select::select3;
 use embassy_net::Stack;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
@@ -24,6 +23,7 @@ use embassy_time::{Instant, Timer};
 use embedded_io_async::Write;
 use framework::{debug, error, framework_web_app::encrypt, info, mk_static, prelude::Framework, term_error, term_info, utils::random_u32, warn};
 use hashbrown::HashSet;
+use serde::{Deserialize, Serialize};
 use shared::scale::{ConsoleToScale, ScaleToConsole};
 
 use crate::{app_config::AppConfig, ssdp::SSDPPubSubChannel};
@@ -76,7 +76,9 @@ impl SpoolScale {
 
     pub fn request_print_info(&self) {
         self.console_to_scale
-            .try_send(ConsoleToScale::RequestPrintInfo{ test: "It worked !!!".to_string()})
+            .try_send(ConsoleToScale::RequestPrintInfo {
+                test: "It worked !!!".to_string(),
+            })
             .unwrap_or_else(|e| error!("Failed sending get print info request to scale {e:?}"));
     }
 
@@ -123,7 +125,10 @@ impl SpoolScale {
                 }
             }
         } else {
-            warn!("Received an unsupported message from Scale, Console version update probably available : {}", String::from_utf8_lossy(payload));
+            warn!(
+                "Received an unsupported message from Scale, Console version update probably available : {}",
+                String::from_utf8_lossy(payload)
+            );
         }
     }
     pub fn connected(&mut self) {
@@ -232,13 +237,20 @@ pub fn init(
         available_scales: HashSet::new(),
     }));
 
+    // let task = Box::leak(Box::new(TaskStorage::new())).spawn(||monitor_scales_task(spool_scale_rc.clone(), ssdp_pub_sub));
+    // spawner.spawn(task).ok();
+
     spawner.spawn(monitor_scales_task(spool_scale_rc.clone(), ssdp_pub_sub)).ok();
 
     if let Some(spool_scale_config) = &app_config.clone().borrow().configured_scale {
         if spool_scale_config.available {
-            spawner
-                .spawn(spool_scale_task(framework, app_config, stack, spool_scale_rc.clone(), ssdp_pub_sub))
-                .ok();
+            let task = Box::leak(Box::new(TaskStorage::new()))
+                .spawn(|| spool_scale_task(framework, app_config, stack, spool_scale_rc.clone(), ssdp_pub_sub));
+            spawner.spawn(task).ok();
+
+            // spawner
+            //     .spawn(spool_scale_task(framework, app_config, stack, spool_scale_rc.clone(), ssdp_pub_sub))
+            //     .ok();
         }
     }
 
@@ -265,7 +277,7 @@ pub async fn monitor_scales_task(spool_scale_rc: Rc<RefCell<SpoolScale>>, ssdp_p
     }
 }
 
-#[embassy_executor::task]
+// #[embassy_executor::task]
 pub async fn spool_scale_task(
     framework: Rc<RefCell<Framework>>,
     app_config: Rc<RefCell<AppConfig>>,

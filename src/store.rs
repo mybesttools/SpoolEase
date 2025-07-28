@@ -653,7 +653,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                         }
                         Err(e) => {
                             error!("Error storing record to spools database {e}");
-                            store.notify_tag_stored(Err(&format!("Failed to store Tag : {e}")), cookie);
+                            store.notify_tag_stored(Err(&format!("Failed to store Tag\n{e}")), cookie);
                             continue;
                         }
                     }
@@ -684,13 +684,13 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                             }
                             Err(err) => {
                                 error!("Error writing tag file to {spool_rec_ext_file_path} : {err}");
-                                store.notify_tag_stored(Err("Inventory updated, but failed writing extended info (1), check logs"), cookie);
+                                store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (1),\ncheck logs"), cookie);
                                 continue;
                             }
                         },
                         Err(e) => {
                             error!("Error serializing tag information to store: {e}");
-                            store.notify_tag_stored(Err("Inventory updated, but failed writing extended info (2), check logs"), cookie);
+                            store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (2),\ncheck logs"), cookie);
                             continue;
                         }
                     }

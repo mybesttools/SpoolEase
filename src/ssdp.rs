@@ -26,7 +26,7 @@ impl SSDPInfo {
     }
 }
 
-#[embassy_executor::task]
+// #[embassy_executor::task]
 pub async fn ssdp_task(
     framework: Rc<RefCell<Framework>>,
     ssdp_pub_sub: &'static embassy_sync::pubsub::PubSubChannel<

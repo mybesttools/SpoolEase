@@ -22,8 +22,12 @@ mod ssdp;
 mod store;
 mod view_model;
 mod web_app;
+mod my_ftp;
+mod gcode_analysis;
+mod gcode_analysis_task;
 
-use alloc::{format, rc::Rc, string::ToString};
+
+use alloc::{boxed::Box, format, rc::Rc, string::ToString};
 use core::{cell::RefCell, marker::PhantomData, net::Ipv4Addr};
 use embassy_futures::yield_now;
 use esp_alloc::{self as _, HeapStats};
@@ -38,7 +42,7 @@ use slint::ComponentHandle;
 extern crate alloc;
 
 use embassy_embedded_hal::adapter::BlockingAsync;
-use embassy_executor::Spawner;
+use embassy_executor::{raw::TaskStorage, Spawner};
 use embassy_net::{Config, Ipv4Cidr, StackResources, StaticConfigV4};
 use embassy_time::{Duration, Timer};
 
@@ -124,9 +128,13 @@ async fn main(spawner: Spawner) {
     heap_dram2_allocator!(64 * 1024);
 
     // Last, reserve from 'standard' area, if need additional memory for esp-wifi/esp-mbedtls, need to increase this
-    esp_alloc::heap_allocator!(120 * 1024);
+    esp_alloc::heap_allocator!(166 * 1024);
 
-    spawner.spawn(heap_stats_task()).ok();
+    let task = Box::leak(Box::new(TaskStorage::new())).spawn(heap_stats_task);
+    spawner.spawn(task).ok();
+    // storage.spawn(|| heap_stats_task());
+
+    // spawner.spawn(heap_stats_task()).ok();
 
     // == Setup timers & delay ========================================================
 
@@ -343,9 +351,11 @@ async fn main(spawner: Spawner) {
 
     debug!("Setting up Wifi");
 
-    spawner
-        .spawn(framework::wifi::connection(controller, sta_stack, ap_stack, rx, tx, framework.clone()))
-        .ok();
+    let task = Box::leak(Box::new(TaskStorage::new())).spawn(||framework::wifi::connection_task_inner(controller, sta_stack, ap_stack, rx, tx, framework.clone()));
+    spawner.spawn(task).ok();
+    // spawner
+    //     .spawn(framework::wifi::connection_task(controller, sta_stack, ap_stack, rx, tx, framework.clone()))
+    //     .ok();
     spawner.spawn(framework::wifi::sta_net_task(sta_runner)).ok();
     spawner.spawn(framework::wifi::ap_net_task(ap_runner)).ok(); // TODO: Maybe move this to run only when needed (in wifi.rs)
 
@@ -441,7 +451,9 @@ async fn main(spawner: Spawner) {
     );
 
     for id in 0..WEB_SERVER_NUM_LISTENERS {
-        spawner.spawn(web_server_task(web_server_runner, id)).unwrap();
+        let task = Box::leak(Box::new(TaskStorage::new())).spawn(||web_server_task(web_server_runner, id));
+        spawner.spawn(task).ok();
+        // spawner.spawn(web_server_task(web_server_runner, id)).unwrap();
     }
 
     // yields for term initialization to complete until term is fixed to not require this
@@ -475,7 +487,7 @@ async fn main(spawner: Spawner) {
     }
 }
 
-#[embassy_executor::task(pool_size = WEB_SERVER_NUM_LISTENERS)]
+// #[embassy_executor::task(pool_size = WEB_SERVER_NUM_LISTENERS)]
 async fn web_server_task(runner: &'static framework::web_server::WebAppRunner<ConsoleAppState, NestedAppBuilder>, id: usize) {
     runner.run(id).await;
 }
@@ -485,7 +497,7 @@ pub async fn display_runner(mut runner: WT32SC01PlusRunner<esp_hal::dma::DmaChan
     runner.run().await;
 }
 
-#[embassy_executor::task]
+// #[embassy_executor::task]
 pub async fn heap_stats_task() {
     loop {
         let stats: HeapStats = esp_alloc::HEAP.stats();
