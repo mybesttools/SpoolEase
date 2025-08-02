@@ -22,9 +22,6 @@ mod ssdp;
 mod store;
 mod view_model;
 mod web_app;
-mod my_ftp;
-mod gcode_analysis;
-mod gcode_analysis_task;
 
 
 use alloc::{boxed::Box, format, rc::Rc, string::ToString};

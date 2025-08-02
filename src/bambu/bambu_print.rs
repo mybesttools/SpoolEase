@@ -5,10 +5,11 @@ use alloc::{
 };
 use embassy_time::Instant;
 use framework::{debug, error, info};
+use shared::{gcode_analysis::FilamentUsageEntry, gcode_analysis_task::FilamentUsage};
 
 use crate::{
     bambu::BambuPrinter,
-    bambu_api::{self, AmsMapping2Entry, GcodeState}, gcode_analysis::FilamentUsageEntry,
+    bambu_api::{self, AmsMapping2Entry, GcodeState}
 };
 
 // #[derive(Debug, PartialEq)]
@@ -17,43 +18,43 @@ use crate::{
 //     gcode_filament_id: i32, // 0 based
 //     weight_g: f32,
 // }
-#[derive(Debug, PartialEq)]
-pub struct FilamentUsage {
-    data: Vec<FilamentUsageEntry>,
-}
-
-impl FilamentUsage {
-    pub fn new(data: Vec<FilamentUsageEntry>) -> Self {
-        Self {
-            data
-        }
-    }
-    pub fn from_csv(csv: &str) -> FilamentUsage {
-        let mut filament_usage = FilamentUsage { data: Vec::new() };
-        filament_usage.load_csv(csv);
-        filament_usage
-    }
-    fn load_csv(&mut self, csv: &str) {
-        debug!("%%%%%% load_csv");
-        self.data.clear();
-        let num_of_lines = csv.lines().count();
-        self.data.reserve_exact(num_of_lines);
-        for line in csv.lines() {
-            let mut split = line.split(',');
-            if let (Some(layer), Some(gcode_filament_id), Some(weight_g)) = (split.next(), split.next(), split.next()) {
-                if let (Ok(layer), Ok(gcode_filament_id), Ok(weight_g)) =
-                    (layer.parse::<i32>(), gcode_filament_id.parse::<i32>(), weight_g.parse::<f32>())
-                {
-                    self.data.push(FilamentUsageEntry {
-                        layer,
-                        gcode_filament_id,
-                        weight_g,
-                    })
-                }
-            }
-        }
-    }
-}
+// #[derive(Debug, PartialEq)]
+// pub struct FilamentUsage {
+//     data: Vec<FilamentUsageEntry>,
+// }
+//
+// impl FilamentUsage {
+//     pub fn new(data: Vec<FilamentUsageEntry>) -> Self {
+//         Self {
+//             data
+//         }
+//     }
+//     pub fn from_csv(csv: &str) -> FilamentUsage {
+//         let mut filament_usage = FilamentUsage { data: Vec::new() };
+//         filament_usage.load_csv(csv);
+//         filament_usage
+//     }
+//     fn load_csv(&mut self, csv: &str) {
+//         debug!("%%%%%% load_csv");
+//         self.data.clear();
+//         let num_of_lines = csv.lines().count();
+//         self.data.reserve_exact(num_of_lines);
+//         for line in csv.lines() {
+//             let mut split = line.split(',');
+//             if let (Some(layer), Some(gcode_filament_id), Some(weight_g)) = (split.next(), split.next(), split.next()) {
+//                 if let (Ok(layer), Ok(gcode_filament_id), Ok(weight_g)) =
+//                     (layer.parse::<i32>(), gcode_filament_id.parse::<i32>(), weight_g.parse::<f32>())
+//                 {
+//                     self.data.push(FilamentUsageEntry {
+//                         layer,
+//                         gcode_filament_id,
+//                         weight_g,
+//                     })
+//                 }
+//             }
+//         }
+//     }
+// }
 
 #[derive(Debug, PartialEq)]
 pub enum GcodeAnalysis {

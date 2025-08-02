@@ -16,6 +16,7 @@ use embassy_time::{Instant, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
+use shared::gcode_analysis_task::{fetch_gcode_analysis_task, FilamentUsage, GcodeAnalysisRequest, GcodeAnalysisRequestChannel, GcodeAnalyzerObserver};
 use slint::{ComponentHandle, Model, SharedString, ToSharedString};
 
 use framework::prelude::*;
@@ -26,11 +27,10 @@ use framework::{
 
 use crate::app::{EncodeRequest, FilamentInfoMode};
 use crate::app_config::{BASE_FILAMENTS, FILAMENT_BRAND_NAMES, SPOOLS_CATALOG};
-use crate::bambu::bambu_print::{FilamentUsage, GcodeAnalysis, PrintProject};
+use crate::bambu::bambu_print::{GcodeAnalysis, PrintProject};
 use crate::bambu::{FilamentInfo, Tray, TrayBits};
 use crate::color_utils::get_color_name;
 use crate::filament_staging::{self, StagingOrigin};
-use crate::gcode_analysis_task::{fetch_gcode_analysis_task, GcodeAnalysisRequest, GcodeAnalysisRequestChannel, GcodeAnalyzerObserver};
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
 use crate::store::{store_safe_time_now, AnyClone, Cookie, Store, StoreObserver, StoreOp, TagOperation};
