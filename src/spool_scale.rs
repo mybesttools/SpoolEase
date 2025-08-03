@@ -24,7 +24,7 @@ use embedded_io_async::Write;
 use framework::{debug, error, framework_web_app::encrypt, info, mk_static, prelude::Framework, term_error, term_info, utils::random_u32, warn};
 use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
-use shared::scale::{ConsoleToScale, ScaleToConsole};
+use shared::{gcode_analysis_task::GcodeAnalysisRequest, scale::{ConsoleToScale, ScaleToConsole}};
 
 use crate::{app_config::AppConfig, ssdp::SSDPPubSubChannel};
 
@@ -59,6 +59,7 @@ pub trait SpoolScaleObserver {
     fn on_tag_status(&mut self, status: &shared::spool_tag::Status);
     fn on_pn532_status(&mut self, status: bool);
     fn on_button_pressed(&mut self, scale_weight: ScaleWeight) -> Option<bool>;
+    fn on_gcode_analysis(&mut self, printer_index: usize, gcode_analysis_csv: &str);
 }
 
 impl SpoolScale {
@@ -74,10 +75,10 @@ impl SpoolScale {
             .unwrap_or_else(|e| error!("Failed sending button response request to scale {e:?}"));
     }
 
-    pub fn request_print_info(&self) {
+    pub fn request_gcode_analysis(&self, gcode_analysis_request: GcodeAnalysisRequest) {
         self.console_to_scale
-            .try_send(ConsoleToScale::RequestPrintInfo {
-                test: "It worked !!!".to_string(),
+            .try_send(ConsoleToScale::RequestGcodeAnalysis {
+                gcode_analysis_request
             })
             .unwrap_or_else(|e| error!("Failed sending get print info request to scale {e:?}"));
     }
@@ -122,6 +123,9 @@ impl SpoolScale {
                 }
                 ScaleToConsole::ButtonPressed => {
                     self.notify_button_pressed();
+                }
+                ScaleToConsole::GcodeAnalysis { printer_index, filament_usage_csv } => {
+                    self.notify_gcode_analysis( printer_index, &filament_usage_csv );
                 }
             }
         } else {
@@ -216,6 +220,12 @@ impl SpoolScale {
             if let Some(success) = observer_immediate_response {
                 self.button_response(success);
             }
+        }
+    }
+    pub fn notify_gcode_analysis(&mut self, printer_index: usize, filament_usage_csv: &str) {
+        for weak_observer in self.observers.iter() {
+            let observer = weak_observer.upgrade().unwrap();
+            observer.borrow_mut().on_gcode_analysis(printer_index, filament_usage_csv);
         }
     }
 }
@@ -352,7 +362,7 @@ pub async fn spool_scale_task(
             Timer::after_secs(2).await;
         }
         // let mut conn_buf = [0_u8; 1024];
-        let mut conn_buf = alloc::vec![0_u8; 1024];
+        let mut conn_buf = alloc::vec![0_u8; 128*1024];// large size for gcode_analysis
         let mut conn: Connection<_> = Connection::new(&mut conn_buf, &tcp, SocketAddr::new(core::net::IpAddr::V4(spoolscale_ip), 81));
 
         let mut nonce = [0_u8; NONCE_LEN];
@@ -588,7 +598,7 @@ pub async fn spool_scale_task(
                     let json_res = serde_json::to_string(&console_to_scale);
                     match json_res {
                         Ok(mut json) => {
-                            if matches!(console_to_scale, ConsoleToScale::RequestPrintInfo { .. }) {
+                            if matches!(console_to_scale, ConsoleToScale::RequestGcodeAnalysis { .. }) {
                                 json = encrypt(&app_config.borrow().scale_encryption_key.borrow(), &json);
                             }
                             let send_to_scale_header = FrameHeader {

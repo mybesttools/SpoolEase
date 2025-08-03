@@ -16,6 +16,7 @@ use embassy_time::{Instant, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
+use shared::gcode_analysis::FilamentUsageEntry;
 use shared::gcode_analysis_task::{fetch_gcode_analysis_task, FilamentUsage, GcodeAnalysisRequest, GcodeAnalysisRequestChannel, GcodeAnalyzerObserver};
 use slint::{ComponentHandle, Model, SharedString, ToSharedString};
 
@@ -1397,7 +1398,7 @@ impl BambuPrinterObserver for ViewModel {
         let plate_idx = print_project.plate_idx;
         info!("[{printer_number}] Received request for gcode analysis {subtask_name}, plate {plate_idx}");
 
-        if let Err(_err) = self.gcode_analysis_request_channel.try_send(GcodeAnalysisRequest {
+        let gcode_analysis_request = GcodeAnalysisRequest {
             ip,
             serial,
             access_code,
@@ -1405,9 +1406,12 @@ impl BambuPrinterObserver for ViewModel {
             printer_index,
             subtask_name,
             plate_idx,
-        }) {
-            error!("Failed sending request for gcode analysis");
-        }
+        };
+        self.spool_scale_model.borrow_mut().request_gcode_analysis(gcode_analysis_request);
+
+        // if let Err(_err) = self.gcode_analysis_request_channel.try_send(gcode_analysis_request) {
+        //     error!("Failed sending request for gcode analysis");
+        // }
     }
 }
 
@@ -1790,6 +1794,27 @@ impl SpoolScaleObserver for ViewModel {
             // TODO:  notify on GUI and on Scale Led
         }
     }
+
+    // note that this is from Scale (which ends up calling the GcodeAnalyzerObserver on_gcode_analysis)
+    fn on_gcode_analysis(&mut self, printer_index: usize, gcode_analysis_csv: &str) {
+        let num_records = gcode_analysis_csv.lines().count();
+        let mut data = Vec::<FilamentUsageEntry>::with_capacity(num_records);
+        let mut csv_parser = serde_csv_core::Reader::<16>::new(); // 16 is max field size
+        for line in gcode_analysis_csv.lines() {
+            match csv_parser.deserialize(line.as_bytes()) {
+                Ok(v) => {
+                    data.push(v.0);
+                }
+                Err(err) => {
+                    error!("Internal error deserializing FilamentUsageEntry : {err}");
+                    return;
+                }
+            }
+        }
+        let filament_usage = FilamentUsage { data };
+
+        shared::gcode_analysis_task::GcodeAnalyzerObserver::on_gcode_analysis(self, printer_index, filament_usage);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1998,6 +2023,7 @@ impl GcodeAnalyzerObserver for ViewModel {
     fn on_gcode_analysis(&mut self, printer_index: usize, filament_usage: FilamentUsage) {
         if let Some(printer) = self.bambu_printer_model.printers.get(printer_index) {
             let mut printer_borrow = printer.borrow_mut();
+            info!("[{}] Setting gcode analysis with {} entries", printer_borrow.printer_number, filament_usage.data.len());
             if let Some(curr_print_project) = &mut printer_borrow.curr_print_project {
                 // TODO: turn to a function on print_project or on printer
                 curr_print_project.gcode_analysis = GcodeAnalysis::Received {
