@@ -31,7 +31,7 @@ use framework::prelude::*;
 
 use crate::bambu::BambuPrinter;
 
-const DEBUG_MODE: (bool, Ipv4Address) = (true, Ipv4Address::new(192, 168, 10, 63));
+const DEBUG_MODE: (bool, Ipv4Address) = (false, Ipv4Address::new(192, 168, 10, 63));
 
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]

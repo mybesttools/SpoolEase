@@ -107,7 +107,7 @@ pub trait BambuPrinterObserver {
         removed_tags: &HashMap<usize, TagInformation>,
     );
     fn on_printer_connect_status(&self, bambu_printer: &mut BambuPrinter, status: bool);
-    fn on_request_gcode_analysis(&self, bambu_printer: &mut BambuPrinter, print_project: &PrintProject);
+    fn on_request_gcode_analysis(&mut self, bambu_printer: &mut BambuPrinter, print_project: &PrintProject) -> i32;
 }
 
 // Special access to trays fields for dirty tracking
@@ -1070,7 +1070,7 @@ impl BambuPrinter {
             }
         }
         if !processed_specific_command {
-                (change_made, removed_tags) = self.process_print_message__common(print);
+            (change_made, removed_tags) = self.process_print_message__common(print);
         }
         (change_made, removed_tags)
     }
@@ -1083,12 +1083,25 @@ impl BambuPrinter {
         }
     }
 
-    pub fn notify_request_gcode_analysis(&mut self, print_project: &PrintProject) {
+    pub fn notify_request_gcode_analysis(&mut self, print_project: &PrintProject) -> i32 {
         let mut observers = self.observers.clone(); // to avoid two references - can probably optimize in various ways
+        let mut job_number = 0;
         for weak_observer in observers.iter_mut() {
             let observer = weak_observer.upgrade().unwrap();
-            observer.borrow_mut().on_request_gcode_analysis(self, print_project);
+            let job_number_update = observer.borrow_mut().on_request_gcode_analysis(self, print_project);
+            if job_number_update != 0 {
+                if job_number == 0 {
+                    job_number = job_number_update;
+                } else {
+                    error!("Internal software error, two gcode analysis requests listeners with with job_number, only one possible");
+                }
+            }
         }
+        job_number
+    }
+
+    pub fn notify_cancel_gcode_analysis(&mut self, job_number: i32) {
+        error!("Need to implement notify_cancel_gcode_analysis");
     }
 
     pub fn update_ams_trays_done(&mut self, prev_trays_bits: &TrayBits, new_trays_bits: &TrayBits, removed_tags: &HashMap<usize, TagInformation>) {

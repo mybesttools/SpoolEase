@@ -17,7 +17,9 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 use shared::gcode_analysis::FilamentUsageEntry;
-use shared::gcode_analysis_task::{fetch_gcode_analysis_task, FilamentUsage, GcodeAnalysisRequest, GcodeAnalysisRequestChannel, GcodeAnalyzerObserver};
+use shared::gcode_analysis_task::{
+    fetch_gcode_analysis_task, FilamentUsage, GcodeAnalysisRequest, GcodeAnalysisRequestChannel, GcodeAnalyzerObserver,
+};
 use slint::{ComponentHandle, Model, SharedString, ToSharedString};
 
 use framework::prelude::*;
@@ -68,6 +70,7 @@ pub struct ViewModel {
     pub store: Rc<Store>,
     encode_from_blank: Option<TagInformation>,
     gcode_analysis_request_channel: Rc<GcodeAnalysisRequestChannel>,
+    gcode_last_job_number: i32,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -142,6 +145,7 @@ impl ViewModel {
             store,
             encode_from_blank: None,
             gcode_analysis_request_channel,
+            gcode_last_job_number: 0,
         };
         let view_model_rc = Rc::new(RefCell::new(view_model));
 
@@ -1387,15 +1391,19 @@ impl BambuPrinterObserver for ViewModel {
         }
     }
 
-    fn on_request_gcode_analysis(&self, printer: &mut BambuPrinter, print_project: &PrintProject) {
+    fn on_request_gcode_analysis(&mut self, printer: &mut BambuPrinter, print_project: &PrintProject) -> i32 {
         let ip = printer.printer_ip;
         let serial = printer.printer_serial.clone();
         let access_code = printer.printer_access_code.clone();
         let printer_number = printer.printer_number;
         let printer_index = printer.printer_index;
+        self.gcode_last_job_number += 1;
 
         let subtask_name = print_project.subtask_name.clone();
         let plate_idx = print_project.plate_idx;
+        let threemf_url = print_project.threemf_url.clone();
+        let gcode_filename_in_3mf = print_project.gcode_filename_in_3mf.clone();
+
         info!("[{printer_number}] Received request for gcode analysis {subtask_name}, plate {plate_idx}");
 
         let gcode_analysis_request = GcodeAnalysisRequest {
@@ -1406,12 +1414,31 @@ impl BambuPrinterObserver for ViewModel {
             printer_index,
             subtask_name,
             plate_idx,
+            job_number: self.gcode_last_job_number,
+            threemf_url,
+            gcode_filename_in_3mf,
         };
-        self.spool_scale_model.borrow_mut().request_gcode_analysis(gcode_analysis_request);
 
-        // if let Err(_err) = self.gcode_analysis_request_channel.try_send(gcode_analysis_request) {
-        //     error!("Failed sending request for gcode analysis");
+        // scale
+        // match self.spool_scale_model.borrow_mut().request_gcode_analysis(gcode_analysis_request) {
+        //     Ok(_) => {
+        //         self.gcode_last_job_number
+        //     }
+        //     Err(err) => {
+        //         error!("{err}");
+        //         0
+        //     }
         // }
+
+        match self.gcode_analysis_request_channel.try_send(gcode_analysis_request) {
+            Ok(_) => {
+                self.gcode_last_job_number
+            }
+            Err(err) => {
+                error!("Failed sending request for gcode analysis within console : {err:?}");
+                0
+            }
+        }
     }
 }
 
@@ -1796,7 +1823,7 @@ impl SpoolScaleObserver for ViewModel {
     }
 
     // note that this is from Scale (which ends up calling the GcodeAnalyzerObserver on_gcode_analysis)
-    fn on_gcode_analysis(&mut self, printer_index: usize, gcode_analysis_csv: &str) {
+    fn on_gcode_analysis(&mut self, job_number: i32, printer_index: usize, gcode_analysis_csv: &str) {
         let num_records = gcode_analysis_csv.lines().count();
         let mut data = Vec::<FilamentUsageEntry>::with_capacity(num_records);
         let mut csv_parser = serde_csv_core::Reader::<16>::new(); // 16 is max field size
@@ -1813,7 +1840,7 @@ impl SpoolScaleObserver for ViewModel {
         }
         let filament_usage = FilamentUsage { data };
 
-        shared::gcode_analysis_task::GcodeAnalyzerObserver::on_gcode_analysis(self, printer_index, filament_usage);
+        shared::gcode_analysis_task::GcodeAnalyzerObserver::on_gcode_analysis(self, job_number, printer_index, filament_usage);
     }
 }
 
@@ -2020,14 +2047,32 @@ pub async fn store_printers_consume(view_model: Rc<RefCell<ViewModel>>) {
 }
 
 impl GcodeAnalyzerObserver for ViewModel {
-    fn on_gcode_analysis(&mut self, printer_index: usize, filament_usage: FilamentUsage) {
+    fn on_gcode_analysis(&mut self, job_number: i32, printer_index: usize, filament_usage: FilamentUsage) {
         if let Some(printer) = self.bambu_printer_model.printers.get(printer_index) {
             let mut printer_borrow = printer.borrow_mut();
-            info!("[{}] Setting gcode analysis with {} entries", printer_borrow.printer_number, filament_usage.data.len());
+            let printer_log_id = printer_borrow.printer_number;
+            info!(
+                "[{}] Setting gcode analysis with {} entries",
+                printer_log_id,
+                filament_usage.data.len()
+            );
             if let Some(curr_print_project) = &mut printer_borrow.curr_print_project {
                 // TODO: turn to a function on print_project or on printer
+                match &curr_print_project.gcode_analysis {
+                    GcodeAnalysis::WaitingForPrinter => {
+                        warn!("[{}>] Print monitoring awaiting printer, ignoring gcode analysis", printer_log_id);
+                        return;
+                    }
+                    GcodeAnalysis::Requested { at: _, job_number:awaited_job_number } | GcodeAnalysis::Received { at: _, job_number: awaited_job_number , usage:_ } => {
+                        if *awaited_job_number != job_number {
+                            warn!("[{}] Print monitoring awaiting job number {}, received a different job number {}, ignoring gcode analysis", printer_log_id, awaited_job_number, job_number);
+                            return;
+                        }
+                    }
+                }
                 curr_print_project.gcode_analysis = GcodeAnalysis::Received {
                     at: Instant::now(),
+                    job_number,
                     usage: filament_usage,
                 };
                 if curr_print_project.consume_index == -1 {
@@ -2039,4 +2084,3 @@ impl GcodeAnalyzerObserver for ViewModel {
         }
     }
 }
-

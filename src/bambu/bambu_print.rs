@@ -9,63 +9,21 @@ use shared::{gcode_analysis::FilamentUsageEntry, gcode_analysis_task::FilamentUs
 
 use crate::{
     bambu::BambuPrinter,
-    bambu_api::{self, AmsMapping2Entry, GcodeState}
+    bambu_api::{self, AmsMapping2Entry, GcodeState},
 };
-
-// #[derive(Debug, PartialEq)]
-// pub(super) struct FilamentUsageEntry {
-//     layer: i32,
-//     gcode_filament_id: i32, // 0 based
-//     weight_g: f32,
-// }
-// #[derive(Debug, PartialEq)]
-// pub struct FilamentUsage {
-//     data: Vec<FilamentUsageEntry>,
-// }
-//
-// impl FilamentUsage {
-//     pub fn new(data: Vec<FilamentUsageEntry>) -> Self {
-//         Self {
-//             data
-//         }
-//     }
-//     pub fn from_csv(csv: &str) -> FilamentUsage {
-//         let mut filament_usage = FilamentUsage { data: Vec::new() };
-//         filament_usage.load_csv(csv);
-//         filament_usage
-//     }
-//     fn load_csv(&mut self, csv: &str) {
-//         debug!("%%%%%% load_csv");
-//         self.data.clear();
-//         let num_of_lines = csv.lines().count();
-//         self.data.reserve_exact(num_of_lines);
-//         for line in csv.lines() {
-//             let mut split = line.split(',');
-//             if let (Some(layer), Some(gcode_filament_id), Some(weight_g)) = (split.next(), split.next(), split.next()) {
-//                 if let (Ok(layer), Ok(gcode_filament_id), Ok(weight_g)) =
-//                     (layer.parse::<i32>(), gcode_filament_id.parse::<i32>(), weight_g.parse::<f32>())
-//                 {
-//                     self.data.push(FilamentUsageEntry {
-//                         layer,
-//                         gcode_filament_id,
-//                         weight_g,
-//                     })
-//                 }
-//             }
-//         }
-//     }
-// }
 
 #[derive(Debug, PartialEq)]
 pub enum GcodeAnalysis {
     WaitingForPrinter,
-    Requested { at: Instant },
-    Received { at: Instant, usage: FilamentUsage },
+    Requested { at: Instant, job_number: i32 },
+    Received { at: Instant, job_number: i32, usage: FilamentUsage },
 }
 
 pub struct PrintProject {
     pub subtask_name: String,
     pub plate_idx: u32,
+    pub threemf_url: String,
+    pub gcode_filename_in_3mf: String,
     pub(super) ams_mapping: Vec<i32>,
     pub(super) ams_mapping2: Vec<AmsMapping2Entry>,
     pub gcode_analysis: GcodeAnalysis,
@@ -81,7 +39,14 @@ pub struct PrintProject {
 }
 
 impl PrintProject {
-    pub(super) fn new(subtask_name: &str, plate_idx: u32, ams_mapping: &[i32], ams_mapping2: &[AmsMapping2Entry]) -> Self {
+    pub(super) fn new(
+        subtask_name: &str,
+        plate_idx: u32,
+        threemf_url: &str,
+        gcode_filename_in_3mf: &str,
+        ams_mapping: &[i32],
+        ams_mapping2: &[AmsMapping2Entry],
+    ) -> Self {
         Self {
             subtask_name: subtask_name.to_string(),
             plate_idx,
@@ -93,6 +58,8 @@ impl PrintProject {
             total_layer_num: -1,
             need_consume: false,
             consume_index: -1,
+            threemf_url: threemf_url.to_string(),
+            gcode_filename_in_3mf: gcode_filename_in_3mf.to_string(),
         }
     }
 
@@ -107,7 +74,7 @@ impl PrintProject {
         if self.consume_index < 0 {
             return None;
         }
-        if let GcodeAnalysis::Received { at: _, usage } = &self.gcode_analysis {
+        if let GcodeAnalysis::Received { at: _, job_number: _, usage } = &self.gcode_analysis {
             debug!("$$$$$ GcodeAnalysis received, consume_index {}/{}", self.consume_index, usage.data.len());
             usage.data.get(self.consume_index as usize)
         } else {
@@ -125,11 +92,11 @@ impl BambuPrinter {
             return false;
         }
         // TODO: theoretically all are options so could 'take' instead of clone
-        if let (Some(subtask_name), Some(plate_idx), Some(ams_mapping), Some(ams_mapping2)) =
-            (&print.subtask_name, print.plate_idx, &print.ams_mapping, &print.ams_mapping2)
+        if let (Some(subtask_name), Some(plate_idx), Some(ams_mapping), Some(ams_mapping2), Some(url), Some(param)) =
+            (&print.subtask_name, print.plate_idx, &print.ams_mapping, &print.ams_mapping2, &print.url, &print.param)
         {
             info!("[{printer_log_id}] Print project started: name: '{subtask_name}', plate: {plate_idx}, using ams slots: {ams_mapping:?}, {ams_mapping2:?}");
-            self.curr_print_project = Some(PrintProject::new(subtask_name, plate_idx, ams_mapping, ams_mapping2));
+            self.curr_print_project = Some(PrintProject::new(subtask_name, plate_idx, url, param, ams_mapping, ams_mapping2));
         }
 
         false
@@ -228,7 +195,7 @@ impl BambuPrinter {
                 // !!! verify it is the last one
                 self.try_consume(curr_print_project);
                 info!("Print project finished successfuly");
-                if let GcodeAnalysis::Received { at: _, usage } = &curr_print_project.gcode_analysis {
+                if let GcodeAnalysis::Received { at: _, job_number: _, usage } = &curr_print_project.gcode_analysis {
                     if curr_print_project.consume_index != usage.data.len() as i32 {
                         error!("Print project filament consumption tracking didn't finish well, reached index {} (0 based), while usage data contain {} records", curr_print_project.consume_index, usage.data.iter().len());
                     }
@@ -268,9 +235,12 @@ impl BambuPrinter {
             {
                 debug!(">>>>> Need to request gcode analysis");
                 // request scale to fetch gcode from printer and analyze it
-                curr_print_project.gcode_analysis = GcodeAnalysis::Requested { at: Instant::now() };
+                let job_number = self.notify_request_gcode_analysis(curr_print_project);
+                curr_print_project.gcode_analysis = GcodeAnalysis::Requested {
+                    at: Instant::now(),
+                    job_number,
+                };
                 curr_print_project.need_consume = true;
-                self.notify_request_gcode_analysis(&curr_print_project);
                 // TODO: replace with real code of send/recceive
                 // let filament_usage = FilamentUsage::from_csv(include_str!("../../_untracked/test1/Cube + Cube_plate_1.usage"));
                 // curr_print_project.gcode_analysis = GcodeAnalysis::Received {
@@ -278,6 +248,14 @@ impl BambuPrinter {
                 //     usage: filament_usage,
                 // };
                 // curr_print_project.consume_index = 0;
+            }
+            if curr_print_project.gcode_state == GcodeState::FAILED && curr_print_project.gcode_analysis != GcodeAnalysis::WaitingForPrinter {
+                match curr_print_project.gcode_analysis {
+                    GcodeAnalysis::WaitingForPrinter => (),
+                    GcodeAnalysis::Requested { at: _, job_number } | GcodeAnalysis::Received { at: _, job_number, usage: _ } => {
+                        self.notify_cancel_gcode_analysis(job_number);
+                    }
+                }
             }
         }
 

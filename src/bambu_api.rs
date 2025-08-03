@@ -97,6 +97,7 @@ pub struct PrintData {
     // pub upgrade_state: Option<PrintUpgradeState>,
     pub command: Option<String>,
     pub param: Option<String>,  // "Metadata/plate_1.gcode"
+    pub url: Option<String>, // "https://or-cloud-upload-prod.s3.dualstack.us-west-2.amazonaws.com/users/1728685496/models/20250..."
     #[serde(default, serialize_with = "option_u32_as_str_se", deserialize_with = "option_u32_as_str_de")]
     pub plate_idx: Option<u32>, // "1",
     // pub msg: Option<i64>,
