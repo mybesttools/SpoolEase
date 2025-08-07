@@ -38,7 +38,7 @@ use mqttrust::QoS;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use shared::spool_tag::TAG_PLACEHOLDER;
+use shared::{gcode_analysis_task::Fetch3mf, spool_tag::TAG_PLACEHOLDER};
 
 use framework::prelude::*;
 
@@ -69,6 +69,7 @@ pub struct BambuPrinter {
     pub configured_printer_ip: Option<Ipv4Address>,
     pub auto_restore_k: bool,
     pub track_print_consume: bool,
+    pub fetch_3mf: Fetch3mf,
     pub printer_name: String,
     pub printer_selector_name: String, // configured_printer_name or if not set then printer_serial which is always available
     pub printer_ip: Ipv4Address,
@@ -285,6 +286,7 @@ impl BambuPrinter {
         printer_ip: &Option<Ipv4Address>,
         auto_restore_k: bool,
         track_print_consume: bool,
+        fetch_3mf: Fetch3mf,
         write_packets: Rc<embassy_sync::channel::Channel<embassy_sync::blocking_mutex::raw::NoopRawMutex, crate::my_mqtt::BufferedMqttPacket, 3>>,
         app_config: Rc<RefCell<AppConfig>>,
         restart_printer: Rc<embassy_sync::signal::Signal<embassy_sync::blocking_mutex::raw::NoopRawMutex, i32>>,
@@ -299,6 +301,7 @@ impl BambuPrinter {
             printer_ip,
             auto_restore_k,
             track_print_consume,
+            fetch_3mf,
             write_packets,
             app_config,
             restart_printer,
@@ -318,6 +321,7 @@ impl BambuPrinter {
         printer_ip: &Option<Ipv4Address>,
         auto_restore_k: bool,
         track_print_consume: bool,
+        fetch_3mf: Fetch3mf,
         write_packets: Rc<embassy_sync::channel::Channel<embassy_sync::blocking_mutex::raw::NoopRawMutex, crate::my_mqtt::BufferedMqttPacket, 3>>,
         app_config: Rc<RefCell<AppConfig>>,
         restart_printer: Rc<embassy_sync::signal::Signal<embassy_sync::blocking_mutex::raw::NoopRawMutex, i32>>,
@@ -355,6 +359,7 @@ impl BambuPrinter {
             configured_printer_name: printer_name.clone(),
             auto_restore_k,
             track_print_consume,
+            fetch_3mf,
             printer_ip: printer_ip.unwrap_or(Ipv4Address::new(0, 0, 0, 0)),
             printer_name: printer_name.clone().unwrap_or("Unknown".to_string()),
             printer_selector_name,
@@ -413,6 +418,7 @@ impl BambuPrinter {
             &self.configured_printer_ip,
             self.auto_restore_k,
             self.track_print_consume,
+            self.fetch_3mf,
             self.write_packets.clone(),
             self.app_config.clone(),
             self.restart_printer.clone(),
@@ -1786,6 +1792,7 @@ pub fn init(
     };
     let auto_restore_k = printer_config.auto_restore_k;
     let track_print_consume = printer_config.track_print_consume;
+    let fetch_3mf = printer_config.fetch_3mf;
 
     // == Setup MQTT ==================================================================
     let write_packets = Rc::new(embassy_sync::channel::Channel::<
@@ -1813,6 +1820,7 @@ pub fn init(
         &printer_ip,
         auto_restore_k,
         track_print_consume,
+        fetch_3mf,
         write_packets.clone(),
         app_config.clone(),
         restart_printer.clone(),

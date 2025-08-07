@@ -859,6 +859,13 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
                     <input class="track-print-consume" type="checkbox" id="tack-print-consume" checked>
                     <label for="track-print-consume" style="margin-top: 0px; margin-bottom:0px; padding-left: 2px;">Track prints filament consumption</label>
                   </div>
+                  <div style="display: flex; align-items: center; margin-left: 1.2rem; margin-bottom: 0px; margin-top: 6px; padding-bottom: 0px;">
+                    <label for="fetch-3mf" style="margin-top: 0px; margin-bottom:0px; padding-left: 2px;">Fetch 3MF using</label>
+                    <select style="padding-right: 12px; height: 20px; font-size: 1rem; margin-left: 12px;" class="fetch-3mf" type="checkbox" id="fetch-3mf">
+                      <option value="printer-ftp">FTP (No Authorization)&nbsp;</option>
+                      <option value="cloud-http">HTTP (Cloud Printing)</option>
+                    </select>
+                  </div>
                 </div>
                 <div class = "form-row">
                   <div style="display: flex; align-items: center; margin-bottom: 0px;">
@@ -930,6 +937,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
             logsEnabled;
           newPrinterForm.querySelector(".auto-restore-k").checked = printer.auto_restore_k;
           newPrinterForm.querySelector(".track-print-consume").checked = printer.track_print_consume;
+          newPrinterForm.querySelector(".fetch-3mf").value = printer.fetch_3mf;
         });
 
         // Setup IP fields for all printers
@@ -1145,6 +1153,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
           ).checked;
           const autoRestoreK = form.querySelector(".auto-restore-k").checked;
           const trackPrintConsume = form.querySelector(".track-print-consume").checked;
+          const fetch3mf = form.querySelector(".fetch-3mf").value;
 
           const ipParts = Array.from(form.querySelectorAll(".ip-part"));
           const ipValid = ipParts.every((part) => part.value.trim() !== "");
@@ -1175,6 +1184,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
 
           printer.auto_restore_k = autoRestoreK;
           printer.track_print_consume = trackPrintConsume;
+          printer.fetch_3mf = fetch3mf;
 
           printers.push(printer);
 

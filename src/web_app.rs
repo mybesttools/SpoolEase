@@ -27,6 +27,7 @@ use framework::{
 };
 use framework_macros::include_bytes_gz;
 use serde::{Deserialize, Serialize};
+use shared::gcode_analysis_task::Fetch3mf;
 
 use crate::app_config::{AppConfig, DefaultPrinterConfig, PrinterConfig, PrintersConfig, ScaleConfig, SPOOLS_CATALOG};
 use crate::store::Store;
@@ -541,6 +542,7 @@ struct PrinterConfigDTO {
     log_filter: Option<log::LevelFilter>,
     auto_restore_k: bool,
     track_print_consume: bool,
+    fetch_3mf: Option<String>,
 }
 encrypted_input!(PrinterConfigDTO);
 impl From<PrinterConfigDTO> for PrinterConfig {
@@ -553,6 +555,7 @@ impl From<PrinterConfigDTO> for PrinterConfig {
             log_filter: v.log_filter,
             auto_restore_k: v.auto_restore_k,
             track_print_consume: v.track_print_consume,
+            fetch_3mf: if v.fetch_3mf.as_deref().unwrap_or("") == "printer-ftp" { Fetch3mf::PrinterFtp } else { Fetch3mf::CloudHttp },
         }
     }
 }
@@ -566,6 +569,10 @@ impl From<&PrinterConfig> for PrinterConfigDTO {
             log_filter: v.log_filter,
             auto_restore_k: v.auto_restore_k,
             track_print_consume: v.track_print_consume,
+            fetch_3mf: match v.fetch_3mf {
+                Fetch3mf::PrinterFtp => Some("printer-ftp".to_string()),
+                Fetch3mf::CloudHttp => Some("cloud-http".to_string()),
+            }
         }
     }
 }

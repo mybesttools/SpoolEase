@@ -18,7 +18,7 @@ use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 use shared::gcode_analysis::FilamentUsageEntry;
 use shared::gcode_analysis_task::{
-    fetch_gcode_analysis_task, FilamentUsage, GcodeAnalysisRequest, GcodeAnalysisRequestChannel, GcodeAnalyzerObserver, GcodeFetch
+    fetch_gcode_analysis_task, FilamentUsage, GcodeAnalysisRequest, GcodeAnalysisRequestChannel, GcodeAnalyzerObserver,
 };
 use slint::{ComponentHandle, Model, SharedString, ToSharedString};
 
@@ -1406,7 +1406,7 @@ impl BambuPrinterObserver for ViewModel {
         info!("[{printer_number}] Received request for gcode analysis {subtask_name}, plate {plate_idx}");
 
         let gcode_analysis_request = GcodeAnalysisRequest {
-            gcode_fetch: GcodeFetch::CloudHttp,
+            fetch_3mf: printer.fetch_3mf,
             ip,
             serial,
             access_code,

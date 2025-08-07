@@ -5,7 +5,10 @@ use alloc::{
 };
 use embassy_time::Instant;
 use framework::{debug, error, info};
-use shared::{gcode_analysis::FilamentUsageEntry, gcode_analysis_task::FilamentUsage};
+use shared::{
+    gcode_analysis::FilamentUsageEntry,
+    gcode_analysis_task::{Fetch3mf, FilamentUsage},
+};
 
 use crate::{
     bambu::BambuPrinter,
@@ -92,11 +95,25 @@ impl BambuPrinter {
             return false;
         }
         // TODO: theoretically all are options so could 'take' instead of clone
-        if let (Some(subtask_name), Some(plate_idx), Some(ams_mapping), Some(ams_mapping2), Some(url), Some(param)) =
-            (&print.subtask_name, print.plate_idx, &print.ams_mapping, &print.ams_mapping2, &print.url, &print.param)
-        {
+        if let (Some(subtask_name), Some(plate_idx), Some(ams_mapping), Some(ams_mapping2), Some(url), Some(param)) = (
+            &print.subtask_name,
+            print.plate_idx,
+            &print.ams_mapping,
+            &print.ams_mapping2,
+            &print.url,
+            &print.param,
+        ) {
             info!("[{printer_log_id}] Print project started: name: '{subtask_name}', plate: {plate_idx}, using ams slots: {ams_mapping:?}, {ams_mapping2:?}");
-            self.curr_print_project = Some(PrintProject::new(subtask_name, plate_idx, url, param, ams_mapping, ams_mapping2));
+            let mut curr_print_project = PrintProject::new(subtask_name, plate_idx, url, param, ams_mapping, ams_mapping2);
+            // in case of http can already fetch now and not wait for printer to download first
+            if self.fetch_3mf == Fetch3mf::CloudHttp {
+                let job_number = self.notify_request_gcode_analysis(&curr_print_project);
+                curr_print_project.gcode_analysis = GcodeAnalysis::Requested {
+                    at: Instant::now(),
+                    job_number,
+                };
+            }
+            self.curr_print_project = Some(curr_print_project);
         }
 
         false
@@ -203,13 +220,13 @@ impl BambuPrinter {
                     error!("Something is wrong tracking print project, at FINISH no gcode_analysis data available");
                 }
             }
-            if gcode_state_change && new_gcode_state == GcodeState::FINISH {
+            if gcode_state_change && new_gcode_state == GcodeState::FAILED {
                 info!("Print project failed");
             }
 
             // Modifying state actions
 
-            if layer_num_change {
+            if layer_num_change && curr_print_project.gcode_state == GcodeState::RUNNING {
                 // debug!(">>>>> layer_num_change, set need_consume true");
                 curr_print_project.need_consume = true;
             }
@@ -226,29 +243,30 @@ impl BambuPrinter {
 
             curr_gcode_state = curr_print_project.gcode_state;
 
+            // // debug!(">>>> {:?}, {:?}, {}", curr_print_project.gcode_analysis, curr_print_project.gcode_state, curr_print_project.layer_num);
+            // if curr_print_project.gcode_analysis == GcodeAnalysis::WaitingForPrinter
+            //     && curr_print_project.gcode_state == GcodeState::RUNNING
+            //     && curr_print_project.total_layer_num != -1
+            // {
+            //     // curr_print_project.need_consume = true; // changed to set it only when state CHANGED to running
+            // }
+
             // actions post updates,
             // be aware that still can't rely on updated self.tray_tar/now/pre which will be updated later
-            // debug!(">>>> {:?}, {:?}, {}", curr_print_project.gcode_analysis, curr_print_project.gcode_state, curr_print_project.layer_num);
-            if curr_print_project.gcode_analysis == GcodeAnalysis::WaitingForPrinter
-                && curr_print_project.gcode_state == GcodeState::RUNNING
-                && curr_print_project.total_layer_num != -1
-            {
-                debug!(">>>>> Need to request gcode analysis");
-                // request scale to fetch gcode from printer and analyze it
-                let job_number = self.notify_request_gcode_analysis(curr_print_project);
-                curr_print_project.gcode_analysis = GcodeAnalysis::Requested {
-                    at: Instant::now(),
-                    job_number,
-                };
+
+            if gcode_state_change && new_gcode_state == GcodeState::RUNNING {
+                // if not requested earlier, request scale to fetch gcode from printer and analyze it
+                // In case of ftp it will be requested here, if http already earlier when project_file arrived
+                if curr_print_project.gcode_analysis == GcodeAnalysis::WaitingForPrinter {
+                    let job_number = self.notify_request_gcode_analysis(curr_print_project);
+                    curr_print_project.gcode_analysis = GcodeAnalysis::Requested {
+                        at: Instant::now(),
+                        job_number,
+                    };
+                }
                 curr_print_project.need_consume = true;
-                // TODO: replace with real code of send/recceive
-                // let filament_usage = FilamentUsage::from_csv(include_str!("../../_untracked/test1/Cube + Cube_plate_1.usage"));
-                // curr_print_project.gcode_analysis = GcodeAnalysis::Received {
-                //     at: Instant::now(),
-                //     usage: filament_usage,
-                // };
-                // curr_print_project.consume_index = 0;
             }
+
             if curr_print_project.gcode_state == GcodeState::FAILED && curr_print_project.gcode_analysis != GcodeAnalysis::WaitingForPrinter {
                 match curr_print_project.gcode_analysis {
                     GcodeAnalysis::WaitingForPrinter => (),

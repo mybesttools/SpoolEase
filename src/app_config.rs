@@ -11,6 +11,7 @@ use embassy_net::Ipv4Address;
 use serde::{Deserialize, Deserializer, Serializer};
 
 use framework::prelude::*;
+use shared::gcode_analysis_task::Fetch3mf;
 
 pub const SPOOLS_CATALOG: &str = include_str!("../data/Spool-Core-Weights.csv");
 pub const BASE_FILAMENTS: &str = include_str!("../data/base-filaments-index.csv");
@@ -74,6 +75,8 @@ pub struct PrinterConfig {
     pub auto_restore_k: bool,
     #[serde(default = "default_true")]
     pub track_print_consume: bool,
+    #[serde(default)]
+    pub fetch_3mf: Fetch3mf,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Default)]
