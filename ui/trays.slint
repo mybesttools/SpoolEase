@@ -35,7 +35,7 @@ component AmsButton inherits Window {
                     height: parent.height;
                     width: parent.width;
                     border-color: black;
-                    border-width: trays-state[ams-id * 4 + tray-id + 1].spool-state == UiTrayState.Loaded ? 3px : 1px;
+                    border-width: trays-state[ams-id * 4 + tray-id + 1].spool-state == UiTrayState.Loaded ? 4px : 1px;
                     if !slot-with-known-color(trays-state[ams-id * 4 + tray-id + 1]) && slot-with-spool(trays-state[ams-id * 4 + tray-id + 1]): MyText {
                         text: "?";
                         color: white;
@@ -123,7 +123,7 @@ component Spool inherits Rectangle {
     }
 
     tray-border := Rectangle {
-        border-width: area.pressed || (AppState.highlight-trays && tray-state.spool-state == UiTrayState.Ready && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-tray == tray-state.id && AppState.highlight-tray-flash) ? 4px : 1px;
+        border-width: area.pressed || (AppState.highlight-trays && tray-state.external) || (AppState.highlight-trays && tray-state.spool-state == UiTrayState.Ready && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-tray == tray-state.id && AppState.highlight-tray-flash) ? 4px : 1px;
         border-color: self.border-width == 1px ? black : utils.contrasting_color(root.background);
     }
 

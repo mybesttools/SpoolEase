@@ -109,6 +109,7 @@ pub trait BambuPrinterObserver {
     );
     fn on_printer_connect_status(&self, bambu_printer: &mut BambuPrinter, status: bool);
     fn on_request_gcode_analysis(&mut self, bambu_printer: &mut BambuPrinter, print_project: &PrintProject) -> i32;
+    fn on_cancel_gcode_analysis(&mut self, job_number: i32);
 }
 
 // Special access to trays fields for dirty tracking
@@ -133,7 +134,7 @@ impl BambuPrinter {
     {
         let prev_tray = self.inner_ams_trays[index].clone();
         f(&mut self.inner_ams_trays[index]);
-        // extra test if meta_info because meta is excluded from partialeq for Tray
+        // extra test if meta_info because meta is excluded from partialeq for Tray (also in vt_tray)
         if prev_tray != self.inner_ams_trays[index] || prev_tray.meta_info != self.inner_ams_trays[index].meta_info {
             self.ams_trays_dirty[index] = true;
         }
@@ -153,7 +154,8 @@ impl BambuPrinter {
     {
         let prev_tray = self.inner_virt_tray.clone();
         f(&mut self.inner_virt_tray);
-        if prev_tray != self.inner_virt_tray {
+        // extra test if meta_info because meta is excluded from partialeq for Tray (also in ams_trays)
+        if prev_tray != self.inner_virt_tray || prev_tray.meta_info != self.inner_virt_tray.meta_info {
             self.virty_tray_dirty = true;
         }
     }
@@ -626,13 +628,18 @@ impl BambuPrinter {
                     // return Some(new_tray);
                 } else if let Ok(tray_update) = self.tray_from_update(tray_update) {
                     if let Some(mut new_tray) = tray_update {
-                        // External tray with data is always considered Ready
                         if matches!(new_tray.filament, Filament::Unknown) {
                             new_tray.state = TrayState::Empty;
                             new_tray.meta_info = TrayMetaInfo::default();
                         } else {
-                            new_tray.state = self.get_tray_detailed_ready_state(tray_id);
-                            new_tray.meta_info = old_tray.meta_info.clone(); // TODO: can take if work properly
+                            new_tray.state = self.get_tray_detailed_ready_state(tray_id); // tray_id is really None here (external)
+                            if old_tray.state == TrayState::Loaded && new_tray.state == TrayState::Empty {
+                                // this is the case of unloading external tray
+                                new_tray.meta_info = TrayMetaInfo::default();
+                            } else {
+                                new_tray.meta_info = old_tray.meta_info.clone();
+                                // TODO: can take if work properly
+                            }
                         }
                         return Some(new_tray);
                     } else {
@@ -651,17 +658,29 @@ impl BambuPrinter {
     }
 
     fn get_tray_detailed_ready_state(&self, tray_id: Option<usize>) -> TrayState {
-        if self.tray_now < 0 || tray_id.is_none() {
+        if self.tray_now < 0 {
             // because converting to usize
             return TrayState::Ready;
         }
+
 
         // let mut loading = None;
         // let mut unloading = None;
         let mut loaded = None;
 
-        if self.tray_now == self.tray_tar && self.tray_now != 255 {
-            loaded = Some(self.tray_now as usize);
+        if tray_id.is_some() {
+            if self.tray_now == self.tray_tar && self.tray_now != 255 {
+                loaded = Some(self.tray_now as usize);
+            }
+            if tray_id == loaded {
+                TrayState::Loaded
+            } else {
+                TrayState::Ready
+            }
+        } else if self.tray_now == 254 {
+            TrayState::Loaded
+        } else {
+            TrayState::Empty
         }
         // loading/unloading is more complex, should also use "ams_status" and maybe "ams_rfid" from mqtt
         // See Bambustudio statuspanel.cpp & DeviceManager.cpp
@@ -691,10 +710,6 @@ impl BambuPrinter {
         // if tray_id == unloading {
         //     return TrayState::Unloading;
         // }
-        if tray_id == loaded {
-            return TrayState::Loaded;
-        }
-        TrayState::Ready
 
         // let mut detailed_ready_state = TrayState::Ready;
         // if let Some(tray_id) = tray_id {
@@ -725,14 +740,19 @@ impl BambuPrinter {
     }
 
     #[allow(non_snake_case)]
-    pub fn process_print_message__vt_tray(&mut self, v_tray: &PrintTray) -> bool {
+    pub fn process_print_message__vt_tray(&mut self, v_tray: &PrintTray) -> (bool, Option<TagInformation>) {
         let old_tray = self.virt_tray().clone();
         let new_tray = self.get_updated_tray(&old_tray, Some(v_tray), None);
         if let Some(new_tray) = new_tray {
+            let removed_tag = if old_tray.state == TrayState::Loaded && new_tray.state != TrayState::Loaded {
+                old_tray.meta_info.tag_info
+            } else {
+                None
+            };
             self.set_virt_tray(new_tray);
-            return true;
+            return (true, removed_tag);
         }
-        false
+        (false, None)
     }
 
     #[allow(non_snake_case)]
@@ -865,14 +885,33 @@ impl BambuPrinter {
 
         // Deal with ams changes
         let mut ams_change_made = false;
+        let mut tray_xxx_change_made = false;
         if let Some(ams) = &print.ams {
-            (ams_change_made, removed_tags) = self.process_print_message__ams(ams);
+            (ams_change_made, removed_tags, tray_xxx_change_made) = self.process_print_message__ams(ams);
         }
 
         // Deal with external tray changes
         let mut vt_tray_change_made = false;
+        let removed_tag;
         if let Some(v_tray) = &print.vt_tray {
-            vt_tray_change_made = self.process_print_message__vt_tray(v_tray);
+            (vt_tray_change_made, removed_tag) = self.process_print_message__vt_tray(v_tray);
+            if let Some(removed_tag) = removed_tag {
+                removed_tags.insert(254, removed_tag);
+            }
+        } else if tray_xxx_change_made {
+            let new_vt_tray_detailed_ready_state = self.get_tray_detailed_ready_state(None);
+            let curr_vt_tray_detailed_ready_state = self.virt_tray().state;
+            self.update_virt_tray(|tray| tray.state = new_vt_tray_detailed_ready_state);
+
+            if curr_vt_tray_detailed_ready_state == TrayState::Loaded && new_vt_tray_detailed_ready_state != TrayState::Loaded {
+                let mut vt_tray = self.virt_tray().clone();
+                let tag = vt_tray.meta_info.tag_info.take();
+                vt_tray.meta_info = TrayMetaInfo::default();
+                self.set_virt_tray(vt_tray);
+                if let Some(tag) = tag {
+                    removed_tags.insert(254, tag);
+                }
+            }
         }
 
         // Check if any change affects need for special restore state case
@@ -915,7 +954,7 @@ impl BambuPrinter {
     }
 
     #[allow(non_snake_case)]
-    pub fn process_print_message__ams(&mut self, ams: &PrintAms) -> (bool, HashMap<usize, TagInformation>) {
+    pub fn process_print_message__ams(&mut self, ams: &PrintAms) -> (bool, HashMap<usize, TagInformation>, bool) {
         let mut change_made = false;
         let prev_tray_exist_bits = self.tray_exist_bits;
 
@@ -963,11 +1002,12 @@ impl BambuPrinter {
                 }
             }
         }
-
+        let mut tray_xxx_change_made = false;
         if let Some(new_tray_tar) = ams.tray_tar {
             if new_tray_tar != self.tray_tar {
                 self.tray_tar = new_tray_tar;
                 change_made = true;
+                tray_xxx_change_made = true;
             }
         }
 
@@ -975,6 +1015,7 @@ impl BambuPrinter {
             if new_tray_now != self.tray_now {
                 self.tray_now = new_tray_now;
                 change_made = true;
+                tray_xxx_change_made = true;
             }
         }
 
@@ -982,6 +1023,7 @@ impl BambuPrinter {
             if new_tray_pre != self.tray_pre {
                 self.tray_pre = new_tray_pre;
                 change_made = true;
+                tray_xxx_change_made = true;
             }
         }
 
@@ -1031,7 +1073,7 @@ impl BambuPrinter {
             //     }
             // }
         }
-        (change_made, removed_tags)
+        (change_made, removed_tags, tray_xxx_change_made)
     }
 
     pub fn process_print_message(&mut self, print: &bambu_api::PrintData) -> (bool, HashMap<usize, TagInformation>) {
@@ -1087,27 +1129,6 @@ impl BambuPrinter {
             let observer = weak_observer.upgrade().unwrap();
             observer.borrow_mut().on_printer_connect_status(self, status);
         }
-    }
-
-    pub fn notify_request_gcode_analysis(&mut self, print_project: &PrintProject) -> i32 {
-        let mut observers = self.observers.clone(); // to avoid two references - can probably optimize in various ways
-        let mut job_number = 0;
-        for weak_observer in observers.iter_mut() {
-            let observer = weak_observer.upgrade().unwrap();
-            let job_number_update = observer.borrow_mut().on_request_gcode_analysis(self, print_project);
-            if job_number_update != 0 {
-                if job_number == 0 {
-                    job_number = job_number_update;
-                } else {
-                    error!("Internal software error, two gcode analysis requests listeners with with job_number, only one possible");
-                }
-            }
-        }
-        job_number
-    }
-
-    pub fn notify_cancel_gcode_analysis(&mut self, job_number: i32) {
-        error!("Need to implement notify_cancel_gcode_analysis");
     }
 
     pub fn update_ams_trays_done(&mut self, prev_trays_bits: &TrayBits, new_trays_bits: &TrayBits, removed_tags: &HashMap<usize, TagInformation>) {

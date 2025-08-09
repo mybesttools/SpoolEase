@@ -18,7 +18,8 @@ use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 use shared::gcode_analysis::FilamentUsageEntry;
 use shared::gcode_analysis_task::{
-    fetch_gcode_analysis_task, FilamentUsage, GcodeAnalysisRequest, GcodeAnalysisRequestChannel, GcodeAnalyzerObserver,
+    fetch_gcode_analysis_task, FilamentUsage, GcodeAnalysisNotification, GcodeAnalysisNotificationChannel, GcodeAnalysisRequest,
+    GcodeAnalysisRequestChannel, GcodeAnalyzerObserver,
 };
 use slint::{ComponentHandle, Model, SharedString, ToSharedString};
 
@@ -70,6 +71,7 @@ pub struct ViewModel {
     pub store: Rc<Store>,
     encode_from_blank: Option<TagInformation>,
     gcode_analysis_request_channel: Rc<GcodeAnalysisRequestChannel>,
+    gcode_analysis_notification_channel: Rc<GcodeAnalysisNotificationChannel>,
     gcode_last_job_number: i32,
 }
 
@@ -123,6 +125,7 @@ impl ViewModel {
         let selector_options_vec_rc = slint::ModelRc::from(Rc::new(selector_options_vec));
 
         let gcode_analysis_request_channel = Rc::new(GcodeAnalysisRequestChannel::new());
+        let gcode_analysis_notification_channel = Rc::new(GcodeAnalysisNotificationChannel::new());
 
         // Create the ViewModel
         let view_model = ViewModel {
@@ -145,6 +148,7 @@ impl ViewModel {
             store,
             encode_from_blank: None,
             gcode_analysis_request_channel,
+            gcode_analysis_notification_channel,
             gcode_last_job_number: 0,
         };
         let view_model_rc = Rc::new(RefCell::new(view_model));
@@ -393,6 +397,7 @@ impl ViewModel {
                 fetch_gcode_analysis_task(
                     self.framework.clone(),
                     self.gcode_analysis_request_channel.clone(),
+                    self.gcode_analysis_notification_channel.clone(),
                     trait_for_gcode_analyzer_weak,
                 )
             });
@@ -1438,6 +1443,12 @@ impl BambuPrinterObserver for ViewModel {
             }
         }
     }
+
+    fn on_cancel_gcode_analysis(&mut self, job_number: i32) {
+        self.gcode_analysis_notification_channel
+            .immediate_publisher()
+            .publish_immediate(GcodeAnalysisNotification::Cancel { job_number });
+    }
 }
 
 // TODO:
@@ -1821,22 +1832,8 @@ impl SpoolScaleObserver for ViewModel {
     }
 
     // note that this is from Scale (which ends up calling the GcodeAnalyzerObserver on_gcode_analysis)
-    fn on_gcode_analysis(&mut self, job_number: i32, printer_index: usize, gcode_analysis_csv: &str) {
-        let num_records = gcode_analysis_csv.lines().count();
-        let mut data = Vec::<FilamentUsageEntry>::with_capacity(num_records);
-        let mut csv_parser = serde_csv_core::Reader::<16>::new(); // 16 is max field size
-        for line in gcode_analysis_csv.lines() {
-            match csv_parser.deserialize(line.as_bytes()) {
-                Ok(v) => {
-                    data.push(v.0);
-                }
-                Err(err) => {
-                    error!("Internal error deserializing FilamentUsageEntry : {err}");
-                    return;
-                }
-            }
-        }
-        let filament_usage = FilamentUsage { data };
+    fn on_gcode_analysis(&mut self, job_number: i32, printer_index: usize, gcode_analysis: Vec<FilamentUsageEntry>) {
+        let filament_usage = FilamentUsage { data: gcode_analysis };
 
         shared::gcode_analysis_task::GcodeAnalyzerObserver::on_gcode_analysis(self, job_number, printer_index, filament_usage);
     }
@@ -2086,6 +2083,22 @@ impl GcodeAnalyzerObserver for ViewModel {
             } else {
                 error!("Internal Error setting gcode analysis to printer index {printer_index}");
             }
+        }
+    }
+
+    fn on_canceled(&mut self, job_number: i32, printer_index: usize) {
+        if let Some(printer) = self.bambu_printer_model.printers.get(printer_index) {
+            let printer_borrow = printer.borrow();
+            let printer_log_id = printer_borrow.printer_number;
+            info!("[{printer_log_id}] Gcode analysis job {job_number} canceled before completion (print canceled?)");
+        }
+    }
+
+    fn on_failed(&mut self, job_number: i32, printer_index: usize) {
+        if let Some(printer) = self.bambu_printer_model.printers.get(printer_index) {
+            let printer_borrow = printer.borrow();
+            let printer_log_id = printer_borrow.printer_number;
+            error!("[{printer_log_id}] Gcode analysis job {job_number} failed (exact error above?)");
         }
     }
 }

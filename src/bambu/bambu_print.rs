@@ -15,6 +15,16 @@ use crate::{
     bambu_api::{self, AmsMapping2Entry, GcodeState},
 };
 
+const EXTRA_DEBUG: bool = true;
+
+macro_rules! debugex {
+    ($($t:tt)*) => {
+        if EXTRA_DEBUG {
+            debug!($($t)*);
+        }
+    };
+}
+
 #[derive(Debug, PartialEq)]
 pub enum GcodeAnalysis {
     WaitingForPrinter,
@@ -68,7 +78,15 @@ impl PrintProject {
 
     pub(super) fn get_ams_id(&self, filament_id: i32) -> Option<i32> {
         if filament_id >= 0 {
-            self.ams_mapping.get(filament_id as usize).copied()
+            let ams_slot = self.ams_mapping.get(filament_id as usize).copied();
+            if ams_slot.is_none() || ams_slot == Some(-1) {
+                if let Some(ams2_info) = self.ams_mapping2.get(filament_id as usize) {
+                    if ams2_info.ams_id == 255 && ams2_info.slot_id == 0 {
+                        return Some(254);
+                    }
+                }
+            }
+            ams_slot
         } else {
             None
         }
@@ -78,7 +96,6 @@ impl PrintProject {
             return None;
         }
         if let GcodeAnalysis::Received { at: _, job_number: _, usage } = &self.gcode_analysis {
-            debug!("$$$$$ GcodeAnalysis received, consume_index {}/{}", self.consume_index, usage.data.len());
             usage.data.get(self.consume_index as usize)
         } else {
             None
@@ -123,13 +140,14 @@ impl BambuPrinter {
     pub fn process_print_message__print_project_logic(&mut self, print: &bambu_api::PrintData) -> bool {
         let mut changed = false;
         // Order when printing is: tray_pre, then tray_tar, then tray_now
-        // debug!(">>>>> In print_project_logic");
+        debugex!(">>>>> In print_project_logic");
         let mut curr_gcode_state = GcodeState::Unknown;
+        let printer_log_id = self.printer_number;
 
         let mut curr_print_project = self.curr_print_project.take();
 
         if let Some(curr_print_project) = &mut curr_print_project {
-            // debug!(">>>>> curr_print_project available");
+            // debugex!(">>>>> curr_print_project available");
             let mut layer_num_change = false;
             let mut tray_tar_change_from_tray_now = false; // plan to switch filament
             let mut tray_now_change = false; // new filament is loaded
@@ -146,6 +164,13 @@ impl BambuPrinter {
                 } else {
                     gcode_state_change = true;
                     new_gcode_state = gcode_state;
+                }
+                if gcode_state == GcodeState::PREPARE {
+                    if let Some(subtak_name) = &print.subtask_name {
+                        // This fix special characters (in the prepare the printer notifies of the real file name after special chars fix)
+                        // This is important for FTP access
+                        curr_print_project.subtask_name = subtak_name.clone();
+                    }
                 }
             }
 
@@ -184,24 +209,24 @@ impl BambuPrinter {
             //   want to consume the same usage because they come one after another and don't want
             //   to rely on order (e.g. layer change and filament change which could happen or not after)
             // if tray_pre_change_to_tray_now {
-            //     // debug!(">>>>> tray_pre_change_to_tray_now && need_consume");
+            //     // debugex!(">>>>> tray_pre_change_to_tray_now && need_consume");
             //     changed |= self.try_consume(curr_print_project);
             // }
 
             if tray_tar_change_from_tray_now && curr_print_project.consume_index != 0 {
-                // debug!(">>>>> tray_tar_change_from_tray_now && need_consume && not first layer");
-                changed |= self.try_consume(curr_print_project);
+                debugex!(">>>>> tray_tar_change_from_tray_now && && not first consume");
+                changed |= self.try_consume(curr_print_project, ConsumeType::FilamentSwitch);
             }
 
             if tray_now_change {
-                // debug!(">>>>> tray_now_change && need_consume");
-                changed |= self.try_consume(curr_print_project);
+                debugex!(">>>>> tray_now_change (from {} to {})", self.tray_now, new_tray_now);
+                changed |= self.try_consume(curr_print_project, ConsumeType::FilamentSwitch);
             }
 
-            if layer_num_change {
+            if layer_num_change && new_layer_num != 0 {
                 // important that it comes last
-                // debug!(">>>>> layer_num_change");
-                changed |= self.try_consume(curr_print_project);
+                debugex!(">>>>> layer_num_change (from {} to {})", curr_print_project.layer_num, new_layer_num);
+                changed |= self.try_consume(curr_print_project, ConsumeType::LayerChange(new_layer_num));
                 // do some validations here:
                 //    verify that the new entry is for the next layer
                 //    if not consumed verify that previous color is different from next layer (so color change caused a consume)
@@ -210,29 +235,32 @@ impl BambuPrinter {
             if gcode_state_change && new_gcode_state == GcodeState::FINISH {
                 // if there is one to consume consume it.
                 // !!! verify it is the last one
-                self.try_consume(curr_print_project);
-                info!("Print project finished successfuly");
+                self.try_consume(curr_print_project, ConsumeType::Finish);
+                info!("[{printer_log_id}] Print project finished successfuly");
                 if let GcodeAnalysis::Received { at: _, job_number: _, usage } = &curr_print_project.gcode_analysis {
                     if curr_print_project.consume_index != usage.data.len() as i32 {
-                        error!("Print project filament consumption tracking didn't finish well, reached index {} (0 based), while usage data contain {} records", curr_print_project.consume_index, usage.data.iter().len());
+                        error!("[{printer_log_id}] Print project filament consumption tracking didn't finish well, reached index {} (0 based), while usage data contain {} records", curr_print_project.consume_index, usage.data.iter().len());
+                    } else {
+                        info!("[{printer_log_id}] All consumption entries used as expected");
                     }
                 } else {
-                    error!("Something is wrong tracking print project, at FINISH no gcode_analysis data available");
+                    error!("[{printer_log_id}] Something is wrong tracking print project, at FINISH no gcode_analysis data available");
                 }
             }
+
             if gcode_state_change && new_gcode_state == GcodeState::FAILED {
-                info!("Print project failed");
+                info!("[{printer_log_id}] Print project failed");
             }
 
             // Modifying state actions
 
             if layer_num_change && curr_print_project.gcode_state == GcodeState::RUNNING {
-                // debug!(">>>>> layer_num_change, set need_consume true");
+                // debugex!(">>>>> layer_num_change, set need_consume true");
                 curr_print_project.need_consume = true;
             }
 
             if tray_now_change && new_tray_now != 255 {
-                // debug!(">>>>> tray_now_change, set need_consume true");
+                // debugex!(">>>>> tray_now_change, set need_consume true");
                 curr_print_project.need_consume = true;
             }
 
@@ -243,7 +271,7 @@ impl BambuPrinter {
 
             curr_gcode_state = curr_print_project.gcode_state;
 
-            // // debug!(">>>> {:?}, {:?}, {}", curr_print_project.gcode_analysis, curr_print_project.gcode_state, curr_print_project.layer_num);
+            // // debugex!(">>>> {:?}, {:?}, {}", curr_print_project.gcode_analysis, curr_print_project.gcode_state, curr_print_project.layer_num);
             // if curr_print_project.gcode_analysis == GcodeAnalysis::WaitingForPrinter
             //     && curr_print_project.gcode_state == GcodeState::RUNNING
             //     && curr_print_project.total_layer_num != -1
@@ -286,41 +314,120 @@ impl BambuPrinter {
         changed
     }
 
-    fn try_consume(&mut self, print_project: &mut PrintProject) -> bool {
-        // debug!(">>>>>>> Trying to consume");
+    fn try_consume(&mut self, print_project: &mut PrintProject, consume_type: ConsumeType) -> bool {
+        debugex!(">>>>>>> Trying to consume");
         let mut consumed = false;
+        let printer_log_id = self.printer_number;
         if print_project.need_consume {
-            // debug!(">>>> need consume = true");
-            if let Some(usage_entry) = print_project.curr_usage_entry() {
-                // debug!(">>>>>> Getting curr usage entry {usage_entry:?}");
-                if let Some(usage_entry_tray_id) = print_project.get_ams_id(usage_entry.gcode_filament_id) {
-                    // debug!(">>>>> usage_entry_tray_id = {usage_entry_tray_id}");
-                    if print_project.layer_num == usage_entry.layer
-                        && self.tray_now == usage_entry_tray_id
-                        && (0..self.ams_trays().len() as i32).contains(&usage_entry_tray_id)
-                    {
-                        self.update_ams_tray(usage_entry_tray_id as usize, |ams_tray| {
-                            ams_tray.meta_info.consumed_since_load += usage_entry.weight_g;
-                            debug!(
-                                "Print project consumed consumed {:.2}g, from filament at slot {} to a total of {:.2}g",
-                                usage_entry.weight_g, usage_entry_tray_id, ams_tray.meta_info.consumed_since_load
-                            );
-                        });
-                        consumed = true;
-                        print_project.consume_index += 1;
-                        print_project.need_consume = false;
-                    } else {
-                        // No matching data to consume, this is ok
+            debugex!(">>>> need consume = true");
+            match consume_type {
+                ConsumeType::LayerChange { .. } | ConsumeType::Finish => {
+                    let up_to_layer_num = match consume_type {
+                        ConsumeType::LayerChange(v) => v,
+                        ConsumeType::Finish => -1,
+                        ConsumeType::FilamentSwitch => unreachable!(),
+                    };
+                    debugex!(">>>>> Layer change consume");
+                    loop {
+                        debugex!(">>>>> Consume loop");
+                        if let Some(usage_entry) = print_project.curr_usage_entry() {
+                            debugex!(">>>>>> Checking curr usage entry {usage_entry:?}");
+                            if usage_entry.layer < up_to_layer_num || up_to_layer_num == -1 {
+                                // comparing with previous layer - to consume all previous layers in case of skip
+                                if let Some(usage_entry_tray_id) = print_project.get_ams_id(usage_entry.gcode_filament_id) {
+                                    self.update_any_tray(usage_entry_tray_id as usize, |ams_tray| {
+                                    ams_tray.meta_info.consumed_since_load += usage_entry.weight_g;
+                                    debug!(
+                                        "[{printer_log_id}] Print project consumed entry {} on layer change : {:.2}g, from filament at slot {} to a session total of {:.2}g",
+                                        print_project.consume_index, usage_entry.weight_g, usage_entry_tray_id, ams_tray.meta_info.consumed_since_load
+                                    );
+                                });
+                                } else {
+                                    error!(
+                                        "[{printer_log_id}] Internal Error? No AMS slot for gcode filament id {}",
+                                        usage_entry.gcode_filament_id
+                                    );
+                                }
+                                print_project.consume_index += 1;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
                     }
-                } else {
-                    error!("No matching AMS slot for usage information {:?}", usage_entry);
+                    consumed = true;
+                    print_project.need_consume = false;
                 }
-            } else {
-                // Could happen in the last entry
+                ConsumeType::FilamentSwitch => {
+                    if let Some(usage_entry) = print_project.curr_usage_entry() {
+                        debugex!(">>>>>> Checking curr usage entry {usage_entry:?}");
+                        if let Some(usage_entry_tray_id) = print_project.get_ams_id(usage_entry.gcode_filament_id) {
+                            debugex!(">>>>> print_project.layer_num = {}", print_project.layer_num);
+                            debugex!(">>>>> self.tray_now = {}", self.tray_now);
+                            debugex!(">>>>> usage_entry_tray_id = {usage_entry_tray_id}");
+                            if print_project.layer_num == usage_entry.layer
+                                && self.tray_now == usage_entry_tray_id
+                                && (0..self.ams_trays().len() as i32).contains(&usage_entry_tray_id)
+                            {
+                                self.update_any_tray(usage_entry_tray_id as usize, |ams_tray| {
+                                    ams_tray.meta_info.consumed_since_load += usage_entry.weight_g;
+                                    debug!(
+                                        "[{printer_log_id}] Print project consumed entry {} on filament change : {:.2}g, from filament at slot {} to a session total of {:.2}g",
+                                        print_project.consume_index, usage_entry.weight_g, usage_entry_tray_id, ams_tray.meta_info.consumed_since_load
+                                    );
+                                });
+                                print_project.consume_index += 1;
+                                consumed = true;
+                                print_project.need_consume = false;
+                            } else {
+                                // No matching data to consume, this is ok
+                            }
+                        } else {
+                            error!("[{printer_log_id}] No matching AMS slot for usage information {:?}", usage_entry);
+                        }
+                    } else {
+                        // Could happen in the last entry
+                    }
+                }
             }
         } else {
-            // Can happen if consumed by a previous event
         }
         consumed
     }
+
+    pub fn notify_cancel_gcode_analysis(&mut self, job_number: i32) {
+        let mut observers = self.observers.clone(); // to avoid two references - can probably optimize in various ways
+        for weak_observer in observers.iter_mut() {
+            let observer = weak_observer.upgrade().unwrap();
+            observer.borrow_mut().on_cancel_gcode_analysis(job_number);
+        }
+    }
+
+    pub fn notify_request_gcode_analysis(&mut self, print_project: &PrintProject) -> i32 {
+        let mut observers = self.observers.clone(); // to avoid two references - can probably optimize in various ways
+        let mut job_number = 0;
+        for weak_observer in observers.iter_mut() {
+            let observer = weak_observer.upgrade().unwrap();
+            let job_number_update = observer.borrow_mut().on_request_gcode_analysis(self, print_project);
+            if job_number_update != 0 {
+                if job_number == 0 {
+                    job_number = job_number_update;
+                } else {
+                    error!(
+                        "[{}] Internal software error, two gcode analysis requests listeners with with job_number, only one possible",
+                        self.printer_number
+                    );
+                }
+            }
+        }
+        job_number
+    }
+}
+
+#[derive(PartialEq)]
+enum ConsumeType {
+    LayerChange(i32),
+    FilamentSwitch,
+    Finish,
 }

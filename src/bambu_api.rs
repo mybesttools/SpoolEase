@@ -471,8 +471,8 @@ impl ExtrusionCaliSelCommand {
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub struct AmsMapping2Entry {
-    ams_id: i32,
-    slot_id: i32,
+    pub ams_id: i32,
+    pub slot_id: i32,
 }
 
 #[allow(clippy::upper_case_acronyms)]
@@ -480,6 +480,7 @@ pub struct AmsMapping2Entry {
 pub enum GcodeState {
     Unknown,
     IDLE,
+    SLICING,
     PREPARE,
     RUNNING,
     FINISH,

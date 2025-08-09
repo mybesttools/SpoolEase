@@ -22,8 +22,7 @@ use framework::{debug, error, framework_web_app::encrypt, info, mk_static, prelu
 use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
 use shared::{
-    gcode_analysis_task::GcodeAnalysisRequest,
-    scale::{ConsoleToScale, ScaleToConsole},
+    gcode_analysis::FilamentUsageEntry, gcode_analysis_task::GcodeAnalysisRequest, scale::{ConsoleToScale, ScaleToConsole}
 };
 
 use crate::{app_config::AppConfig, ssdp::SSDPPubSubChannel};
@@ -59,7 +58,7 @@ pub trait SpoolScaleObserver {
     fn on_tag_status(&mut self, status: &shared::spool_tag::Status);
     fn on_pn532_status(&mut self, status: bool);
     fn on_button_pressed(&mut self, scale_weight: ScaleWeight) -> Option<bool>;
-    fn on_gcode_analysis(&mut self, job_number: i32, printer_index: usize, gcode_analysis_csv: &str);
+    fn on_gcode_analysis(&mut self, job_number: i32, printer_index: usize, gcode_analysis: Vec<FilamentUsageEntry>);
 }
 
 impl SpoolScale {
@@ -132,7 +131,7 @@ impl SpoolScale {
                     printer_index,
                     filament_usage_csv,
                 } => {
-                    self.notify_gcode_analysis(job_number, printer_index, &filament_usage_csv);
+                    self.notify_gcode_analysis(job_number, printer_index, filament_usage_csv);
                 }
             }
         } else {
@@ -229,10 +228,33 @@ impl SpoolScale {
             }
         }
     }
-    pub fn notify_gcode_analysis(&mut self, job_number: i32, printer_index: usize, filament_usage_csv: &str) {
-        for weak_observer in self.observers.iter() {
-            let observer = weak_observer.upgrade().unwrap();
-            observer.borrow_mut().on_gcode_analysis(job_number, printer_index, filament_usage_csv);
+    pub fn notify_gcode_analysis(&mut self, job_number: i32, printer_index: usize, filament_usage_csv: String) {
+        // Optimized to create only as many clones as required (in case of several observers)
+        if self.observers.is_empty() {
+            return;
+        }
+        let num_records = filament_usage_csv.lines().count();
+        let mut data = Vec::<FilamentUsageEntry>::with_capacity(num_records);
+        let mut csv_parser = serde_csv_core::Reader::<16>::new(); // 16 is max field size
+        for line in filament_usage_csv.lines() {
+            match csv_parser.deserialize(line.as_bytes()) {
+                Ok(v) => {
+                    data.push(v.0);
+                }
+                Err(err) => {
+                    error!("Internal error deserializing FilamentUsageEntry : {err}");
+                    return;
+                }
+            }
+        }
+
+        if let Some((last, rest)) = self.observers.split_last() {
+            for weak_observer in rest.iter() {
+                let observer = weak_observer.upgrade().unwrap();
+                observer.borrow_mut().on_gcode_analysis(job_number, printer_index, data.clone());
+            }
+            let observer = last.upgrade().unwrap();
+            observer.borrow_mut().on_gcode_analysis(job_number, printer_index, data);
         }
     }
 }
