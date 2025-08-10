@@ -34,11 +34,11 @@ pub enum GcodeAnalysis {
 
 pub struct PrintProject {
     pub subtask_name: String,
-    pub plate_idx: u32,
     pub threemf_url: String,
     pub gcode_filename_in_3mf: String,
     pub(super) ams_mapping: Vec<i32>,
-    pub(super) ams_mapping2: Vec<AmsMapping2Entry>,
+    pub(super) ams_mapping2: Option<Vec<AmsMapping2Entry>>,
+    pub(super) use_ams: Option<bool>,
     pub gcode_analysis: GcodeAnalysis,
 
     // track printer state fields
@@ -54,17 +54,16 @@ pub struct PrintProject {
 impl PrintProject {
     pub(super) fn new(
         subtask_name: &str,
-        plate_idx: u32,
         threemf_url: &str,
         gcode_filename_in_3mf: &str,
         ams_mapping: &[i32],
-        ams_mapping2: &[AmsMapping2Entry],
+        ams_mapping2: Option<Vec<AmsMapping2Entry>>,
+        use_ams: Option<bool>,
     ) -> Self {
         Self {
             subtask_name: subtask_name.to_string(),
-            plate_idx,
             ams_mapping: ams_mapping.to_vec(),
-            ams_mapping2: ams_mapping2.to_vec(),
+            ams_mapping2,
             gcode_analysis: GcodeAnalysis::WaitingForPrinter,
             gcode_state: GcodeState::Unknown,
             layer_num: -1,
@@ -73,17 +72,26 @@ impl PrintProject {
             consume_index: -1,
             threemf_url: threemf_url.to_string(),
             gcode_filename_in_3mf: gcode_filename_in_3mf.to_string(),
+            use_ams,
         }
     }
 
     pub(super) fn get_ams_id(&self, filament_id: i32) -> Option<i32> {
         if filament_id >= 0 {
             let ams_slot = self.ams_mapping.get(filament_id as usize).copied();
+            // external spool handlig is a bit complex to be prepared to deal both with case of 
+            // multiextruder in the future (that's the first part)
+            // and single extruded (so no_ams means external spool, and not always there is ams_mapping2, 
+            // and sometimes even ams_mapping is empty in case of external spool (Orca on A1)
             if ams_slot.is_none() || ams_slot == Some(-1) {
-                if let Some(ams2_info) = self.ams_mapping2.get(filament_id as usize) {
-                    if ams2_info.ams_id == 255 && ams2_info.slot_id == 0 {
-                        return Some(254);
+                if let Some(ams_mapping2) = &self.ams_mapping2 {
+                    if let Some(ams2_info) = ams_mapping2.get(filament_id as usize) {
+                        if ams2_info.ams_id == 255 && ams2_info.slot_id == 0 {
+                            return Some(254);
+                        }
                     }
+                } else if self.use_ams == Some(false) {
+                    return Some(254);
                 }
             }
             ams_slot
@@ -112,18 +120,13 @@ impl BambuPrinter {
             return false;
         }
         // TODO: theoretically all are options so could 'take' instead of clone
-        if let (Some(subtask_name), Some(plate_idx), Some(ams_mapping), Some(ams_mapping2), Some(url), Some(param)) = (
-            &print.subtask_name,
-            print.plate_idx,
-            &print.ams_mapping,
-            &print.ams_mapping2,
-            &print.url,
-            &print.param,
-        ) {
-            info!("[{printer_log_id}] Print project started: name: '{subtask_name}', plate: {plate_idx}, using ams slots: {ams_mapping:?}, {ams_mapping2:?}");
-            let mut curr_print_project = PrintProject::new(subtask_name, plate_idx, url, param, ams_mapping, ams_mapping2);
+        if let (Some(subtask_name), Some(ams_mapping), Some(url), Some(param)) = (&print.subtask_name, &print.ams_mapping, &print.url, &print.param) {
+            let ams_mapping2 = print.ams_mapping2.clone();
+            let use_ams = print.use_ams;
+            info!("[{printer_log_id}] Print project started: name: '{subtask_name}', using ams slots: {ams_mapping:?}, {ams_mapping2:?}");
+            let mut curr_print_project = PrintProject::new(subtask_name, url, param, ams_mapping, ams_mapping2, use_ams);
             // in case of http can already fetch now and not wait for printer to download first
-            if self.fetch_3mf == Fetch3mf::CloudHttp {
+            if self.fetch_3mf == Fetch3mf::CloudHttp || curr_print_project.threemf_url.starts_with("ftp://") || curr_print_project.threemf_url.starts_with("file://"){
                 let job_number = self.notify_request_gcode_analysis(&curr_print_project);
                 curr_print_project.gcode_analysis = GcodeAnalysis::Requested {
                     at: Instant::now(),

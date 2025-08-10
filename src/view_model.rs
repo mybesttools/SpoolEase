@@ -1404,11 +1404,10 @@ impl BambuPrinterObserver for ViewModel {
         self.gcode_last_job_number += 1;
 
         let subtask_name = print_project.subtask_name.clone();
-        let plate_idx = print_project.plate_idx;
         let threemf_url = print_project.threemf_url.clone();
         let gcode_filename_in_3mf = print_project.gcode_filename_in_3mf.clone();
 
-        info!("[{printer_number}] Received request for gcode analysis {subtask_name}, plate {plate_idx}");
+        info!("[{printer_number}] Received request for gcode analysis {subtask_name} {gcode_filename_in_3mf}");
 
         let gcode_analysis_request = GcodeAnalysisRequest {
             fetch_3mf: printer.fetch_3mf,
@@ -1418,7 +1417,6 @@ impl BambuPrinterObserver for ViewModel {
             printer_number,
             printer_index,
             subtask_name,
-            plate_idx,
             job_number: self.gcode_last_job_number,
             threemf_url,
             gcode_filename_in_3mf,
