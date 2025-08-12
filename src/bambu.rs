@@ -1929,7 +1929,17 @@ pub async fn incoming_messages_task(
                         }) => {
                             let parse_res = serde_json::from_slice::<bambu_api::Print>(payload);
                             if log_level >= log::Level::Trace {
-                                trace!("[SIM] {}", core::str::from_utf8(payload).unwrap_or("Non UTF-8 Packet arrived from printer"));
+                                let cleaned_log_bytes: Vec<u8> = payload
+                                    .iter()
+                                    .map(|&b| match b {
+                                        b'\r' | b'\n' => b' ',
+                                        _ => b,
+                                    })
+                                    .collect();
+                                trace!(
+                                    "[SIM] {}",
+                                    core::str::from_utf8(&cleaned_log_bytes).unwrap_or("Non UTF-8 Packet arrived from printer")
+                                );
                             }
                             if let Ok(print) = parse_res {
                                 if log_level >= log::Level::Trace {
@@ -1962,11 +1972,18 @@ pub async fn incoming_messages_task(
                                     }
                                 }
                             } else if log_level >= log::Level::Debug {
+                                let cleaned_log_bytes: Vec<u8> = payload
+                                    .iter()
+                                    .map(|&b| match b {
+                                        b'\r' | b'\n' => b' ',
+                                        _ => b,
+                                    })
+                                    .collect();
                                 debug!(
                                     "[{}] Unprocessed message {:?} : {:?}",
                                     printer_log_id,
                                     parse_res,
-                                    core::str::from_utf8(payload)
+                                    core::str::from_utf8(&cleaned_log_bytes)
                                 );
                             }
                         }
