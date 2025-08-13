@@ -110,6 +110,7 @@ impl PrintProject {
 impl BambuPrinter {
     #[allow(non_snake_case)]
     pub fn process_print_message__project_file(&mut self, print: &bambu_api::PrintData) -> bool {
+        let mut changed = false;
         let printer_log_id = self.printer_number;
         if !self.track_print_consume {
             info!("[{printer_log_id}] Print project started but configured not to track print filament usage");
@@ -133,9 +134,36 @@ impl BambuPrinter {
                 };
             }
             self.curr_print_project = Some(curr_print_project);
+
+            // set trays used in print, but first clear all
+
+            for tray_id in 0..self.ams_trays().len() {
+                self.update_ams_tray(tray_id, |tray| tray.meta_info.used_in_print = false);
+            }
+            self.update_virt_tray(|tray| tray.meta_info.used_in_print = false);
+
+            for tray_id in ams_mapping {
+                let tray_id = *tray_id as usize;
+                if (0..self.ams_trays().len()).contains(&tray_id) {
+                    self.update_ams_tray(tray_id, |tray| tray.meta_info.used_in_print = true);
+                    changed = true;
+                }
+            }
+
+            if let Some(ams_mapping2) = &print.ams_mapping2 {
+                for ams2_info in ams_mapping2 {
+                    if ams2_info.ams_id == 255 && ams2_info.slot_id == 0 {
+                        self.update_virt_tray(|tray| tray.meta_info.used_in_print = true);
+                        changed = true;
+                    }
+                }
+            } else if use_ams == Some(false) {
+                self.update_virt_tray(|tray| tray.meta_info.used_in_print = true);
+                changed = true;
+            }
         }
 
-        false
+        changed
     }
 
     #[allow(non_snake_case)]
@@ -156,7 +184,6 @@ impl BambuPrinter {
             let mut new_tray_now = 255;
             let mut tray_now_change = false; // new filament is loaded
                                              // let mut tray_pre_change_to_tray_now = false; // meaning, starting to pull out filament
-
 
             let mut layer_num_change = false;
             let mut new_layer_num = self.layer_num;
@@ -314,6 +341,11 @@ impl BambuPrinter {
         // need to do it here because above we used 'take()' to get curr_print_project and only in here in previous line we gave it back
         if gcode_state_change && [GcodeState::FAILED, GcodeState::FINISH].contains(&new_gcode_state) {
             self.curr_print_project = None;
+
+            for tray_id in 0..self.ams_trays().len() {
+                self.update_ams_tray(tray_id, |tray| tray.meta_info.used_in_print = false);
+            }
+            self.update_virt_tray(|tray| tray.meta_info.used_in_print = false);
         }
 
         changed

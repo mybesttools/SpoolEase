@@ -1246,6 +1246,7 @@ impl ViewModel {
             // let k_value_for_ui = k_value_for_ui(&k_value_unformatted);
             ui_tray.k = SharedString::from(k_value_unformatted);
             ui_tray.weight_display = self.weight_display(curr_tray);
+            ui_tray.used_in_print = curr_tray.meta_info.used_in_print;
             trays_state.set_row_data(tray_row, ui_tray);
         }
     }

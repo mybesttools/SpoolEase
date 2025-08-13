@@ -8,6 +8,8 @@ component AmsButton inherits Window {
     in property <int> ams-id;
     in property <bool> active;
     in property <[UiTray]> trays-state;
+    utils := Utils { }
+
     function slot-with-spool(tray: UiTray) -> bool {
         return tray.spool-state == UiTrayState.Ready || tray.spool-state == UiTrayState.Loading || tray.spool-state == UiTrayState.Loaded || tray.spool-state == UiTrayState.Unloading;
     }
@@ -15,7 +17,7 @@ component AmsButton inherits Window {
         return tray.filament.state != UiFilamentState.Unknown;
     }
 
-    if ams-id != -1: Rectangle {
+    if ams-id != -1: ams-selector := Rectangle {
         height: parent.height;
         width: parent.width;
         // background: active ? @linear-gradient(180deg, #09009B 0%, #0000CA 39%, #001dff 100%) : white;
@@ -28,31 +30,45 @@ component AmsButton inherits Window {
             padding-left: 6px;
             padding-right: 6px;
             spacing: 3px + (active ? 0px : 3px);
-            for tray-id in [0, 1, 2, 3]: Rectangle {
+            for tray-id in [0, 1, 2, 3]: block := Rectangle {
+                property <bool> used-in-print: trays-state[ams-id * 4 + tray-id + 1].used-in-print;
+                property <bool> slot-is-with-spool: slot-with-spool(trays-state[ams-id * 4 + tray-id + 1]);
+                property <bool> slot-is-with-known-color: slot-with-known-color(trays-state[ams-id * 4 + tray-id + 1]);
+                property <bool> slot-is-loaded: trays-state[ams-id * 4 + tray-id + 1].spool-state == UiTrayState.Loaded;
                 height: parent.height - parent.padding-top - parent.padding-bottom - 3px * 2;
-                background: slot-with-spool(trays-state[ams-id * 4 + tray-id + 1]) && slot-with-known-color(trays-state[ams-id * 4 + tray-id + 1]) ? trays-state[ams-id * 4 + tray-id + 1].filament.color : AppConsts.no-color;
-                Rectangle {
+                background: slot-is-with-spool && slot-is-with-known-color ? trays-state[ams-id * 4 + tray-id + 1].filament.color : AppConsts.no-color;
+                normal-border:= Rectangle {
                     height: parent.height;
                     width: parent.width;
                     border-color: black;
-                    border-width: trays-state[ams-id * 4 + tray-id + 1].spool-state == UiTrayState.Loaded ? 4px : 1px;
-                    if !slot-with-known-color(trays-state[ams-id * 4 + tray-id + 1]) && slot-with-spool(trays-state[ams-id * 4 + tray-id + 1]): MyText {
+                    border-width: 1px;
+                    if !slot-is-with-known-color && slot-is-with-spool: MyText {
                         text: "?";
                         color: white;
                     }
                 }
 
-                if !slot-with-spool(trays-state[ams-id * 4 + tray-id + 1]): Rectangle {
+                if !slot-is-with-spool: Rectangle {
                     height: Math.min(parent.height, parent.width) - 4px;
                     width: self.height;
                     border-color: black;
                     border-width: 1px;
                     background: white;
                     border-radius: Math.min(self.width, self.height) / 2;
-                    MyText {
-                        text: trays-state[ams-id * 4 + tray-id + 1].spool-state == UiTrayState.Unknown ? "?" : "−";
-                        color: black;
-                    }
+                }
+
+                if used-in-print: in-use-border:= Rectangle {
+                  x: -2px;
+                  y: -2px;
+                  width: parent.width + 4px;
+                  height: parent.height + 4px;
+                  border-width: 2px;
+                  border-color: black;
+                }
+
+                MyText {
+                    text: trays-state[ams-id * 4 + tray-id + 1].spool-state == UiTrayState.Unknown ? "?" : !slot-is-with-spool ? "−" : slot-is-loaded ? "↯" : "";
+                    color: !slot-is-with-spool ? black : utils.contrasting_color(block.background);
                 }
             }
         }
@@ -136,6 +152,15 @@ component Spool inherits Rectangle {
         border-radius: 3px;
         border-color: black;
         border-width: 1px;
+    }
+
+    if tray-state.used-in-print: Rectangle {
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-color: black;
+        border-width: 3px;
     }
 
     area := TouchArea {

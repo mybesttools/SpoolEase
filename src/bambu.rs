@@ -1493,7 +1493,9 @@ impl BambuPrinter {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Derivative)]
+#[derivative(PartialEq)]
 // IMPORTANT: Don't change names, will hurt persistence
 pub struct TrayMetaInfo {
     pub tag_info: Option<TagInformation>, // calibration for nozzles
@@ -1501,6 +1503,9 @@ pub struct TrayMetaInfo {
     pub consumed_since_load: f32,
     #[serde(default)]
     pub consumed_since_load_saved: f32,
+    #[serde(skip)]
+    #[derivative(PartialEq = "ignore")]
+    pub used_in_print: bool,
 }
 
 #[derive(Derivative)]
