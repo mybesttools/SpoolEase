@@ -2167,7 +2167,7 @@ impl GcodeAnalyzerObserver for ViewModel {
         if let Some(printer) = self.bambu_printer_model.printers.get(printer_index) {
             let printer_borrow = printer.borrow();
             let printer_log_id = printer_borrow.printer_number;
-            error!("[{printer_log_id}] Gcode analysis job {job_number} completed successfuly");
+            info!("[{printer_log_id}] Gcode analysis job {job_number} completed successfuly");
         }
         self.gcode_jobs.retain(|job| job.job_number != job_number);
     }

@@ -99,8 +99,9 @@ pub struct PrintData {
     pub param: Option<String>,  // "Metadata/plate_1.gcode"
     pub url: Option<String>, // "https://or-cloud-upload-prod.s3.dualstack.us-west-2.amazonaws.com/users/1728685496/models/20250..."
     pub use_ams: Option<bool>,
-    #[serde(default, serialize_with = "option_u32_as_str_se", deserialize_with = "option_u32_as_str_de")]
-    pub plate_idx: Option<u32>, // "1",
+    // #[serde(default, serialize_with = "option_u32_as_str_se", deserialize_with = "option_u32_as_str_de")]
+    // If field needed, need to support it both as integer and as a string
+    // pub plate_idx: Option<u32>, // !!!!! "1", or 1 - on X1C in cloud mode it is 1, in P1S it is "1",
     // pub msg: Option<i64>,
     pub sequence_id: Option<String>,
 
