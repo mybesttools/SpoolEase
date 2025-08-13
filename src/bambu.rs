@@ -5,9 +5,7 @@
 pub mod bambu_print;
 
 use crate::{
-    app_config::{PrinterConfig, MATERIALS},
-    settings::MAX_NUM_PRINTERS,
-    ssdp::{SSDPInfo, SSDPPubSubChannel},
+    app_config::{PrinterConfig, MATERIALS}, bambu_api::GcodeState, settings::MAX_NUM_PRINTERS, ssdp::{SSDPInfo, SSDPPubSubChannel}
 };
 use alloc::{
     borrow::Cow,
@@ -97,6 +95,8 @@ pub struct BambuPrinter {
     tray_tar: i32,
     tray_now: i32,
     tray_pre: i32,
+    gcode_state: GcodeState,
+    layer_num: i32,
 }
 
 pub trait BambuPrinterObserver {
@@ -406,6 +406,8 @@ impl BambuPrinter {
             tray_tar: 255,
             tray_now: 255,
             tray_pre: 255,
+            gcode_state: GcodeState::Unknown,
+            layer_num: -1,
         }
     }
 
@@ -872,6 +874,17 @@ impl BambuPrinter {
         let mut print_project_caused_change = false;
         if self.curr_print_project.is_some() {
             print_project_caused_change = self.process_print_message__print_project_logic(print);
+        }
+
+        // print related field monitored globally unrelated to print
+        // should come AFTER processing of print_project_logic
+
+        if let Some(gcode_state) = print.gcode_state {
+            self.gcode_state = gcode_state;
+        }
+
+        if let Some(layer_num) = print.layer_num {
+            self.layer_num = layer_num;
         }
 
         // Deal with nozzle diameter
