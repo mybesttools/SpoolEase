@@ -31,9 +31,11 @@ pub struct Filament {
     pub name: String,
     pub k_value: String,
     pub n_coef: String,
-    pub setting_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setting_id: Option<String>,
     // pub tray_id: Option<i32>, // ??? why is it here? In extrusion_cali_set it can exist (case when adding new calibration)
     pub cali_idx: i32, // Need to switch to optional since in extrusion_cali_set it is missing at least sometimes (case when adding new calibration)
+    pub nozzle_id: Option<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -96,8 +98,8 @@ pub struct PrintData {
     // pub lights_report: Option<Vec<PrintLightsReport>>,
     // pub upgrade_state: Option<PrintUpgradeState>,
     pub command: Option<String>,
-    pub param: Option<String>,  // "Metadata/plate_1.gcode"
-    pub url: Option<String>, // "https://or-cloud-upload-prod.s3.dualstack.us-west-2.amazonaws.com/users/1728685496/models/20250..."
+    pub param: Option<String>, // "Metadata/plate_1.gcode"
+    pub url: Option<String>,   // "https://or-cloud-upload-prod.s3.dualstack.us-west-2.amazonaws.com/users/1728685496/models/20250..."
     pub use_ams: Option<bool>,
     // #[serde(default, serialize_with = "option_u32_as_str_se", deserialize_with = "option_u32_as_str_de")]
     // If field needed, need to support it both as integer and as a string
@@ -264,6 +266,7 @@ pub struct AmsFilamentSetting {
     pub ams_id: u32,
     // #[serde(serialize_with = "u32_as_str_se", deserialize_with = "u32_as_str_de")]
     pub tray_id: i32,
+    pub slot_id: i32,
     pub tray_info_idx: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub setting_id: Option<String>,
@@ -281,6 +284,7 @@ impl AmsFilamentSettingCommand {
     pub fn new(
         ams_id: u32,
         tray_id: i32,
+        slot_id: i32,
         tray_info_idx: &str,
         setting_id: Option<&str>,
         tray_type: &str,
@@ -293,6 +297,7 @@ impl AmsFilamentSettingCommand {
                 command: String::from("ams_filament_setting"),
                 ams_id,
                 tray_id,
+                slot_id,
                 tray_info_idx: String::from(tray_info_idx),
                 setting_id: setting_id.map(String::from),
                 tray_color: String::from(tray_color),
@@ -361,7 +366,7 @@ where
 fn option_as_str_se<T, S>(value: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
-    T: core::fmt::Display
+    T: core::fmt::Display,
 {
     match value {
         Some(v) => as_str_se::<T, S>(v, serializer),
@@ -439,11 +444,12 @@ pub struct ExtrusionCaliSel {
     pub filament_id: String, // always empty
     pub nozzle_diameter: String,
     pub tray_id: i32,
+    pub slot_id: i32,
     pub sequence_id: String,
 }
 
 impl ExtrusionCaliSelCommand {
-    pub fn new(nozzle_diameter: &str, tray_id: i32, filament_id: &str, cali_idx: Option<i32>) -> Self {
+    pub fn new(nozzle_diameter: &str, tray_id: i32, slot_id: i32, filament_id: &str, cali_idx: Option<i32>) -> Self {
         Self {
             print: ExtrusionCaliSel {
                 command: String::from("extrusion_cali_sel"),
@@ -451,6 +457,7 @@ impl ExtrusionCaliSelCommand {
                 filament_id: String::from(filament_id),
                 nozzle_diameter: String::from(nozzle_diameter),
                 tray_id,
+                slot_id,
                 sequence_id: String::from("1"),
             },
         }
@@ -469,7 +476,6 @@ impl ExtrusionCaliSelCommand {
 //     "result": "success"
 //   }
 // }
-
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub struct AmsMapping2Entry {
@@ -490,3 +496,38 @@ pub enum GcodeState {
     #[serde(other)]
     Unsupported,
 }
+
+
+// {
+//     "info": {
+//         "sequence_id": "0",
+//         "command": "get_version"
+//     }
+// }
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetVersionCommand {
+    pub info: GetVersion, // ams_filament_setting
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetVersion {
+    pub command: String, // ams_filament_setting
+}
+
+impl GetVersionCommand {
+    pub fn new() -> Self {
+        Self {
+            info: GetVersion {
+                command: String::from("get_version"),
+            },
+        }
+    }
+}
+// {
+//  "pushing": {
+//        "command": "pushall",
+//        "sequence_id": "1"
+//  }
+// }
+

@@ -5,7 +5,10 @@
 pub mod bambu_print;
 
 use crate::{
-    app_config::{PrinterConfig, MATERIALS}, bambu_api::GcodeState, settings::MAX_NUM_PRINTERS, ssdp::{SSDPInfo, SSDPPubSubChannel}
+    app_config::{PrinterConfig, MATERIALS},
+    bambu_api::GcodeState,
+    settings::MAX_NUM_PRINTERS,
+    ssdp::{SSDPInfo, SSDPPubSubChannel},
 };
 use alloc::{
     borrow::Cow,
@@ -776,7 +779,9 @@ impl BambuPrinter {
                     nozzle_temp_min: print.nozzle_temp_min.unwrap_or(190),
                 })
             };
-            if tray_id == 254 {
+            // tray_id == 254 in the response message is for old firmwares
+            // in new firmwares the response message arrives with ams_id==255 && tray_id==Some(0) (not like the command which is tray 254 and slot_id 0)
+            if tray_id == 254 || matches!(print.ams_id, Some(255)) {
                 // External tray handling
                 // Handle external tray
                 if new_filament == Filament::Unknown {
@@ -815,7 +820,10 @@ impl BambuPrinter {
         let mut change_made = false;
         if let (Some(tray_id), Some(cali_idx)) = (&print.tray_id, &print.cali_idx) {
             if *tray_id >= 0 {
-                let tray_id: usize = (*tray_id).try_into().unwrap();
+                let mut tray_id: usize = (*tray_id).try_into().unwrap();
+                if matches!(print.ams_id, Some(255)) {
+                    tray_id = 254;
+                }
                 self.update_any_tray(tray_id, |tray| {
                     tray.cali_idx = if *cali_idx == -1 { None } else { Some(*cali_idx) };
                 });
@@ -1200,6 +1208,17 @@ impl BambuPrinter {
         write_packets.send(message).await;
     }
 
+    pub async fn request_version_info_async(
+        printer_serial: &String,
+        printer_number: usize,
+        log_filter: log::LevelFilter,
+        write_packets: Rc<embassy_sync::channel::Channel<embassy_sync::blocking_mutex::raw::NoopRawMutex, crate::my_mqtt::BufferedMqttPacket, 3>>,
+    ) {
+        let cmd = crate::bambu_api::GetVersionCommand::new();
+        let payload = serde_json::to_string_pretty(&cmd).unwrap();
+        BambuPrinter::publish_payload_async(printer_serial, printer_number, log_filter, write_packets, payload).await;
+    }
+
     pub fn request_full_update_sync(&self) {
         let cmd = crate::bambu_api::PushAllCommand::new();
         let payload = serde_json::to_string_pretty(&cmd).unwrap();
@@ -1267,13 +1286,16 @@ impl BambuPrinter {
     pub fn set_tray_filament(&mut self, tray_id: i32, tag_info: &TagInformation) {
         let ams_id: u32;
         let ams_tray_id;
+        let slot_id;
 
         if tray_id == 254 {
             ams_id = 255;
-            ams_tray_id = 254
+            ams_tray_id = 254;
+            slot_id = 0;
         } else {
             ams_id = u32::try_from(tray_id).unwrap() / 4;
             ams_tray_id = tray_id % 4;
+            slot_id = ams_tray_id;
         }
         // setting_id can't be extracted from just tray information, it's available only if there is a cali_idx on the tray.
         // on the other hand it is required to set tray information.
@@ -1282,7 +1304,8 @@ impl BambuPrinter {
 
         let matching_calibration = self.get_tag_matching_calibration_for_current_nozzle(tag_info);
 
-        let setting_id = matching_calibration.as_ref().map(|calibration| calibration.setting_id.as_str());
+        // let setting_id = matching_calibration.as_ref().map(|calibration| calibration.setting_id.as_str());
+        let setting_id: Option<&str> = matching_calibration.as_ref().and_then(|c| c.setting_id.as_deref());
 
         if let Some(filament) = &tag_info.filament {
             let mut filament = filament.clone();
@@ -1291,7 +1314,8 @@ impl BambuPrinter {
             if filament_ok_to_send {
                 let cmd = crate::bambu_api::AmsFilamentSettingCommand::new(
                     ams_id,
-                    ams_tray_id, // here we need the tray_id within the specific ams
+                    ams_tray_id, // here we need the tray_id within the specific ams (newer versions)
+                    slot_id,
                     &filament.tray_info_idx,
                     setting_id,
                     &filament.tray_type,
@@ -1304,7 +1328,8 @@ impl BambuPrinter {
 
                 let cmd = crate::bambu_api::ExtrusionCaliSelCommand::new(
                     &self.nozzle_diameter().clone().unwrap_or_default(),
-                    tray_id,                 // here we need the original tray_id
+                    tray_id, // here we need the original tray_id
+                    slot_id,
                     &filament.tray_info_idx, // tray_info_idx is filament_id in this command
                     if let Some(calibration) = &matching_calibration {
                         Some(calibration.cali_idx)
@@ -1393,7 +1418,15 @@ impl BambuPrinter {
 
         // If there is filament calibration for that nozzle size (assumption there can be only one, which makes sense)
         if let Some(filament_calibration) = tag_info.calibrations.get(printer_nozzle) {
+            // here need to test not against printer nozzle but also consider the AMS tray which is the target, meaning, can't set/show it in staging
+            // is tag_info modified when loaded into staging based on current printer? Or only displayed?
+            // This also means, that we probably want the nozzle diameter when encoded to be the kay (so K4~0~HH-0.4) where 0 is extruder and after that comes the nozzle type
+            // Need to check what does it mean that there isn't really a printer nozzle diameter
+
             // there could be several tht match filament_id, setting_id (even common)
+            // Important Note: On A1,P1,X1 - calibration includes setting_id, so if we have it we encode it and then when scanning will compare it.
+            //                 On H2D - Setting_id is not included - therefore the second part of below filter will compare None (on calibration) to filament setting_id
+            //                 This is ok, because if there is no match it means it is not exact match from this printer type, it was encoded on pritner with setting_id and loaded to h2d
             let same_filament_id_nozzle_printer_type_calibrations = printer_calibrations
                 .iter()
                 .filter(|&c| c.1.filament_id == *tag_filament_id && c.1.setting_id == filament_calibration.setting_id);
@@ -1493,8 +1526,7 @@ impl BambuPrinter {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-#[derive(Derivative)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, Derivative)]
 #[derivative(PartialEq)]
 // IMPORTANT: Don't change names, will hurt persistence
 pub struct TrayMetaInfo {
@@ -1737,8 +1769,8 @@ impl From<&bambu_api::PrintTray> for FilamentInfo {
 pub struct Calibration {
     pub filament_id: String,
     pub k_value: String,
-    n_coef: f32,
-    setting_id: String,
+    // n_coef: f32,
+    setting_id: Option<String>,
     pub name: String,
     cali_idx: i32,
 }
@@ -1778,7 +1810,7 @@ impl From<&bambu_api::Filament> for Calibration {
             filament_id: v.filament_id.clone(),
             name: v.name.clone(),
             k_value: formatted_k_value(&v.k_value),
-            n_coef: f32::from_str(&v.n_coef).unwrap_or(-1.0),
+            // n_coef: f32::from_str(&v.n_coef).unwrap_or(-1.0),
             setting_id: v.setting_id.clone(),
             cali_idx: v.cali_idx,
         }
@@ -1790,10 +1822,9 @@ impl Calibration {
         Self {
             k_value: formatted_k_value(k_value),
             filament_id: String::from(filament_id),
-            setting_id: String::from(setting_id),
+            setting_id: if setting_id.is_empty() { None } else { Some(setting_id.to_string()) },
             name: String::from(name),
             cali_idx,
-            ..Default::default()
         }
     }
 }
@@ -1897,6 +1928,11 @@ pub async fn fetch_initial_info(bambu_printer: Rc<RefCell<BambuPrinter>>) {
     let printer_number = bambu_printer.borrow().printer_number;
     let log_filter = bambu_printer.borrow().log_filter;
 
+    BambuPrinter::request_version_info_async(&printer_serial, printer_number, log_filter, write_packets.clone()).await;
+    while bambu_printer.borrow().nozzle_diameter().is_none() {
+        Timer::after_millis(100).await;
+    }
+
     // fetch first setting for all nozzles, need that in advance before getting filaments
     let nozzle_diameters = ["0.2", "0.6", "0.8", "0.4"];
     for nozzle_diameter in nozzle_diameters {
@@ -1916,6 +1952,20 @@ pub async fn fetch_initial_info(bambu_printer: Rc<RefCell<BambuPrinter>>) {
     // it's a bug there, can even be reproduced in the slicer by switching in the manage results to another nozzle diameter
     let curr_nozzle_diameter = bambu_printer.borrow().nozzle_diameter().as_ref().unwrap().clone();
     BambuPrinter::fetch_filament_calibrations_async(&printer_serial, printer_number, log_filter, write_packets, &curr_nozzle_diameter).await;
+}
+
+// static CLEAN_CRLF_WHITESPACE_RE: Lazy<regex::bytes::Regex> = Lazy::new(|| regex::bytes::Regex::new(r"\s*[\r\n]\s*").unwrap());
+static CLEAN_CRLF_WHITESPACE_RE: Lazy<regex::bytes::Regex> = Lazy::new(|| regex::bytes::Regex::new(r"[ \t\r\n]*[\r\n][ \t\r\n]*").unwrap());
+
+fn clean_bytes_to_string(input: &[u8]) -> String {
+    // Step 1: Replace in &[u8] without converting to &str first
+    let replaced: Cow<[u8]> = CLEAN_CRLF_WHITESPACE_RE.replace_all(input, b" " as &[u8]);
+
+    // Step 2: Convert result into String
+    match replaced {
+        Cow::Borrowed(b) => String::from_utf8_lossy(b).into_owned(), // No change → borrow
+        Cow::Owned(b) => String::from_utf8(b).expect("invalid UTF-8"),
+    }
 }
 
 #[embassy_executor::task(pool_size = MAX_NUM_PRINTERS)]
@@ -1947,17 +1997,8 @@ pub async fn incoming_messages_task(
                         }) => {
                             let parse_res = serde_json::from_slice::<bambu_api::Print>(payload);
                             if log_level >= log::Level::Trace {
-                                let cleaned_log_bytes: Vec<u8> = payload
-                                    .iter()
-                                    .map(|&b| match b {
-                                        b'\r' | b'\n' => b' ',
-                                        _ => b,
-                                    })
-                                    .collect();
-                                trace!(
-                                    "[SIM] {}",
-                                    core::str::from_utf8(&cleaned_log_bytes).unwrap_or("Non UTF-8 Packet arrived from printer")
-                                );
+                                let cleaned_log = clean_bytes_to_string(payload);
+                                trace!("[{printer_log_id}] [SIM] {cleaned_log}");
                             }
                             if let Ok(print) = parse_res {
                                 if log_level >= log::Level::Trace {
@@ -1990,19 +2031,12 @@ pub async fn incoming_messages_task(
                                     }
                                 }
                             } else if log_level >= log::Level::Debug {
-                                let cleaned_log_bytes: Vec<u8> = payload
-                                    .iter()
-                                    .map(|&b| match b {
-                                        b'\r' | b'\n' => b' ',
-                                        _ => b,
-                                    })
-                                    .collect();
-                                debug!(
-                                    "[{}] Unprocessed message {:?} : {:?}",
-                                    printer_log_id,
-                                    parse_res,
-                                    core::str::from_utf8(&cleaned_log_bytes)
-                                );
+                                if log_level >= log::Level::Trace {
+                                    debug!("[{printer_log_id}] Previous message couldn't be parsed {parse_res:?}");
+                                } else {
+                                    let cleaned_log = clean_bytes_to_string(payload);
+                                    debug!("[{printer_log_id}] Unprocessed message {parse_res:?} : {cleaned_log:?}");
+                                }
                             }
                         }
                         mqttrust::Packet::Suback(mqttrust::encoding::v4::Suback { pid: _, return_codes: _ }) => {
@@ -2215,7 +2249,7 @@ impl TagInformation {
                     "K{}={}~{}~{}",
                     cal_nozzle_diameter_char,
                     calibration.k_value.trim_end_matches('0'),
-                    &calibration.setting_id,
+                    calibration.setting_id.as_deref().unwrap_or(""),
                     &my_encode_to_url_part(&calibration.name)
                 );
             }
@@ -2628,15 +2662,17 @@ pub async fn fix_k_on_restart(
             let set_tray = if id == 254 { &set_virt_cali_idx } else { &set_tray_cali_idx[id] };
             if set_tray.is_some() {
                 if let Filament::Known(filament_info) = &prev_tray.filament {
-                    let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(id);
+                    let (ams_id, ams_tray_id) = BambuPrinter::get_ams_and_tray_id(id);
+                    let spool_id = if ams_tray_id == 254 { 0 } else { ams_tray_id };
                     if ams_id != 254 {
-                        info!("[{}] Updating pressure advance of AMS {} slot {}", printer_number, ams_id, tray_id);
+                        info!("[{}] Updating pressure advance of AMS {} slot {}", printer_number, ams_id, ams_tray_id);
                     } else {
                         info!("[{}] Updating pressure advance of external slot", printer_number);
                     }
                     let cmd = crate::bambu_api::ExtrusionCaliSelCommand::new(
                         nozzle_diameter,
-                        id as i32,                    // here we need the original tray_id
+                        id as i32, // here we need the original tray_id
+                        spool_id as i32,
                         &filament_info.tray_info_idx, // tray_info_idx is filament_id in this command
                         *set_tray,
                     );
