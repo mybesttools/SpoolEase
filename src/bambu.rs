@@ -2054,8 +2054,7 @@ pub async fn incoming_messages_task(
                     error!("Unparsable MQTT message, this means an internal bug");
                 }
             }
-            Err(err) => {
-                error!("[{printer_log_id}] Error receving packets from printer : {err:?}");
+            Err(_) => { // always TimeoutError
                 if printer_known_to_be_up {
                     if log_level >= log::Level::Warn {
                         warn!("[{}] Printer connectivity issues suspected (uncertain), checking", printer_log_id);
@@ -2292,7 +2291,7 @@ impl TagInformation {
             material_part = if filament.tray_type.is_empty() {
                 String::new()
             } else {
-                format!("&M={}", filament.tray_type)
+                format!("&M={}", filament.tray_type.trim()) // changed due to a bug in inventory that got CR into material
             };
             color_part = if filament.tray_color.is_empty() {
                 String::new()
@@ -2382,7 +2381,7 @@ impl TagInformation {
                     }
                     // Material / Tray Type (material code in some other form)
                     "M" => {
-                        filament_info_result.tray_type = String::from(param_value);
+                        filament_info_result.tray_type = String::from(param_value.trim()); // trimmed due to a bug in inventory that added CR, hope won't make issues
                         m = true;
                     }
                     // Color / Tray Color
