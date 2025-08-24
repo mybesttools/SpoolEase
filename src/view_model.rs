@@ -701,16 +701,19 @@ impl ViewModel {
             filament_staging.clear();
             ui.unwrap().global::<crate::app::AppState>().invoke_empty_spool_staging();
             let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
-            let ams_id = ams_id as i32;
+            let ams_id_for_ui = Self::ams_if_for_ui(ams_id);
             let tray_id = tray_id as i32;
             ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_succeeded(
                 bambu_printer.printer_selector_name.to_shared_string(),
-                ams_id,
+                ams_id_for_ui,
                 tray_id,
             );
         }
     }
-
+    fn ams_if_for_ui(ams_id: usize) -> i32 {
+        let ams_id_for_ui = if ams_id <= 3 {ams_id} else if ams_id <= 3+8 { ams_id - 128+4} else { 254 };
+        ams_id_for_ui as i32
+    }
     fn set_staging_to_tray(
         filament_staging: &Rc<RefCell<FilamentStaging>>,
         bambu_printer: &Rc<RefCell<BambuPrinter>>,
@@ -723,7 +726,7 @@ impl ViewModel {
             filament_staging.clear();
             ui.unwrap().global::<crate::app::AppState>().invoke_empty_spool_staging();
             let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
-            let ams_id = ams_id as i32;
+            let ams_id_for_ui = Self::ams_if_for_ui(ams_id);
             let tray_id = tray_id as i32;
 
             let selected_in_ui = ui.unwrap().global::<crate::app::AppState>().get_curr_printer();
@@ -735,7 +738,7 @@ impl ViewModel {
 
             ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_succeeded(
                 bambu_printer.borrow().printer_selector_name.to_shared_string(),
-                ams_id,
+                ams_id_for_ui,
                 tray_id,
             );
         }
@@ -1025,7 +1028,7 @@ impl ViewModel {
                     (None, &None)
                 }
             }
-            0..15 => {
+            0..23 => {
                 // Standard trays
                 // let bambu = moved_bambu.borrow();
                 let tray = &bambu_borrow.ams_trays()[tray_id as usize];
@@ -1201,7 +1204,7 @@ impl ViewModel {
         if let Some(mut ams_exist_bits) = bambu_printer.ams_exist_bits {
             let mut ams_exist_vec = Vec::<i32>::new();
             let mut first_ams = -1;
-            for ams_id in 0..=3 {
+            for ams_id in 0..=3+8 {
                 if ams_exist_bits & 1 != 0 {
                     ams_exist_vec.push(ams_id);
                     if first_ams == -1 {
@@ -1515,7 +1518,7 @@ impl SpoolTagObserver for ViewModel {
             }
             Status::WriteSuccess(pure_tray_id, encoded_descriptor, cookie) => {
                 let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(*pure_tray_id);
-                let ams_id = ams_id as i32;
+                let ams_id_for_ui = Self::ams_if_for_ui(ams_id);
                 let tray_id = tray_id as i32;
 
                 if let (Ok(tag_info), Ok(encode_cookie)) = (
@@ -1528,7 +1531,7 @@ impl SpoolTagObserver for ViewModel {
                         ui.unwrap()
                             .global::<crate::app::AppState>()
                             .invoke_update_spool_staging(ui_spool_info, crate::app::SpoolStagingState::Encoded);
-                        ui.unwrap().global::<crate::app::AppState>().invoke_encoding_succeeded(ams_id, tray_id);
+                        ui.unwrap().global::<crate::app::AppState>().invoke_encoding_succeeded(ams_id_for_ui, tray_id);
                     } else {
                         ui.unwrap()
                             .global::<crate::app::AppState>()

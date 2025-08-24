@@ -316,10 +316,20 @@ export global AppState {
         self.control-state = ControlState.PostAction;
         self.user-message = (tray-id == 254 ? "Configuring\nExternal Spool Filament\nSucceeded" : "Configuring\nAMS \{ams-id + 1}, Slot \{tray-id + 1} Filament\nSucceeded");
         self.user-message-type = StatusType.Success;
-        start-highlight-tray((tray-id == 254) ? 254 : tray-id + ams-id * 4);
+        start-highlight-tray((tray-id == 254) ? 254 : get_tray_id(ams-id, tray-id));
         if printer != self.curr-printer {
             self.set-later-curr-printer(printer)
         }
+    }
+
+    pure public function get_tray_id(ams-id: int, tray-id:int) -> int {
+        if ams-id <= 3 {
+            return ams-id * 4 + tray-id;
+        }
+        if ams-id <= 3 + 8 {
+            return 16 + ams-id - 4;
+        }
+        return 254;
     }
 
     public function show-filament-information(tray-index: int) {
@@ -782,6 +792,159 @@ export global AppState {
             },
             {
                 id: 15,
+                external: false,
+                spool-state: UiTrayState.Unknown,
+                filament: {
+                    state: UiFilamentState.Unknown,
+                    color: #000,
+                    material: "???",
+                },
+                workflowState: {
+                    during_encode: false,
+                    during_scan: false,
+                },
+                k: -1.0,
+                tagged: false,
+                weight-display: "",
+                used-in-print: false,
+            },
+  // AMS-HT: 4
+        {
+                id: 16,
+                external: false,
+                spool-state: UiTrayState.Unknown,
+                filament: {
+                    state: UiFilamentState.Unknown,
+                    color: #000,
+                    material: "???",
+                },
+                workflowState: {
+                    during_encode: false,
+                    during_scan: false,
+                },
+                k: -1.0,
+                tagged: false,
+                weight-display: "",
+                used-in-print: false,
+            },
+  // AMS-HT: 5
+            {
+                id: 17,
+                external: false,
+                spool-state: UiTrayState.Unknown,
+                filament: {
+                    state: UiFilamentState.Unknown,
+                    color: #000,
+                    material: "???",
+                },
+                workflowState: {
+                    during_encode: false,
+                    during_scan: false,
+                },
+                k: -1.0,
+                tagged: false,
+                weight-display: "",
+                used-in-print: false,
+            },
+  // AMS-HT: 6
+            {
+                id: 18,
+                external: false,
+                spool-state: UiTrayState.Unknown,
+                filament: {
+                    state: UiFilamentState.Unknown,
+                    color: #000,
+                    material: "???",
+                },
+                workflowState: {
+                    during_encode: false,
+                    during_scan: false,
+                },
+                k: -1.0,
+                tagged: false,
+                weight-display: "",
+                used-in-print: false,
+            },
+  // AMS-HT: 7
+            {
+                id: 19,
+                external: false,
+                spool-state: UiTrayState.Unknown,
+                filament: {
+                    state: UiFilamentState.Unknown,
+                    color: #000,
+                    material: "???",
+                },
+                workflowState: {
+                    during_encode: false,
+                    during_scan: false,
+                },
+                k: -1.0,
+                tagged: false,
+                weight-display: "",
+                used-in-print: false,
+            },
+
+  // AMS-HT: 8
+        {
+                id: 20,
+                external: false,
+                spool-state: UiTrayState.Unknown,
+                filament: {
+                    state: UiFilamentState.Unknown,
+                    color: #000,
+                    material: "???",
+                },
+                workflowState: {
+                    during_encode: false,
+                    during_scan: false,
+                },
+                k: -1.0,
+                tagged: false,
+                weight-display: "",
+                used-in-print: false,
+            },
+  // AMS-HT: 9
+            {
+                id: 21,
+                external: false,
+                spool-state: UiTrayState.Unknown,
+                filament: {
+                    state: UiFilamentState.Unknown,
+                    color: #000,
+                    material: "???",
+                },
+                workflowState: {
+                    during_encode: false,
+                    during_scan: false,
+                },
+                k: -1.0,
+                tagged: false,
+                weight-display: "",
+                used-in-print: false,
+            },
+  // AMS-HT: 10 
+            {
+                id: 22,
+                external: false,
+                spool-state: UiTrayState.Unknown,
+                filament: {
+                    state: UiFilamentState.Unknown,
+                    color: #000,
+                    material: "???",
+                },
+                workflowState: {
+                    during_encode: false,
+                    during_scan: false,
+                },
+                k: -1.0,
+                tagged: false,
+                weight-display: "",
+                used-in-print: false,
+            },
+  // AMS-HT: 11 
+            {
+                id: 23,
                 external: false,
                 spool-state: UiTrayState.Unknown,
                 filament: {

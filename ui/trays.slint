@@ -8,6 +8,7 @@ component AmsButton inherits Window {
     in property <int> ams-id;
     in property <bool> active;
     in property <[UiTray]> trays-state;
+    horizontal-stretch: ams-id <= 3 ? 4 : 1;
     utils := Utils { }
 
     function slot-with-spool(tray: UiTray) -> bool {
@@ -30,31 +31,36 @@ component AmsButton inherits Window {
             padding-left: 6px;
             padding-right: 6px;
             spacing: 3px + (active ? 0px : 3px);
-            for tray-id in [0, 1, 2, 3]: block := Rectangle {
-                property <bool> used-in-print: trays-state[ams-id * 4 + tray-id + 1].used-in-print;
-                property <bool> slot-is-with-spool: slot-with-spool(trays-state[ams-id * 4 + tray-id + 1]);
-                property <bool> slot-is-with-known-color: slot-with-known-color(trays-state[ams-id * 4 + tray-id + 1]);
-                property <bool> slot-is-loaded: trays-state[ams-id * 4 + tray-id + 1].spool-state == UiTrayState.Loaded;
+            for tray-id in ams-id <= 3 ? [0, 1, 2, 3] : [0]: block := Rectangle {
+                horizontal-stretch: 0;
+                property <bool> used-in-print: trays-state[AppState.get_tray_id(ams-id,tray-id)+1].used-in-print;
+                property <bool> slot-is-with-spool: slot-with-spool(trays-state[AppState.get_tray_id(ams-id,tray-id)+1]);
+                property <bool> slot-is-with-known-color: slot-with-known-color(trays-state[AppState.get_tray_id(ams-id,tray-id)+1]);
+                property <bool> slot-is-loaded: trays-state[AppState.get_tray_id(ams-id,tray-id)+1].spool-state == UiTrayState.Loaded;
                 height: parent.height - parent.padding-top - parent.padding-bottom - 3px * 2;
-                background: slot-is-with-spool && slot-is-with-known-color ? trays-state[ams-id * 4 + tray-id + 1].filament.color : AppConsts.no-color;
-                normal-border:= Rectangle {
-                    height: parent.height;
-                    width: parent.width;
-                    border-color: black;
-                    border-width: 1px;
-                    if !slot-is-with-known-color && slot-is-with-spool: MyText {
-                        text: "?";
-                        color: white;
-                    }
-                }
+                background: /*slot-is-with-spool &&*/ slot-is-with-known-color ? trays-state[AppState.get_tray_id(ams-id,tray-id)+1].filament.color : AppConsts.no-color;
 
-                if !slot-is-with-spool: Rectangle {
+                if !slot-is-with-spool: special-cases-circle := Rectangle {
                     height: Math.min(parent.height, parent.width) - 4px;
                     width: self.height;
                     border-color: black;
                     border-width: 1px;
                     background: white;
                     border-radius: Math.min(self.width, self.height) / 2;
+                }
+
+                normal-border:= Rectangle {
+                    height: parent.height;
+                    width: parent.width;
+                    border-color: black;
+                    border-width: 1px;
+                    MyText {
+                      // The "✓" is hidden for all texts to have something, otherwise the width of the rectangles become different for some reason
+                      // only thing I didn't try to fix that with empty or space is centering the text which already looks centered
+                      // and so the "✓" won't show, use transparent color
+                      text: slot-is-loaded ? "↯" : !slot-is-with-spool ? "−" : !slot-is-with-known-color ? "?" : "✓";
+                      color: self.text == "✓" ? #00000000 : !slot-is-with-spool ? black : slot-is-with-known-color ? utils.contrasting_color(block.background) : white;
+                    }
                 }
 
                 if used-in-print: in-use-border:= Rectangle {
@@ -64,11 +70,6 @@ component AmsButton inherits Window {
                   height: parent.height + 4px;
                   border-width: 2px;
                   border-color: black;
-                }
-
-                MyText {
-                    text: trays-state[ams-id * 4 + tray-id + 1].spool-state == UiTrayState.Unknown ? "?" : !slot-is-with-spool ? "−" : slot-is-loaded ? "↯" : "";
-                    color: !slot-is-with-spool ? black : utils.contrasting_color(block.background);
                 }
             }
         }
@@ -231,9 +232,11 @@ export component Trays {
         }
 
         trays := HorizontalLayout {
+            alignment: center;
             spacing: AppConsts.trays-spacing;
             padding-left: 0px;
             padding-right: 0px;
+            width: is_ams ? 480px - (480px - 4 * AppConsts.trays-spacing) / 5 - AppConsts.trays-spacing : (480px - 4 * AppConsts.trays-spacing) / 5;
             for index in tray_numbers: Tray {
                 // visible: AppState.selected-tray-index == -1 || AppState.selected-tray-index == index;
                 tray-state: trays-state[index];

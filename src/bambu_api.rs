@@ -115,6 +115,7 @@ pub struct PrintData {
     // pub setting_id: Option<String>, // contains something similar to tray_info_idx, see below, so for now ignoring it
     pub tray_color: Option<String>,
     pub tray_id: Option<i32>,
+    pub slot_id: Option<i32>,
     pub ams_id: Option<i32>,
     pub cali_idx: Option<i32>,
     pub tray_info_idx: Option<String>,
@@ -264,7 +265,7 @@ pub struct AmsFilamentSettingCommand {
 pub struct AmsFilamentSetting {
     pub command: String, // ams_filament_setting
     // #[serde(serialize_with = "u32_as_str_se", deserialize_with = "u32_as_str_de")]
-    pub ams_id: u32,
+    pub ams_id: i32,
     // #[serde(serialize_with = "u32_as_str_se", deserialize_with = "u32_as_str_de")]
     pub tray_id: i32,
     pub slot_id: i32,
@@ -283,7 +284,7 @@ pub struct AmsFilamentSetting {
 #[allow(clippy::too_many_arguments)]
 impl AmsFilamentSettingCommand {
     pub fn new(
-        ams_id: u32,
+        ams_id: i32,
         tray_id: i32,
         slot_id: i32,
         tray_info_idx: &str,
@@ -444,19 +445,21 @@ pub struct ExtrusionCaliSel {
     pub cali_idx: i32,
     pub filament_id: String, // always empty
     pub nozzle_diameter: String,
+    pub ams_id: i32,
     pub tray_id: i32,
     pub slot_id: i32,
     pub sequence_id: String,
 }
 
 impl ExtrusionCaliSelCommand {
-    pub fn new(nozzle_diameter: &str, tray_id: i32, slot_id: i32, filament_id: &str, cali_idx: Option<i32>) -> Self {
+    pub fn new(nozzle_diameter: &str, ams_id: i32, tray_id: i32, slot_id: i32, filament_id: &str, cali_idx: Option<i32>) -> Self {
         Self {
             print: ExtrusionCaliSel {
                 command: String::from("extrusion_cali_sel"),
                 cali_idx: cali_idx.unwrap_or(-1),
                 filament_id: String::from(filament_id),
                 nozzle_diameter: String::from(nozzle_diameter),
+                ams_id,
                 tray_id,
                 slot_id,
                 sequence_id: String::from("1"),
