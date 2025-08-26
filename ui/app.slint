@@ -36,6 +36,13 @@ export struct UiSpoolInfo {
   weight-core: int,
 }
 
+export enum EncodedAsNew {
+  Unknown,
+  NoChange,
+  No,
+  Yes
+}
+
 export struct EncodeRequest { // EncodeRequest is actually used for FilamentInfo - for Encode as well as View
   // autofilled
   id: string,
@@ -43,7 +50,7 @@ export struct EncodeRequest { // EncodeRequest is actually used for FilamentInfo
   tray-id: int, // from index
   weight-advertised: int, 
   weight-core: int,
-  encoded-new: bool,
+  encoded-as-new: EncodedAsNew,
   weight-new: int, 
   core-name: string, // used to add to list of previously used spools, not encoded to tag
   // manually filled
@@ -125,7 +132,7 @@ export global AppBackend {
     callback set-staging-to-tray(tray-id: int);
     callback encode-tag(encode_request: EncodeRequest) -> int; // returns how long it will try to encode, for timer
     callback notify-post-encode();
-    callback notify-start-encode(tray_id: int);
+    callback notify-start-encode(tray_id: int) -> bool;
     callback read-tag-mode();
     callback web-config-web-app();
     // callback reset-printer();
@@ -354,7 +361,12 @@ export global AppState {
         // } else {
         //     self.encoding-spool-core-visible = false;
         // }
-        AppBackend.notify-start-encode(self.curr-encode-request.tray-id);
+        if AppBackend.notify-start-encode(self.curr-encode-request.tray-id) == true {
+          // based on tag
+          self.curr-encode-request.encoded-as-new = EncodedAsNew.NoChange; // signal not to ask and also not later change added-as-new in the backend
+        } else {
+          self.curr-encode-request.encoded-as-new = EncodedAsNew.Unknown;
+        }
     }
     public function encode-set-core-info(weight-advertised: int, weight-core: int, weight-new: int, core-name: string) {
         self.curr-encode-request.weight-core = weight-core;
@@ -367,7 +379,8 @@ export global AppState {
         self.curr-encode-request.id = "";
         self.curr-encode-request.weight-advertised = 0;
         self.curr-encode-request.weight-core = 0;
-        self.curr-encode-request.weight-new = -1;
+        self.curr-encode-request.encoded-as-new = EncodedAsNew.Unknown;
+        self.curr-encode-request.weight-new = 0;
         self.curr-encode-request.core-name = 0;
         self.curr-encode-request.brand = "";
         self.curr-encode-request.filament-subtype = "";

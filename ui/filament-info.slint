@@ -1,5 +1,5 @@
 import { Title, MyText,MyButton } from "./framework/widgets.slint";
-import { AppBackend, AppState, ControlState, UiTray } from "app.slint";
+import { AppBackend, AppState, ControlState, UiTray, EncodedAsNew } from "app.slint";
 import { Utils } from "utils.slint";
 import { FrameworkState } from "framework/framework.slint";
 import { FilamentInfoMode } from "app.slint";
@@ -224,7 +224,7 @@ export component FilamentInfo inherits Rectangle {
 
         if mode == FilamentInfoMode.Encode: EncodeButtons {
             encode-clicked => {
-                if AppState.curr-encode-request.weight-new == -1 {
+                if AppState.curr-encode-request.encoded-as-new == EncodedAsNew.Unknown {
                     state = FilamentInfoState.SelectIfNewSpool;
                 } else {
                     AppState.control-state = ControlState.Encoding;
@@ -246,10 +246,12 @@ export component FilamentInfo inherits Rectangle {
 
         yes-clicked => {
             AppState.curr-encode-request.weight-new = AppState.spool-scale-weight;
+            AppState.curr-encode-request.encoded-as-new = EncodedAsNew.Yes;
             root.state = FilamentInfoState.DisplayInfo;
         }
         no-clicked => {
             AppState.curr-encode-request.weight-new = 0;
+            AppState.curr-encode-request.encoded-as-new = EncodedAsNew.No;
             root.state = FilamentInfoState.DisplayInfo;
         }
     }

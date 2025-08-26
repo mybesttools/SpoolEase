@@ -81,6 +81,7 @@ pub struct ViewModel {
 struct EncodeCookie {
     scale_weight: ScaleWeight,
     spool_id: String,
+    set_encoded_as_new: Option<bool>,
 }
 
 impl ViewModel {
@@ -711,7 +712,13 @@ impl ViewModel {
         }
     }
     fn ams_if_for_ui(ams_id: usize) -> i32 {
-        let ams_id_for_ui = if ams_id <= 3 {ams_id} else if ams_id <= 3+8 { ams_id - 128+4} else { 254 };
+        let ams_id_for_ui = if ams_id <= 3 {
+            ams_id
+        } else if ams_id <= 3 + 8 {
+            ams_id - 128 + 4
+        } else {
+            254
+        };
         ams_id_for_ui as i32
     }
     fn set_staging_to_tray(
@@ -840,10 +847,17 @@ impl ViewModel {
                 )
             };
             let spool_tag = moved_spool_tag.borrow();
+            let set_encoded_as_new = match encode_request.encoded_as_new {
+                crate::app::EncodedAsNew::Yes => Some(true),
+                crate::app::EncodedAsNew::No => Some(false),
+                crate::app::EncodedAsNew::Unknown => None,
+                crate::app::EncodedAsNew::NoChange => None,
+            };
             if let Some(descriptor) = descriptor_res {
                 let encode_cookie = EncodeCookie {
                     scale_weight: moved_spool_scale.borrow().weight,
                     spool_id: encode_request.id.into(),
+                    set_encoded_as_new,
                 };
                 let cookie = serde_json::to_string(&encode_cookie).unwrap_or_default();
                 spool_tag.write_tag(descriptor, tray_id, cookie);
@@ -937,6 +951,7 @@ impl ViewModel {
         });
 
         let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        let moved_bambu_printer = self.bambu_printer_model.clone();
         self.ui_weak
             .unwrap()
             .global::<crate::app::AppBackend>()
@@ -945,7 +960,7 @@ impl ViewModel {
                     let staging_tag_info = moved_view_model.borrow().filament_staging.borrow().tag_info().clone();
                     if staging_tag_info.is_some() {
                         moved_view_model.borrow_mut().encode_from_blank = staging_tag_info;
-                        return;
+                        return false; // this is from tag, but we are really just duplicating a tag to a new spool
                     }
                 }
                 if tray_id == 998 || tray_id == 999 {
@@ -955,6 +970,11 @@ impl ViewModel {
                         ..Default::default()
                     };
                     moved_view_model.borrow_mut().encode_from_blank = Some(blank_tag_info);
+                    false
+                } else if tray_id == 254 {
+                    moved_bambu_printer.borrow().virt_tray().meta_info.tag_info.is_some()
+                } else {
+                    moved_bambu_printer.borrow().ams_trays()[tray_id as usize].meta_info.tag_info.is_some()
                 }
             });
         let moved_view_model = self.view_model.as_ref().unwrap().clone();
@@ -1204,7 +1224,7 @@ impl ViewModel {
         if let Some(mut ams_exist_bits) = bambu_printer.ams_exist_bits {
             let mut ams_exist_vec = Vec::<i32>::new();
             let mut first_ams = -1;
-            for ams_id in 0..=3+8 {
+            for ams_id in 0..=3 + 8 {
                 if ams_exist_bits & 1 != 0 {
                     ams_exist_vec.push(ams_id);
                     if first_ams == -1 {
@@ -1531,7 +1551,9 @@ impl SpoolTagObserver for ViewModel {
                         ui.unwrap()
                             .global::<crate::app::AppState>()
                             .invoke_update_spool_staging(ui_spool_info, crate::app::SpoolStagingState::Encoded);
-                        ui.unwrap().global::<crate::app::AppState>().invoke_encoding_succeeded(ams_id_for_ui, tray_id);
+                        ui.unwrap()
+                            .global::<crate::app::AppState>()
+                            .invoke_encoding_succeeded(ams_id_for_ui, tray_id);
                     } else {
                         ui.unwrap()
                             .global::<crate::app::AppState>()
@@ -1550,7 +1572,7 @@ impl SpoolTagObserver for ViewModel {
                         }
                         if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
                             tag_info,
-                            tag_operation: TagOperation::EncodeTag { weight },
+                            tag_operation: TagOperation::EncodeTag { weight, set_encoded_as_new: encode_cookie.set_encoded_as_new },
                             cookie: Box::new(StoreWriteTagCookie {
                                 notify_scale: false,
                                 store_request_origin: StoreRequestOrigin::Encode,

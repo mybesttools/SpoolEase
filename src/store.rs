@@ -69,7 +69,7 @@ pub enum WeightStoreDirective {
 
 #[derive(Debug)]
 pub enum TagOperation {
-    EncodeTag { weight: Option<i32> },
+    EncodeTag { weight: Option<i32>, set_encoded_as_new: Option<bool> },
     ReadTag,
     UpdateWeight { weight: i32 },
 }
@@ -440,7 +440,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                             if let Some(matching_spool_id) = matching_spool_id {
                                 //   if found matching_spool_id for tag_id
                                 match tag_operation {
-                                    TagOperation::EncodeTag { weight: _ } => {
+                                    TagOperation::EncodeTag { weight: _, set_encoded_as_new: _ } => {
                                         //     if encode-tag
                                         //       strike matching_spool_id
                                         // TODO: to function
@@ -611,10 +611,13 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                     };
 
                     match tag_operation {
-                        TagOperation::EncodeTag { weight } => {
+                        TagOperation::EncodeTag { weight, set_encoded_as_new } => {
                             if let Some(weight) = weight {
                                 spool_rec.weight_current = Some(weight);
                                 spool_rec.consumed_since_weight = 0.0; // updating current weight should clear the consumed since_weight
+                            }
+                            if set_encoded_as_new.is_some() {
+                                spool_rec.added_full = set_encoded_as_new;
                             }
                             spool_rec.encode_time = store_safe_time_now();
                         }
