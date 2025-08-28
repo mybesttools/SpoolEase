@@ -394,4 +394,11 @@ impl AppConfig {
     pub fn set_redirect_to_encode(&mut self) {
         self.root_redirect = "/encode".to_string();
     }
+    pub fn is_scale_available(&self) -> bool {
+        let mut available = false;
+        if let Some(scale_config) = &self.configured_scale {
+            available = scale_config.available;
+        }
+        available
+    }
 }

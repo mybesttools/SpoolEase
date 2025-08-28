@@ -7,6 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum Message {
     Print(Print),
     Info(Info)

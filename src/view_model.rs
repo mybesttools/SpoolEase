@@ -18,7 +18,7 @@ use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 use shared::gcode_analysis::FilamentUsageEntry;
 use shared::gcode_analysis_task::{
-    fetch_gcode_analysis_task, FilamentUsage, GcodeAnalysisNotification, GcodeAnalysisNotificationChannel, GcodeAnalysisRequest,
+    fetch_gcode_analysis_task, Fetch3mf, FilamentUsage, GcodeAnalysisNotification, GcodeAnalysisNotificationChannel, GcodeAnalysisRequest,
     GcodeAnalysisRequestChannel, GcodeAnalyzerObserver,
 };
 use slint::{ComponentHandle, Model, SharedString, ToSharedString};
@@ -74,7 +74,7 @@ pub struct ViewModel {
     gcode_analysis_notification_channel: Rc<GcodeAnalysisNotificationChannel>,
     gcode_last_job_number: i32,
     gcode_jobs: Vec<GcodeJob>,
-    gcode_available_tasks: usize,
+    console_available_gcode_tasks: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -154,7 +154,7 @@ impl ViewModel {
             gcode_analysis_notification_channel,
             gcode_last_job_number: 0,
             gcode_jobs: Vec::new(),
-            gcode_available_tasks: 0,
+            console_available_gcode_tasks: 0,
         };
         let view_model_rc = Rc::new(RefCell::new(view_model));
 
@@ -285,7 +285,6 @@ impl ViewModel {
             if let Err(err) = moved_scale.borrow().emulate_tag(&full_web_encode_url) {
                 error!("Error sending emulate_tag to scale : {err}");
             }
-
         });
 
         // Spool Scale
@@ -841,7 +840,7 @@ impl ViewModel {
 
             // In case of encode from blank or staging (which is copied to blank), clean the scratch-pad used
             // If want to allow to return in case of cancel, need to move this to after encode success
-            // Note: Moved there 
+            // Note: Moved there
             // if tray_id == 998 || tray_id == 999 {
             //     moved_view_model.borrow_mut().encode_from_blank = None;
             // }
@@ -874,7 +873,7 @@ impl ViewModel {
             }
             info!("Sent the write request of tray {}", tray_id);
             // TODO: Get proper timeout fron config and pass it in the write_tag to spool_tag
-            20 
+            20
         });
 
         // // handler for request from UI to reset printer, should work only on selected printer
@@ -956,9 +955,12 @@ impl ViewModel {
             });
 
         let moved_view_model = self.view_model.as_ref().unwrap().clone();
-        self.ui_weak.unwrap().global::<crate::app::AppBackend>().on_clear_encode_scratchpad(move || {
-            moved_view_model.borrow_mut().encode_from_blank = None;
-        });
+        self.ui_weak
+            .unwrap()
+            .global::<crate::app::AppBackend>()
+            .on_clear_encode_scratchpad(move || {
+                moved_view_model.borrow_mut().encode_from_blank = None;
+            });
 
         let moved_view_model = self.view_model.as_ref().unwrap().clone();
         let moved_bambu_printer = self.bambu_printer_model.clone();
@@ -1313,6 +1315,84 @@ impl ViewModel {
         }
         res
     }
+
+    fn try_dispatch_next_gcode_job(&mut self) {
+        let console_tls_slots_capacity = 3 - self.bambu_printer_model.printers.len(); // per memory available
+        let scale_tls_slots_capacity: usize = if self.app_config.borrow().is_scale_available() { 4 } else { 0 };
+        let console_tls_slots_used: usize = self
+            .gcode_jobs
+            .iter()
+            .filter(|job| job.job_location == GcodeJobLocation::Console)
+            .map(|job| job.tls_slots)
+            .sum();
+        let scale_tls_slots_used: usize = self
+            .gcode_jobs
+            .iter()
+            .filter(|job| job.job_location == GcodeJobLocation::Scale)
+            .map(|job| job.tls_slots)
+            .sum();
+
+        let console_running_jobs_count = self.gcode_jobs.iter().filter(|job| job.job_location == GcodeJobLocation::Console).count();
+
+        // need to put this only here because of rust borrow checker
+        let first_pending_gcode_job = self.gcode_jobs.iter_mut().find(|job| job.job_location == GcodeJobLocation::Pending);
+        if first_pending_gcode_job.is_none() {
+            return;
+        }
+
+        let gcode_job = first_pending_gcode_job.unwrap();
+
+        if console_tls_slots_capacity - console_tls_slots_used >= gcode_job.tls_slots {
+            info!("Running gcode analysis job {} in Console", gcode_job.job_number);
+            // if we have enough slots for this task in the console, give priority to console
+            if self.console_available_gcode_tasks <= console_running_jobs_count {
+                // if no tasks ready, launch new task and pass data directly
+                info!(
+                    "Launching a new fetch_gcode_analysis_task task # {}",
+                    self.console_available_gcode_tasks + 1
+                );
+                let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| {
+                    let trait_for_gcode_analyzer_rc: Rc<RefCell<dyn GcodeAnalyzerObserver>> = self.view_model.clone().unwrap();
+                    let trait_for_gcode_analyzer_weak: Weak<RefCell<dyn GcodeAnalyzerObserver>> = Rc::downgrade(&trait_for_gcode_analyzer_rc);
+                    fetch_gcode_analysis_task(
+                        self.framework.clone(),
+                        self.gcode_analysis_request_channel.clone(),
+                        self.gcode_analysis_notification_channel.clone(),
+                        trait_for_gcode_analyzer_weak,
+                        gcode_job.analysis_request.take(),
+                    )
+                });
+                self.framework.borrow().spawner.spawn(task).ok();
+                self.console_available_gcode_tasks += 1;
+                gcode_job.job_location = GcodeJobLocation::Console;
+            } else {
+                // if there are already tasks waiting for requests use them
+                debug!("Using an existing console fetch_gcode_analysis_task task");
+                let gcode_analysis_request = gcode_job.analysis_request.take().unwrap();
+                match self.gcode_analysis_request_channel.try_send(gcode_analysis_request) {
+                    Ok(_) => gcode_job.job_location = GcodeJobLocation::Console,
+                    Err(err) => {
+                        error!("Failed sending request for gcode analysis within console : {err:?}");
+                    }
+                }
+            }
+        } else if scale_tls_slots_capacity - scale_tls_slots_used >= gcode_job.tls_slots {
+            // dispatch to scale
+            info!("Dispatching gcode analysis job {} to Scale", gcode_job.job_number);
+            let gcode_analysis_request = gcode_job.analysis_request.take().unwrap();
+            match self.spool_scale_model.borrow_mut().request_gcode_analysis(gcode_analysis_request) {
+                Ok(_) => gcode_job.job_location = GcodeJobLocation::Console,
+                Err(err) => {
+                    error!("Failed sending request for gcode analysis to scale : {err:?}");
+                }
+            }
+        } else {
+            debug!(
+                "No resources to run gcode analysis job {}, waiting for resources to free",
+                gcode_job.job_number
+            );
+        };
+    }
 }
 
 impl From<&TrayState> for crate::app::UiTrayState {
@@ -1448,6 +1528,24 @@ impl BambuPrinterObserver for ViewModel {
 
         info!("[{printer_number}] Received request for gcode analysis {subtask_name} {gcode_filename_in_3mf}");
 
+        let required_tls_slots = if printer.fetch_3mf == Fetch3mf::PrinterFtp
+            || gcode_filename_in_3mf.starts_with("file://")
+            || gcode_filename_in_3mf.starts_with("ftp://")
+        {
+            // only in case of ftp, the number of FTP (not HTTP) tls slots depends on the printer model
+            match printer.model_series() {
+                bambu::PrinterModelSeries::Unknown => 2,
+                bambu::PrinterModelSeries::X1 => 2,
+                bambu::PrinterModelSeries::P1 => 1,
+                bambu::PrinterModelSeries::A1 => 1,
+                bambu::PrinterModelSeries::H2 => 2,
+            }
+        } else {
+            1
+        };
+
+        let ftp_memory_save = required_tls_slots == 1;
+
         let gcode_analysis_request = GcodeAnalysisRequest {
             fetch_3mf: printer.fetch_3mf,
             ip,
@@ -1459,66 +1557,30 @@ impl BambuPrinterObserver for ViewModel {
             job_number: self.gcode_last_job_number,
             threemf_url,
             gcode_filename_in_3mf,
+            ftp_memory_save,
         };
 
-        let console_jobs_capacity = 3 - self.bambu_printer_model.printers.len(); // per memory available
-        let gcode_active_jobs_count = self.gcode_jobs.iter().filter(|job| job.job_location == GcodeJobLocation::Console).count();
+        self.gcode_jobs.push(GcodeJob {
+            job_number: self.gcode_last_job_number,
+            job_location: GcodeJobLocation::Pending,
+            tls_slots: required_tls_slots,
+            analysis_request: Some(gcode_analysis_request),
+        });
 
-        let gcode_job = if gcode_active_jobs_count < console_jobs_capacity {
-            if self.gcode_available_tasks <= gcode_active_jobs_count {
-                info!("Launching new fetch_gcode_analysis_task task");
-                let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| {
-                    let trait_for_gcode_analyzer_rc: Rc<RefCell<dyn GcodeAnalyzerObserver>> = self.view_model.clone().unwrap();
-                    let trait_for_gcode_analyzer_weak: Weak<RefCell<dyn GcodeAnalyzerObserver>> = Rc::downgrade(&trait_for_gcode_analyzer_rc);
-                    fetch_gcode_analysis_task(
-                        self.framework.clone(),
-                        self.gcode_analysis_request_channel.clone(),
-                        self.gcode_analysis_notification_channel.clone(),
-                        trait_for_gcode_analyzer_weak,
-                        Some(gcode_analysis_request),
-                    )
-                });
-                self.framework.borrow().spawner.spawn(task).ok();
-                self.gcode_available_tasks += 1;
-                Some(GcodeJob {
-                    job_number: self.gcode_last_job_number,
-                    job_location: GcodeJobLocation::Scale,
-                })
-            } else {
-                info!("Using existing fetch_gcode_analysis_task task");
-                match self.gcode_analysis_request_channel.try_send(gcode_analysis_request) {
-                    Ok(_) => Some(GcodeJob {
-                        job_number: self.gcode_last_job_number,
-                        job_location: GcodeJobLocation::Console,
-                    }),
-                    Err(err) => {
-                        error!("Failed sending request for gcode analysis within console : {err:?}");
-                        None
-                    }
-                }
-            }
-        } else {
-            // scale
-            match self.spool_scale_model.borrow_mut().request_gcode_analysis(gcode_analysis_request) {
-                Ok(_) => Some(GcodeJob {
-                    job_number: self.gcode_last_job_number,
-                    job_location: GcodeJobLocation::Scale,
-                }),
-                Err(err) => {
-                    error!("{err}");
-                    None
-                }
-            }
-        };
-        if let Some(gcode_job) = gcode_job {
-            self.gcode_jobs.push(gcode_job);
-            gcode_job.job_number
-        } else {
-            0
-        }
+        self.try_dispatch_next_gcode_job();
+
+        self.gcode_last_job_number
     }
 
     fn on_cancel_gcode_analysis(&mut self, job_number: i32) {
+        // first check if it happens to be a pending job, not submitted yet to processing
+        let len_before = self.gcode_jobs.len();
+        self.gcode_jobs
+            .retain(|job| !(job.job_number == job_number && job.job_location == GcodeJobLocation::Pending));
+        if self.gcode_jobs.len() < len_before {
+            return;
+        }
+        // it wasn't pending, so lets send a request to cancel it
         self.gcode_analysis_notification_channel
             .immediate_publisher()
             .publish_immediate(GcodeAnalysisNotification::Cancel { job_number });
@@ -1527,7 +1589,7 @@ impl BambuPrinterObserver for ViewModel {
             .borrow()
             .gcode_analysis_notify(GcodeAnalysisNotification::Cancel { job_number })
         {
-            error!("Failed to send cancelation {err}")
+            error!("Failed to send gcode analysis cancelation : {err}")
         }
     }
 }
@@ -1547,11 +1609,10 @@ impl SpoolTagObserver for ViewModel {
                 ui.unwrap().global::<crate::app::AppState>().invoke_encode_tag_found();
             }
             Status::WriteSuccess(pure_tray_id, encoded_descriptor, cookie) => {
-
-            // // In case of encode from blank or staging (which is copied to blank), clean the scratch-pad used
-            // // If want to allow to return in case of cancel, need to move this to after encode success
-            // // Note: Moved
-            //     self.encode_from_blank = None;
+                // // In case of encode from blank or staging (which is copied to blank), clean the scratch-pad used
+                // // If want to allow to return in case of cancel, need to move this to after encode success
+                // // Note: Moved
+                //     self.encode_from_blank = None;
 
                 let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(*pure_tray_id);
                 let ams_id_for_ui = Self::ams_if_for_ui(ams_id);
@@ -1598,7 +1659,10 @@ impl SpoolTagObserver for ViewModel {
                         }
                         if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
                             tag_info,
-                            tag_operation: TagOperation::EncodeTag { weight, set_encoded_as_new: encode_cookie.set_encoded_as_new },
+                            tag_operation: TagOperation::EncodeTag {
+                                weight,
+                                set_encoded_as_new: encode_cookie.set_encoded_as_new,
+                            },
                             cookie: Box::new(StoreWriteTagCookie {
                                 notify_scale: false,
                                 store_request_origin: StoreRequestOrigin::Encode,
@@ -1938,14 +2002,17 @@ impl SpoolScaleObserver for ViewModel {
     }
 
     fn on_gcode_analysis_failed(&mut self, job_number: i32, printer_index: usize) {
+        debug!("Gcode analysis job {job_number} from Scale failed, see scale logs for more info");
         shared::gcode_analysis_task::GcodeAnalyzerObserver::on_failed(self, job_number, printer_index);
     }
 
     fn on_gcode_analysis_canceled(&mut self, job_number: i32, printer_index: usize) {
+        debug!("Gcode analysis job {job_number} from Scale was canceled");
         shared::gcode_analysis_task::GcodeAnalyzerObserver::on_canceled(self, job_number, printer_index);
     }
 
     fn on_gcode_analysis_completed(&mut self, job_number: i32, printer_index: usize) {
+        debug!("Received gcode analysis job {job_number} from Scale");
         shared::gcode_analysis_task::GcodeAnalyzerObserver::on_completed(self, job_number, printer_index);
     }
 }
@@ -2204,6 +2271,7 @@ impl GcodeAnalyzerObserver for ViewModel {
             info!("[{printer_log_id}] Gcode analysis job {job_number} canceled before completion (print canceled?)");
         }
         self.gcode_jobs.retain(|job| job.job_number != job_number);
+        self.try_dispatch_next_gcode_job();
     }
 
     fn on_failed(&mut self, job_number: i32, printer_index: usize) {
@@ -2213,6 +2281,7 @@ impl GcodeAnalyzerObserver for ViewModel {
             error!("[{printer_log_id}] Gcode analysis job {job_number} failed (exact error above?)");
         }
         self.gcode_jobs.retain(|job| job.job_number != job_number);
+        self.try_dispatch_next_gcode_job();
     }
 
     fn on_completed(&mut self, job_number: i32, printer_index: usize) {
@@ -2222,6 +2291,7 @@ impl GcodeAnalyzerObserver for ViewModel {
             info!("[{printer_log_id}] Gcode analysis job {job_number} completed successfuly");
         }
         self.gcode_jobs.retain(|job| job.job_number != job_number);
+        self.try_dispatch_next_gcode_job();
     }
 }
 
@@ -2229,11 +2299,14 @@ impl GcodeAnalyzerObserver for ViewModel {
 enum GcodeJobLocation {
     Console,
     Scale,
+    Pending,
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 struct GcodeJob {
     job_number: i32,
     job_location: GcodeJobLocation,
+    tls_slots: usize,
+    analysis_request: Option<GcodeAnalysisRequest>,
 }
