@@ -524,7 +524,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
           const encryptedText = await response.text();
           const decryptedText = decrypt(encryptionKey, encryptedText);
           const result = JSON.parse(decryptedText);
-          alert(`Settings applied successfully`);
+          alert(`Settings applied successfully, restart is required!!!`);
           if (applyButton) {
             applyButton.disabled = true;
           }
