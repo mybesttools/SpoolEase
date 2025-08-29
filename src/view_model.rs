@@ -394,6 +394,7 @@ impl ViewModel {
                 .spawn(printers_scheduled_store_state_task(
                     self.framework.clone(),
                     self.view_model.clone().unwrap(),
+                    self.store.clone(),
                 ))
                 .ok();
 
@@ -706,7 +707,7 @@ impl ViewModel {
     ) {
         let mut filament_staging = filament_staging.borrow_mut();
         if let Some(tag_info) = filament_staging.tag_info() {
-            bambu_printer.set_tray_filament(tray_id, tag_info);
+            bambu_printer.set_tray_filament(tray_id, tag_info, filament_staging.spool_record());
             filament_staging.clear();
             ui.unwrap().global::<crate::app::AppState>().invoke_empty_spool_staging();
             let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
@@ -737,7 +738,7 @@ impl ViewModel {
     ) {
         let mut filament_staging = filament_staging.borrow_mut();
         if let Some(tag_info) = filament_staging.tag_info() {
-            bambu_printer.borrow_mut().set_tray_filament(tray_id, tag_info);
+            bambu_printer.borrow_mut().set_tray_filament(tray_id, tag_info, filament_staging.spool_record());
             filament_staging.clear();
             ui.unwrap().global::<crate::app::AppState>().invoke_empty_spool_staging();
             let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
@@ -1295,12 +1296,12 @@ impl ViewModel {
             if let Some(id) = &tag_info.id {
                 if let Some(spool) = self.store.get_spool_by_id(id) {
                     if let (Some(weight_core), Some(weight_current)) = (spool.weight_core, spool.weight_current) {
-                        let realtime_weight = (weight_current - weight_core) as f32 - tray.meta_info.consumed_since_load;
+                        let realtime_weight = (weight_current - weight_core) as f32 - tray.meta_info.consumed_since_weight;
                         res = slint::format!("{:.1}g", realtime_weight);
                     } else if let (Some(weight_current), Some(weight_new), Some(weight_advertised)) =
                         (spool.weight_current, spool.weight_new, spool.weight_advertised)
                     {
-                        let realtime_weight = (weight_current - (weight_new - weight_advertised)) as f32 - tray.meta_info.consumed_since_load;
+                        let realtime_weight = (weight_current - (weight_new - weight_advertised)) as f32 - tray.meta_info.consumed_since_weight;
                         res = slint::format!("{:.1}g", realtime_weight);
                     }
 
@@ -2111,7 +2112,7 @@ fn decode_csv_field(s: &str) -> String {
 }
 
 #[embassy_executor::task] // up to two printers in parallel
-pub async fn printers_scheduled_store_state_task(framework: Rc<RefCell<Framework>>, view_model: Rc<RefCell<ViewModel>>) {
+pub async fn printers_scheduled_store_state_task(framework: Rc<RefCell<Framework>>, view_model: Rc<RefCell<ViewModel>>, store: Rc<Store>) {
     {
         let file_store = framework.borrow().file_store();
         let file_store = file_store.lock().await;
@@ -2125,7 +2126,7 @@ pub async fn printers_scheduled_store_state_task(framework: Rc<RefCell<Framework
     term_info!("Restoring printer(s) state");
     for printer_index in 0..num_of_printers {
         let printer = view_model.borrow().bambu_printer_model.printers[printer_index].clone();
-        BambuPrinter::load_printer_state(&framework, &printer).await;
+        BambuPrinter::load_printer_state(&framework, &printer, &store).await;
     }
 
     let mut printer_index = 0;

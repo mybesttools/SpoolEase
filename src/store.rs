@@ -138,6 +138,7 @@ pub struct Store {
     pub spools_db: OnceCell<CsvDb<SpoolRecord, TheSpi, 20, 5>>,
     last_spool_id: RefCell<i32>,
     tag_id_index: RefCell<HashMap<String, String>>,
+    pub initialized: RefCell<bool>,
 }
 
 impl Store {
@@ -150,6 +151,7 @@ impl Store {
             spools_db: OnceCell::new(),
             last_spool_id: RefCell::new(0),
             tag_id_index: RefCell::new(HashMap::new()),
+            initialized: RefCell::new(false),
         });
         framework.borrow().spawner.spawn(store_task(framework.clone(), store.clone())).ok();
         store
@@ -174,6 +176,9 @@ impl Store {
 
     pub fn is_available(&self) -> bool {
         self.spools_db.get().is_some()
+    }
+    pub fn is_initialized(&self) -> bool {
+        *self.initialized.borrow()
     }
 
     pub fn query_spools(&self) -> Option<String> {
@@ -380,6 +385,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
         }
     }
     *store.last_spool_id.borrow_mut() = largest_id;
+    *store.initialized.borrow_mut() = true;
 
     let receiver = store.requests_channel.receiver();
     loop {

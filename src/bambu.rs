@@ -9,6 +9,7 @@ use crate::{
     bambu_api::GcodeState,
     settings::MAX_NUM_PRINTERS,
     ssdp::{SSDPInfo, SSDPPubSubChannel},
+    store::{SpoolRecord, Store},
 };
 use alloc::{
     borrow::Cow,
@@ -195,7 +196,7 @@ impl BambuPrinter {
         }
     }
 
-    pub fn init_printer_persistent_state(&mut self, mut state: PrinterPersistentState) {
+    pub fn init_printer_persistent_state(&mut self, mut state: PrinterPersistentState, store: &Rc<Store>) {
         let n_trays = core::cmp::min(self.inner_ams_trays.len(), state.ams_trays.len());
         for i in 0..n_trays {
             self.inner_ams_trays[i] = state.ams_trays.remove(0);
@@ -205,17 +206,42 @@ impl BambuPrinter {
         self.ams_exist_bits = state.ams_exist_bits;
         self.tray_exist_bits = state.tray_exist_bits;
         self.tray_read_done_bits = state.tray_read_done_bits;
+
+        // This section can be potentially removed in the future since state consume_since_weight should be available and updated
+        // This is only for transition time where the there was no consumed_since_weight in the metainfo for correct display calculation
+        for tray in self
+            .inner_ams_trays
+            .iter_mut()
+            .chain(core::iter::once(&mut self.inner_virt_tray))
+        {
+            if let Some(tag_info) = &tray.meta_info.tag_info {
+                if tray.meta_info.consumed_since_weight == 0.0 {
+                    if let Some(tag_id) = &tag_info.tag_id {
+                        let spool_record = store.get_spool_by_tag_id(tag_id);
+                        if let Some(spool_record) = spool_record {
+                            tray.meta_info.consumed_since_weight = spool_record.consumed_since_weight;
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    pub async fn load_printer_state(framework: &Rc<RefCell<Framework>>, printer: &Rc<RefCell<BambuPrinter>>) {
+    pub async fn load_printer_state(framework: &Rc<RefCell<Framework>>, printer: &Rc<RefCell<BambuPrinter>>, store: &Rc<Store>) {
         let path = Self::printer_state_file_path(&printer.borrow().printer_serial);
         let printer_number = printer.borrow().printer_number;
+        loop {
+            if store.is_initialized() {
+                break;
+            }
+            Timer::after_millis(100).await;
+        }
         let file_store = framework.borrow().file_store();
         let mut file_store = file_store.lock().await;
         match file_store.read_file_str(&path).await {
             Ok(state_str) => match serde_json::from_str::<PrinterPersistentState>(&state_str) {
                 Ok(printer_state) => {
-                    printer.borrow_mut().init_printer_persistent_state(printer_state);
+                    printer.borrow_mut().init_printer_persistent_state(printer_state, store);
                     term_info!("[{}] Restored printer state from SDCard", printer_number);
                 }
                 Err(err) => {
@@ -1352,7 +1378,7 @@ impl BambuPrinter {
         res
     }
 
-    pub fn set_tray_filament(&mut self, tray_id: i32, tag_info: &TagInformation) {
+    pub fn set_tray_filament(&mut self, tray_id: i32, tag_info: &TagInformation, spool_record: &Option<SpoolRecord>) {
         let ams_id;
         let ams_tray_id;
         let slot_id;
@@ -1421,6 +1447,9 @@ impl BambuPrinter {
             self.update_any_tray(tray_id as usize, |tray| {
                 tray.meta_info = TrayMetaInfo::default();
                 tray.meta_info.tag_info = Some(tag_info.clone());
+                if let Some(spool_record) = spool_record {
+                    tray.meta_info.consumed_since_weight = spool_record.consumed_since_weight;
+                }
             });
         }
     }
@@ -1611,9 +1640,12 @@ pub struct TrayMetaInfo {
     pub consumed_since_load: f32,
     #[serde(default)]
     pub consumed_since_load_saved: f32,
+    // fields which are not going to be stored as state should not be considered in partialeq since that's what decides if to save state or not
     #[serde(skip)]
     #[derivative(PartialEq = "ignore")]
     pub used_in_print: bool,
+    #[serde(default)]
+    pub consumed_since_weight: f32,
 }
 
 #[derive(Derivative)]
