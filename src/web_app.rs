@@ -326,6 +326,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
                         },
                         consumed_since_add: 0.0,
                         consumed_since_weight: 0.0,
+                        ext_has_k: false,
                     };
                     if new_spool.id.is_empty() {
                         match store.add_untagged_spool(new_spool).await {

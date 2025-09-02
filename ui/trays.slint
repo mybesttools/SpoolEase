@@ -33,12 +33,12 @@ component AmsButton inherits Window {
             spacing: 3px + (active ? 0px : 3px);
             for tray-id in ams-id <= 3 ? [0, 1, 2, 3] : [0]: block := Rectangle {
                 horizontal-stretch: 0;
-                property <bool> used-in-print: trays-state[AppState.get_tray_id(ams-id,tray-id)+1].used-in-print;
-                property <bool> slot-is-with-spool: slot-with-spool(trays-state[AppState.get_tray_id(ams-id,tray-id)+1]);
-                property <bool> slot-is-with-known-color: slot-with-known-color(trays-state[AppState.get_tray_id(ams-id,tray-id)+1]);
-                property <bool> slot-is-loaded: trays-state[AppState.get_tray_id(ams-id,tray-id)+1].spool-state == UiTrayState.Loaded;
+                property <bool> used-in-print: trays-state[AppState.get_tray_id(ams-id,tray-id) + 1].used-in-print;
+                property <bool> slot-is-with-spool: slot-with-spool(trays-state[AppState.get_tray_id(ams-id,tray-id) + 1]);
+                property <bool> slot-is-with-known-color: slot-with-known-color(trays-state[AppState.get_tray_id(ams-id,tray-id) + 1]);
+                property <bool> slot-is-loaded: trays-state[AppState.get_tray_id(ams-id,tray-id) + 1].spool-state == UiTrayState.Loaded;
                 height: parent.height - parent.padding-top - parent.padding-bottom - 3px * 2;
-                background: /*slot-is-with-spool &&*/ slot-is-with-known-color ? trays-state[AppState.get_tray_id(ams-id,tray-id)+1].filament.color : AppConsts.no-color;
+                background: /*slot-is-with-spool &&*/ slot-is-with-known-color ? trays-state[AppState.get_tray_id(ams-id,tray-id) + 1].filament.color : AppConsts.no-color;
 
                 if !slot-is-with-spool: special-cases-circle := Rectangle {
                     height: Math.min(parent.height, parent.width) - 4px;
@@ -49,7 +49,7 @@ component AmsButton inherits Window {
                     border-radius: Math.min(self.width, self.height) / 2;
                 }
 
-                normal-border:= Rectangle {
+                normal-border := Rectangle {
                     height: parent.height;
                     width: parent.width;
                     border-color: black;
@@ -59,17 +59,17 @@ component AmsButton inherits Window {
                       // only thing I didn't try to fix that with empty or space is centering the text which already looks centered
                       // and so the "✓" won't show, use transparent color
                       text: slot-is-loaded ? "↯" : !slot-is-with-spool ? "−" : !slot-is-with-known-color ? "?" : "✓";
-                      color: self.text == "✓" ? #00000000 : !slot-is-with-spool ? black : slot-is-with-known-color ? utils.contrasting_color(block.background) : white;
+                        color: self.text == "✓" ? #00000000 : !slot-is-with-spool ? black : slot-is-with-known-color ? utils.contrasting_color(block.background) : white;
                     }
                 }
 
-                if used-in-print: in-use-border:= Rectangle {
-                  x: -2px;
-                  y: -2px;
-                  width: parent.width + 4px;
-                  height: parent.height + 4px;
-                  border-width: 2px;
-                  border-color: black;
+                if used-in-print: in-use-border := Rectangle {
+                    x: -2px;
+                    y: -2px;
+                    width: parent.width + 4px;
+                    height: parent.height + 4px;
+                    border-width: 2px;
+                    border-color: black;
                 }
             }
         }
@@ -140,19 +140,23 @@ component Spool inherits Rectangle {
     }
 
     tray-border := Rectangle {
-        border-width: area.pressed || (AppState.highlight-trays && tray-state.external) || (AppState.highlight-trays && tray-state.spool-state == UiTrayState.Ready && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-tray == tray-state.id && AppState.highlight-tray-flash) ? 4px : 1px;
+        border-width: area.pressed || (AppState.highlight-trays && tray-state.external && AppState.control-state == ControlState.StagingSelected) || (AppState.highlight-trays && tray-state.external && AppState.control-state == ControlState.EncodeSelectSource && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-trays && tray-state.spool-state == UiTrayState.Ready && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-tray == tray-state.id && AppState.highlight-tray-flash) ? 4px : 1px;
         border-color: self.border-width == 1px ? black : utils.contrasting_color(root.background);
     }
 
     if tray-state.tagged: tag := Rectangle {
-        x: 10px;
-        y: 10px;
-        width: 15px;
-        height: 20px;
+        x: 0px;
+        y: 0px;
+        width: parent.width / 2;
+        height: 30px;
         background: green;
         border-radius: 3px;
         border-color: black;
         border-width: 1px;
+        MyText {
+            text: tray-state.spool-rec-id;
+            color: white;
+        }
     }
 
     if tray-state.used-in-print: Rectangle {
@@ -241,11 +245,11 @@ export component Trays {
                 // visible: AppState.selected-tray-index == -1 || AppState.selected-tray-index == index;
                 tray-state: trays-state[index];
                 clicked() => { // ? TODO: Think if to move into the tray component
-                    if AppState.control-state == ControlState.StagingSelected {
+                    if AppState.control-state == ControlState.StagingSelected && ((AppState.highlight-trays && self.tray-state.external) || (self.tray-state.spool-state == UiTrayState.Ready)) {
                         AppBackend.set-staging-to-tray(trays-state[index].id);
-                    } else if AppState.control-state == ControlState.EncodeSelectSource && trays-state[index].filament.state == UiFilamentState.Known {
+                    } else if (AppState.control-state == ControlState.EncodeSelectSource && self.tray-state.filament.state == UiFilamentState.Known) && ((AppState.highlight-trays && self.tray-state.external) || (self.tray-state.spool-state == UiTrayState.Ready)) {
                         AppState.encode-select-tray(index);
-                    } else if (AppState.control-state == ControlState.Ready || AppState.control-state == ControlState.PostAction) && trays-state[index].filament.state == UiFilamentState.Known {
+                    } else if (AppState.control-state == ControlState.Ready || AppState.control-state == ControlState.PostAction) && self.tray-state.filament.state == UiFilamentState.Known {
                         AppState.show-filament-information(index);
                     }
                 }

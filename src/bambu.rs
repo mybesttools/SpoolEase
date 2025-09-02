@@ -9,7 +9,7 @@ use crate::{
     bambu_api::GcodeState,
     settings::MAX_NUM_PRINTERS,
     ssdp::{SSDPInfo, SSDPPubSubChannel},
-    store::{SpoolRecord, Store},
+    store::{FullSpoolRecord, Store},
 };
 use alloc::{
     borrow::Cow,
@@ -182,6 +182,13 @@ impl BambuPrinter {
             self.update_ams_tray(index, f);
         }
     }
+    pub fn get_any_tray(&self, index: usize) -> &Tray {
+        if index == 254 {
+            self.virt_tray()
+        } else {
+            &self.ams_trays()[index]
+        }
+    }
     pub fn nozzle_diameter(&self) -> &Option<String> {
         &self.inner_nozzle_diameter
     }
@@ -209,11 +216,7 @@ impl BambuPrinter {
 
         // This section can be potentially removed in the future since state consume_since_weight should be available and updated
         // This is only for transition time where the there was no consumed_since_weight in the metainfo for correct display calculation
-        for tray in self
-            .inner_ams_trays
-            .iter_mut()
-            .chain(core::iter::once(&mut self.inner_virt_tray))
-        {
+        for tray in self.inner_ams_trays.iter_mut().chain(core::iter::once(&mut self.inner_virt_tray)) {
             if let Some(tag_info) = &tray.meta_info.tag_info {
                 if tray.meta_info.consumed_since_weight == 0.0 {
                     if let Some(tag_id) = &tag_info.tag_id {
@@ -532,13 +535,6 @@ impl BambuPrinter {
         self.observers.clear();
     }
 
-    pub fn get_tag_k_for_current_nozzle(&self, tag_info: &TagInformation) -> String {
-        if let Some(matched_calibration) = self.get_tag_matching_calibration_for_current_nozzle(tag_info) {
-            return matched_calibration.k_value.clone();
-        }
-        "".to_string()
-    }
-
     fn get_calibration(&self, nozzle_diameter: &str, cali_idx: i32) -> Option<&Calibration> {
         let nozzle_calibrations = self.calibrations.get(nozzle_diameter)?;
         let calibration = nozzle_calibrations.get(&cali_idx)?;
@@ -583,6 +579,35 @@ impl BambuPrinter {
             }
         }
         None
+    }
+
+    pub fn get_tray_k_info(&self, tray_id: usize) -> Option<KInfo> {
+        let tray = self.get_any_tray(tray_id);
+        let calibration = self.get_tray_calibration(tray)?;
+        let diameter = self.nozzle_diameter().as_ref()?;
+
+        let nozzle_id = KNozzleId {
+            name: calibration.name.clone(),
+            k_value: calibration.k_value.clone(),
+            setting_id: calibration.setting_id.clone(),
+            cali_idx: calibration.cali_idx,
+        };
+
+        let nozzle_diameter = KNozzleDiameter {
+            nozzles: HashMap::from([(String::new(), nozzle_id)]),
+        };
+
+        let extruder = KExtruder {
+            diameters: HashMap::from([(diameter.clone(), nozzle_diameter)]),
+        };
+
+        let printer = KPrinter {
+            extruders: HashMap::from([(0, extruder)]),
+        };
+
+        Some(KInfo {
+            printers: HashMap::from([(self.printer_serial.clone(), printer)]),
+        })
     }
 
     fn tray_from_update(&self, tray_update: &PrintTray) -> Result<Option<Tray>, String> {
@@ -1378,7 +1403,7 @@ impl BambuPrinter {
         res
     }
 
-    pub fn set_tray_filament(&mut self, tray_id: i32, tag_info: &TagInformation, spool_record: &Option<SpoolRecord>) {
+    pub fn set_tray_filament(&mut self, tray_id: i32, tag_info: &TagInformation, full_spool_rec: &Option<FullSpoolRecord>) {
         let ams_id;
         let ams_tray_id;
         let slot_id;
@@ -1403,7 +1428,7 @@ impl BambuPrinter {
           // So if we have calibration information, we send the setting_id from there. If we don't we send None and it seems to work
           // The slicer have the setting-if from the data it has when it selects everything together
 
-        let matching_calibration = self.get_tag_matching_calibration_for_current_nozzle(tag_info);
+        let matching_calibration = self.get_matching_printer_calibration_for_current_nozzle(tag_info, full_spool_rec);
 
         // let setting_id = matching_calibration.as_ref().map(|calibration| calibration.setting_id.as_str());
         let setting_id: Option<&str> = matching_calibration.as_ref().and_then(|c| c.setting_id.as_deref());
@@ -1447,14 +1472,18 @@ impl BambuPrinter {
             self.update_any_tray(tray_id as usize, |tray| {
                 tray.meta_info = TrayMetaInfo::default();
                 tray.meta_info.tag_info = Some(tag_info.clone());
-                if let Some(spool_record) = spool_record {
-                    tray.meta_info.consumed_since_weight = spool_record.consumed_since_weight;
+                if let Some(full_spool_rec) = full_spool_rec {
+                    tray.meta_info.consumed_since_weight = full_spool_rec.spool_rec.consumed_since_weight;
                 }
             });
         }
     }
 
-    pub fn get_tag_matching_calibration_for_current_nozzle(&self, tag_info: &TagInformation) -> Option<Calibration> {
+    pub fn get_matching_printer_calibration_for_current_nozzle(
+        &self,
+        _tag_info: &TagInformation,
+        full_spool_rec: &Option<FullSpoolRecord>,
+    ) -> Option<Calibration> {
         // cali_idx, setting_id
         // Now process it
 
@@ -1507,22 +1536,33 @@ impl BambuPrinter {
             false
         }
 
-        let tag_filament_id = if let Some(filament_info) = &tag_info.filament {
-            &filament_info.tray_info_idx
-        } else {
-            return None;
-        };
+        // let tag_filament_id = if let Some(filament_info) = &tag_info.filament {
+        //     &filament_info.tray_info_idx
+        // } else {
+        //     return None;
+        // };
 
-        let printer_nozzle = if let Some(nozzle_diameter) = &self.nozzle_diameter() {
-            nozzle_diameter
-        } else {
-            return None;
-        };
+        // let printer_nozzle = if let Some(nozzle_diameter) = &self.nozzle_diameter() {
+        //     nozzle_diameter
+        // } else {
+        //     return None;
+        // };
 
+        let printer_nozzle = self.nozzle_diameter().as_ref()?;
+
+        // TODO: for H2D, need to add extruder, which would need to be decided by an extra param to receive which is the slot (which defines also the extruder indirectly thgouth AMS)
         let printer_calibrations = self.calibrations.get(printer_nozzle)?;
 
+        let filament_id = &full_spool_rec.as_ref()?.spool_rec.slicer_filament;
+        // Using the new K from SpoolRecordExt
+
         // If there is filament calibration for that nozzle size (assumption there can be only one, which makes sense)
-        if let Some(filament_calibration) = tag_info.calibrations.get(printer_nozzle) {
+        debug!(">>> Trying to get filament k information for printer/nozzle/etc.");
+        if let Some(nozzle_k) = full_spool_rec
+            .as_ref()?
+            .spool_rec_ext
+            .get_calibrations(&self.printer_serial, 0, self.nozzle_diameter().as_ref()?, "")
+        {
             // here need to test not against printer nozzle but also consider the AMS tray which is the target, meaning, can't set/show it in staging
             // is tag_info modified when loaded into staging based on current printer? Or only displayed?
             // This also means, that we probably want the nozzle diameter when encoded to be the kay (so K4~0~HH-0.4) where 0 is extruder and after that comes the nozzle type
@@ -1532,66 +1572,108 @@ impl BambuPrinter {
             // Important Note: On A1,P1,X1 - calibration includes setting_id, so if we have it we encode it and then when scanning will compare it.
             //                 On H2D - Setting_id is not included - therefore the second part of below filter will compare None (on calibration) to filament setting_id
             //                 This is ok, because if there is no match it means it is not exact match from this printer type, it was encoded on pritner with setting_id and loaded to h2d
-            let same_filament_id_nozzle_printer_type_calibrations = printer_calibrations
-                .iter()
-                .filter(|&c| c.1.filament_id == *tag_filament_id && c.1.setting_id == filament_calibration.setting_id);
-
+            let same_filament_id_nozzle_printer_type_calibrations = printer_calibrations.iter().filter(|&c| c.1.filament_id == *filament_id);
             // A1
             if let Some(calibration_match) = same_filament_id_nozzle_printer_type_calibrations
                 .clone()
-                .find(|printer_calibration| printer_calibration.1.name == filament_calibration.name)
+                .find(|printer_calibration| printer_calibration.1.name == nozzle_k.name)
             {
                 return Some(calibration_match.1.clone());
             // Starting here, we can improve by finding several that match and select the closest
             // A2
             } else if let Some(calibration_match) = same_filament_id_nozzle_printer_type_calibrations
                 .clone()
-                .find(|printer_calibration| clean_compare(&printer_calibration.1.name, &filament_calibration.name))
+                .find(|printer_calibration| clean_compare(&printer_calibration.1.name, &nozzle_k.name))
             {
                 return Some(calibration_match.1.clone());
             // A3
             } else if let Some(calibration_match) = same_filament_id_nozzle_printer_type_calibrations
                 .clone()
-                .find(|printer_calibration| printer_calibration.1.k_value == filament_calibration.k_value)
+                .find(|printer_calibration| printer_calibration.1.k_value == nozzle_k.k_value)
             // because we are on same printer-type/nozzle this should be ok
             {
                 return Some(calibration_match.1.clone());
             // A4 : TODO: use metaphone double to compare strings
             } else if let Some(calibration_match) = same_filament_id_nozzle_printer_type_calibrations
                 .clone()
-                .find(|printer_calibration| similar_compare(&printer_calibration.1.name, &filament_calibration.name))
-            {
-                return Some(calibration_match.1.clone());
-            }
-        };
-
-        for (_, filament_calibration) in &tag_info.calibrations {
-            // TODO: When tag has several calibrations for different nozzles, here we can iterate over them as well
-            // (so compare man to many) since name from another nozzle diameter could help finding for another nozzle
-            // size, it's just name mathing
-            let same_filament_id_printer_calibrations = printer_calibrations.iter().filter(|&c| c.1.filament_id == *tag_filament_id);
-            // B1
-            if let Some(calibration_match) = same_filament_id_printer_calibrations
-                .clone()
-                .find(|printer_calibration| printer_calibration.1.name == filament_calibration.name)
-            {
-                return Some(calibration_match.1.clone());
-            }
-            // Starting here, we can improve by finding several that match and select the closest
-            // B2
-            else if let Some(calibration_match) = same_filament_id_printer_calibrations
-                .clone()
-                .find(|printer_calibration| clean_compare(&printer_calibration.1.name, &filament_calibration.name))
-            {
-                return Some(calibration_match.1.clone());
-            // B3
-            } else if let Some(calibration_match) = same_filament_id_printer_calibrations
-                .clone()
-                .find(|printer_calibration| similar_compare(&printer_calibration.1.name, &filament_calibration.name))
+                .find(|printer_calibration| similar_compare(&printer_calibration.1.name, &nozzle_k.name))
             {
                 return Some(calibration_match.1.clone());
             }
         }
+
+        // // If there is filament calibration for that nozzle size (assumption there can be only one, which makes sense)
+        // if let Some(filament_calibration) = tag_info.calibrations.get(printer_nozzle) {
+        //     // here need to test not against printer nozzle but also consider the AMS tray which is the target, meaning, can't set/show it in staging
+        //     // is tag_info modified when loaded into staging based on current printer? Or only displayed?
+        //     // This also means, that we probably want the nozzle diameter when encoded to be the kay (so K4~0~HH-0.4) where 0 is extruder and after that comes the nozzle type
+        //     // Need to check what does it mean that there isn't really a printer nozzle diameter
+        //
+        //     // there could be several tht match filament_id, setting_id (even common)
+        //     // Important Note: On A1,P1,X1 - calibration includes setting_id, so if we have it we encode it and then when scanning will compare it.
+        //     //                 On H2D - Setting_id is not included - therefore the second part of below filter will compare None (on calibration) to filament setting_id
+        //     //                 This is ok, because if there is no match it means it is not exact match from this printer type, it was encoded on pritner with setting_id and loaded to h2d
+        //     let same_filament_id_nozzle_printer_type_calibrations = printer_calibrations
+        //         .iter()
+        //         .filter(|&c| c.1.filament_id == *tag_filament_id && c.1.setting_id == filament_calibration.setting_id);
+        //
+        //     // A1
+        //     if let Some(calibration_match) = same_filament_id_nozzle_printer_type_calibrations
+        //         .clone()
+        //         .find(|printer_calibration| printer_calibration.1.name == filament_calibration.name)
+        //     {
+        //         return Some(calibration_match.1.clone());
+        //     // Starting here, we can improve by finding several that match and select the closest
+        //     // A2
+        //     } else if let Some(calibration_match) = same_filament_id_nozzle_printer_type_calibrations
+        //         .clone()
+        //         .find(|printer_calibration| clean_compare(&printer_calibration.1.name, &filament_calibration.name))
+        //     {
+        //         return Some(calibration_match.1.clone());
+        //     // A3
+        //     } else if let Some(calibration_match) = same_filament_id_nozzle_printer_type_calibrations
+        //         .clone()
+        //         .find(|printer_calibration| printer_calibration.1.k_value == filament_calibration.k_value)
+        //     // because we are on same printer-type/nozzle this should be ok
+        //     {
+        //         return Some(calibration_match.1.clone());
+        //     // A4 : TODO: use metaphone double to compare strings
+        //     } else if let Some(calibration_match) = same_filament_id_nozzle_printer_type_calibrations
+        //         .clone()
+        //         .find(|printer_calibration| similar_compare(&printer_calibration.1.name, &filament_calibration.name))
+        //     {
+        //         return Some(calibration_match.1.clone());
+        //     }
+        // };
+        //
+        // // This never takes place because tag_info contains only one clibration
+        // for (_, filament_calibration) in &tag_info.calibrations {
+        //     // TODO: When tag has several calibrations for different nozzles, here we can iterate over them as well
+        //     // (so compare man to many) since name from another nozzle diameter could help finding for another nozzle
+        //     // size, it's just name mathing
+        //     let same_filament_id_printer_calibrations = printer_calibrations.iter().filter(|&c| c.1.filament_id == *tag_filament_id);
+        //     // B1
+        //     if let Some(calibration_match) = same_filament_id_printer_calibrations
+        //         .clone()
+        //         .find(|printer_calibration| printer_calibration.1.name == filament_calibration.name)
+        //     {
+        //         return Some(calibration_match.1.clone());
+        //     }
+        //     // Starting here, we can improve by finding several that match and select the closest
+        //     // B2
+        //     else if let Some(calibration_match) = same_filament_id_printer_calibrations
+        //         .clone()
+        //         .find(|printer_calibration| clean_compare(&printer_calibration.1.name, &filament_calibration.name))
+        //     {
+        //         return Some(calibration_match.1.clone());
+        //     // B3
+        //     } else if let Some(calibration_match) = same_filament_id_printer_calibrations
+        //         .clone()
+        //         .find(|printer_calibration| similar_compare(&printer_calibration.1.name, &filament_calibration.name))
+        //     {
+        //         return Some(calibration_match.1.clone());
+        //     }
+        // }
 
         None
     }
@@ -1619,6 +1701,7 @@ impl BambuPrinter {
             return Err("Unknown Filament in Slot".to_string());
         }
         // Now take the calibration of current nozzle from the tray as well
+        // This is not encoded to the tag, but rather saved to store, but returned from here as part of the tag
         if let (Some(curr_nozzle_diameter), Some(tray_cali_idx)) = (&self.nozzle_diameter(), tray.cali_idx) {
             if let Some(nozzle_calibrations) = self.calibrations.get(curr_nozzle_diameter) {
                 if let Some(calibration) = &nozzle_calibrations.get(&tray_cali_idx) {
@@ -1636,6 +1719,7 @@ impl BambuPrinter {
 // IMPORTANT: Don't change names, will hurt persistence
 pub struct TrayMetaInfo {
     pub tag_info: Option<TagInformation>, // calibration for nozzles
+    pub k_info: Option<KInfo>,
     #[serde(default)]
     pub consumed_since_load: f32,
     #[serde(default)]
@@ -1878,9 +1962,9 @@ pub struct Calibration {
     pub filament_id: String,
     pub k_value: String,
     // n_coef: f32,
-    setting_id: Option<String>,
+    pub setting_id: Option<String>,
     pub name: String,
-    cali_idx: i32,
+    pub cali_idx: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -2327,9 +2411,6 @@ pub struct TagInformation {
     pub origin_descriptor: String,
     pub tag_id: Option<Vec<u8>>,
     pub filament: Option<FilamentInfo>,
-    pub calibrations: HashMap<String, Calibration>,
-    pub calibrations_printer_name: String, // has value only if calibrations has any value
-    pub calibrations_printer_uuid: String, // has value only if calibrations has any value
     pub weight_advertised: Option<i32>,
     pub weight_core: Option<i32>,
     pub weight_new: Option<i32>,
@@ -2338,52 +2419,99 @@ pub struct TagInformation {
     pub color_name: Option<String>,
     pub note: Option<String>,
     pub encode_time: Option<i32>,
+    // for old tags support (where K was on tag)
+    pub calibrations: HashMap<String, Calibration>,
+    pub calibrations_printer_name: String, // has value only if calibrations has any value
+    pub calibrations_printer_uuid: String, // has value only if calibrations has any value
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct KInfo {
+    pub printers: HashMap<String, KPrinter>,
+}
+
+impl KInfo {
+    fn _get_filament_k_for(&self, printer: &str, extruder: i32, diameter: &str, nozzle_id: &str) -> Option<&KNozzleId> {
+        self.printers
+            .get(printer)?
+            .extruders
+            .get(&extruder)?
+            .diameters
+            .get(diameter)?
+            .nozzles
+            .get(nozzle_id)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct KPrinter {
+    pub extruders: HashMap<i32, KExtruder>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct KExtruder {
+    pub diameters: HashMap<String, KNozzleDiameter>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct KNozzleDiameter {
+    pub nozzles: HashMap<String, KNozzleId>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct KNozzleId {
+    pub name: String,
+    pub k_value: String,
+    pub cali_idx: i32,
+    pub setting_id: Option<String>,
+}
+
+// k_info.printers["01P..."][0]["0.4"]["HH00"].name / .k
+
 impl TagInformation {
-    pub fn to_descriptor(&self, printer_name: Option<&str>, printer_uuid: Option<&str>) -> Option<String> {
-        let mut inner_calibrations_part = String::new();
-
-        // if printer_name not supplied, it means a reuest to encode using printer information in tag (e.g. encoding from staging)
-        let (encoded_printer_name, encoded_printer_uuid) = match printer_name {
-            Some(printer_name) => {
-                if !printer_name.is_empty() {
-                    (&my_encode_to_url_part(printer_name), printer_uuid.unwrap_or_default())
-                } else {
-                    (&"".to_string(), "")
-                }
-            }
-            None => {
-                // use tag_name printer_name if available
-                (&self.calibrations_printer_name, self.calibrations_printer_uuid.as_str())
-            }
-        };
-
-        let already_encoded_k_prefix = &format!("{}~{}", encoded_printer_name, encoded_printer_uuid);
-        let k_prefix = if !already_encoded_k_prefix.is_empty() {
-            format!("&{}(", already_encoded_k_prefix)
-        } else {
-            "&".to_string()
-        };
-        let k_postfix = if !k_prefix.is_empty() { ")" } else { "" };
-
-        for calibration_kv in self.calibrations.iter() {
-            if let Some(cal_nozzle_diameter_char) = calibration_kv.0.chars().nth(2) {
-                let calibration = calibration_kv.1;
-                inner_calibrations_part += &format!(
-                    "K{}={}~{}~{}",
-                    cal_nozzle_diameter_char,
-                    calibration.k_value.trim_end_matches('0'),
-                    calibration.setting_id.as_deref().unwrap_or(""),
-                    &my_encode_to_url_part(&calibration.name)
-                );
-            }
-        }
-        let calibrations_part = if inner_calibrations_part.is_empty() {
-            inner_calibrations_part
-        } else {
-            format!("{k_prefix}{inner_calibrations_part}{k_postfix}")
-        };
+    pub fn to_descriptor(&self, _printer_name: Option<&str>, _printer_uuid: Option<&str>) -> Option<String> {
+        // let mut inner_calibrations_part = String::new();
+        //
+        // // if printer_name not supplied, it means a reuest to encode using printer information in tag (e.g. encoding from staging)
+        // let (encoded_printer_name, encoded_printer_uuid) = match printer_name {
+        //     Some(printer_name) => {
+        //         if !printer_name.is_empty() {
+        //             (&my_encode_to_url_part(printer_name), printer_uuid.unwrap_or_default())
+        //         } else {
+        //             (&"".to_string(), "")
+        //         }
+        //     }
+        //     None => {
+        //         // use tag_name printer_name if available
+        //         (&self.calibrations_printer_name, self.calibrations_printer_uuid.as_str())
+        //     }
+        // };
+        //
+        // let already_encoded_k_prefix = &format!("{}~{}", encoded_printer_name, encoded_printer_uuid);
+        // let k_prefix = if !already_encoded_k_prefix.is_empty() {
+        //     format!("&{}(", already_encoded_k_prefix)
+        // } else {
+        //     "&".to_string()
+        // };
+        // let k_postfix = if !k_prefix.is_empty() { ")" } else { "" };
+        //
+        // for calibration_kv in self.calibrations.iter() {
+        //     if let Some(cal_nozzle_diameter_char) = calibration_kv.0.chars().nth(2) {
+        //         let calibration = calibration_kv.1;
+        //         inner_calibrations_part += &format!(
+        //             "K{}={}~{}~{}",
+        //             cal_nozzle_diameter_char,
+        //             calibration.k_value.trim_end_matches('0'),
+        //             calibration.setting_id.as_deref().unwrap_or(""),
+        //             &my_encode_to_url_part(&calibration.name)
+        //         );
+        //     }
+        // }
+        // let calibrations_part = if inner_calibrations_part.is_empty() {
+        //     inner_calibrations_part
+        // } else {
+        //     format!("{k_prefix}{inner_calibrations_part}{k_postfix}")
+        // };
 
         let brand_part = self
             .brand
@@ -2440,7 +2568,7 @@ impl TagInformation {
         let weight_new_part = self.weight_new.map(|v| format!("&WN={}", v)).unwrap_or_default();
         let encode_time_part = self.encode_time.map(|v| format!("&DE={}", v)).unwrap_or_default();
 
-        Some(format!("{FILAMENT_URL_PREFIX}V1?ID={TAG_PLACEHOLDER}{encode_time_part}{material_part}{filament_subtype_part}{color_part}{color_name_part}{brand_part}{advertised_weight_part}{weight_core_part}{weight_new_part}{nozzle_temp_min_part}{nozzle_temp_max_part}{note_part}{tray_info_idx_part}{calibrations_part}"))
+        Some(format!("{FILAMENT_URL_PREFIX}V1?ID={TAG_PLACEHOLDER}{encode_time_part}{material_part}{filament_subtype_part}{color_part}{color_name_part}{brand_part}{advertised_weight_part}{weight_core_part}{weight_new_part}{nozzle_temp_min_part}{nozzle_temp_max_part}{note_part}{tray_info_idx_part}"))
 
         // self.filament.as_ref().map(|filament| format!(
         //         "{FILAMENT_URL_PREFIX}V1?ID={TAG_PLACEHOLDER}{}{}{}{material_part}&C={}&NN={}&NX={}{brand_part}{filament_subtype_part}{color_name_part}{note_part}&FI={}{calibrations_part}",
@@ -2637,9 +2765,6 @@ impl TagInformation {
                 origin_descriptor: descriptor.to_string(),
                 tag_id,
                 filament: Some(filament_info_result),
-                calibrations: calibrations_result,
-                calibrations_printer_name: my_decode_from_url_part(calibrations_printer_name),
-                calibrations_printer_uuid: calibrations_printer_uuid.to_string(),
                 weight_advertised,
                 weight_core,
                 weight_new,
@@ -2648,6 +2773,11 @@ impl TagInformation {
                 color_name,
                 note,
                 encode_time,
+
+                // for old k calibration handling
+                calibrations: calibrations_result,
+                calibrations_printer_name: my_decode_from_url_part(calibrations_printer_name),
+                calibrations_printer_uuid: calibrations_printer_uuid.to_string(),
             })
         } else {
             Err(Error::MissingFields)

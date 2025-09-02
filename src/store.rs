@@ -1,16 +1,15 @@
-use shared::utils::{
-    deserialize_optional, deserialize_optional_bool_yn, deserialize_f32_base64, serialize_optional_bool_yn, serialize_f32_base64,
-};
-use alloc::borrow::ToOwned;
 use core::{any::Any, cell::RefCell};
 use embassy_time::Instant;
 use hashbrown::HashMap;
 use once_cell::unsync::OnceCell;
 use serde::{Deserialize, Serialize};
+use shared::utils::{
+    deserialize_bool_yn_empty_n, deserialize_f32_base64, deserialize_optional, deserialize_optional_bool_yn, serialize_bool_yn, serialize_f32_base64,
+    serialize_optional_bool_yn,
+};
 use snafu::prelude::*;
 
 use alloc::{
-    borrow::Cow,
     boxed::Box,
     format,
     rc::Rc,
@@ -27,7 +26,7 @@ use framework::{
 };
 
 use crate::{
-    bambu::{FilamentInfo, TagInformation},
+    bambu::{FilamentInfo, KInfo, KNozzleId, TagInformation},
     csvdb::{CsvDb, CsvDbError, CsvDbId},
 };
 
@@ -77,10 +76,15 @@ pub enum TagOperation {
 #[derive(Debug)]
 pub enum StoreOp {
     WriteTag {
-        tag_info: TagInformation,
+        tag_info: Box<TagInformation>,
+        k_info: Option<KInfo>,
         tag_operation: TagOperation,
         // weight: WeightStoreDirective,
         cookie: Box<dyn AnyClone>,
+    },
+    ReadExtInfo {
+        id: String,
+        // if need several use cases, add cookie
     },
 }
 
@@ -161,12 +165,22 @@ impl Store {
         self.observers.borrow_mut().push(observer);
     }
 
-    pub fn notify_tag_stored(&self, result: Result<Option<&str>, &str>, cookie: Box<dyn AnyClone>) {
+    pub fn notify_tag_stored(&self, result: Result<Option<(&SpoolRecord, &SpoolRecordExt)>, &str>, cookie: Box<dyn AnyClone>) {
         for weak_observer in self.observers.borrow().iter() {
             let observer = weak_observer.upgrade().unwrap();
             observer
                 .borrow_mut()
-                .on_tag_stored(result.map(|s| s.map(str::to_owned)).map_err(|e| e.to_string()), cookie.clone());
+                .on_tag_stored(result.map(|s| s.map(|s| (s.0.clone(), s.1.clone()))).map_err(|e| e.to_string()), cookie.clone()); }
+    }
+
+    pub fn notify_read_spool_record_ext(&self, result: Result<SpoolRecordExt, String>) {
+        if let Some((last, rest)) = self.observers.borrow().split_last() {
+            for weak_observer in rest.iter() {
+                let observer = weak_observer.upgrade().unwrap();
+                observer.borrow_mut().on_read_spool_record_ext(result.clone());
+            }
+            let observer = last.upgrade().unwrap();
+            observer.borrow_mut().on_read_spool_record_ext(result);
         }
     }
 
@@ -216,7 +230,7 @@ impl Store {
 
         if let Some(deleted_record) = deleted_record {
             if !deleted_record.tag_id.is_empty() {
-                if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&deleted_record) {
+                if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&deleted_record.id) {
                     let file_store = self.framework.borrow().file_store();
                     let mut file_store = file_store.lock().await;
                     let _ = file_store.delete_file(&spool_rec_ext_file_path).await;
@@ -271,8 +285,9 @@ impl Store {
                         added_time: current_record.added_time.or(store_safe_time_now()), // in case somehow no added date (ntp) then add it now
                         encode_time: current_record.encode_time,
                         added_full: spool_record.added_full,
-                        consumed_since_add: 0.0,
-                        consumed_since_weight: 0.0,
+                        consumed_since_add: current_record.consumed_since_add,
+                        consumed_since_weight: current_record.consumed_since_weight,
+                        ext_has_k: spool_record.ext_has_k,
                     }
                 } else {
                     return Err(StoreError::NotFound { id: spool_record.id.clone() });
@@ -319,7 +334,12 @@ impl Store {
                     if !tag_id.is_empty() {
                         self.tag_id_index.borrow_mut().insert(tag_id, id);
                     } else {
-                        let tag_id = self.tag_id_index.borrow().iter().find(|(_, index_id) | *index_id == &id).map(|(index_tag, _)| index_tag.clone());
+                        let tag_id = self
+                            .tag_id_index
+                            .borrow()
+                            .iter()
+                            .find(|(_, index_id)| *index_id == &id)
+                            .map(|(index_tag, _)| index_tag.clone());
                         if let Some(tag_id) = tag_id {
                             self.tag_id_index.borrow_mut().remove(&tag_id);
                         }
@@ -392,6 +412,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
         match receiver.receive().await {
             StoreOp::WriteTag {
                 tag_info,
+                k_info,
                 tag_operation,
                 cookie,
             } => {
@@ -446,7 +467,10 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                             if let Some(matching_spool_id) = matching_spool_id {
                                 //   if found matching_spool_id for tag_id
                                 match tag_operation {
-                                    TagOperation::EncodeTag { weight: _, set_encoded_as_new: _ } => {
+                                    TagOperation::EncodeTag {
+                                        weight: _,
+                                        set_encoded_as_new: _,
+                                    } => {
                                         //     if encode-tag
                                         //       strike matching_spool_id
                                         // TODO: to function
@@ -610,10 +634,15 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                         weight_new: tag_info.weight_new,
                         encode_time: tag_info.encode_time,
                         weight_current: curr_record.as_ref().and_then(|rec| rec.weight_current),
-                        added_time: curr_record.as_ref().and_then(|rec| rec.added_time).or(store_safe_time_now()),
-                        added_full: curr_record.as_ref().and_then(|rec| rec.added_full),
-                        consumed_since_add: curr_record.as_ref().map_or_else(|| 0.0, |rec| rec.consumed_since_add),
-                        consumed_since_weight: curr_record.as_ref().map_or_else(|| 0.0, |rec| rec.consumed_since_weight),
+                        added_time: curr_record.as_ref().and_then(|rec| rec.added_time).or(store_safe_time_now()), // a field that isn't coming from tag
+                        added_full: curr_record.as_ref().and_then(|rec| rec.added_full), // a field that isn't coming from tag
+                        consumed_since_add: curr_record.as_ref().map_or_else(|| 0.0, |rec| rec.consumed_since_add), // a field that isn't coming from tag
+                        consumed_since_weight: curr_record.as_ref().map_or_else(|| 0.0, |rec| rec.consumed_since_weight), // a field that isn't coming from tag
+                        ext_has_k: if k_info.is_some() {
+                            true
+                        } else {
+                            curr_record.as_ref().map_or_else(|| false, |rec| rec.ext_has_k)
+                        },
                     };
 
                     match tag_operation {
@@ -656,11 +685,9 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                     match spools_db.insert(spool_rec.clone()).await {
                         Ok(true) => {
                             info!("Stored tag to spools database");
-                            store.notify_tag_stored(Ok(Some(&spool_rec.id)), cookie.clone());
                         }
                         Ok(false) => {
                             info!("Stored tag to spools database, but no change");
-                            store.notify_tag_stored(Ok(Some(&spool_rec.id)), cookie.clone());
                         }
                         Err(e) => {
                             error!("Error storing record to spools database {e}");
@@ -668,49 +695,89 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
                             continue;
                         }
                     }
+
+                    
+
                     // Store of record succeeded and case of new record added, so need to update index and last_spool_id
                     if added_new_record {
                         *store.last_spool_id.borrow_mut() = id.parse().unwrap();
                     }
 
-                    store.tag_id_index.borrow_mut().insert(request_tag_id, id);
+                    store.tag_id_index.borrow_mut().insert(request_tag_id, id.clone());
+
+                    //////////////////////////////////////////////////////////////////////////////////////////
+                    // Write extr info file  ////////////////////////////////////////////////////////////////
+                    //////////////////////////////////////////////////////////////////////////////////////////
+
+                    if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&spool_rec.id) {
+                        let file_store = framework.borrow().file_store();
+                        let mut file_store = file_store.lock().await;
+                        let spool_rec_ext = SpoolRecordExt {
+                            tag: Some(tag_info.origin_descriptor),
+                            k_info,
+                        };
+                        match serde_json::to_string(&spool_rec_ext) {
+                            Ok(s) => match file_store.write_file_str(&spool_rec_ext_file_path, 0, &s, false).await {
+                                Ok(_) => {
+                                    info!("Stored extra spool {} information to file {spool_rec_ext_file_path}", spool_rec.id);
+                                }
+                                Err(err) => {
+                                    error!("Error writing tag file to {spool_rec_ext_file_path} : {err}");
+                                    store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (1),\ncheck logs"), cookie);
+                                    continue;
+                                }
+                            },
+                            Err(e) => {
+                                error!("Error serializing tag information to store: {e}");
+                                store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (2),\ncheck logs"), cookie);
+                                continue;
+                            }
+                        }
+                        store.notify_tag_stored(Ok(Some((&spool_rec, &spool_rec_ext))), cookie.clone());
+                    } else {
+                        error!("Internal Error: Trying to store ext with bad id : {id}");
+                        store.notify_tag_stored(Err(&format!("Internal Error: Trying to store ext with bad id : {id}")), cookie);
+                        continue;
+                    }
+
+
                 } else {
                     store.notify_tag_stored(Ok(None), cookie.clone());
                     continue;
                 }
-
-                //////////////////////////////////////////////////////////////////////////////////////////
-                // Write extr info file  ////////////////////////////////////////////////////////////////
-                //////////////////////////////////////////////////////////////////////////////////////////
-                if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&spool_rec) {
+            }
+            StoreOp::ReadExtInfo { id } => {
+                let res = if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&id) {
                     let file_store = framework.borrow().file_store();
                     let mut file_store = file_store.lock().await;
-                    let spool_rec_ext = SpoolRecordExt {
-                        tag: Some(Cow::Borrowed(&tag_info.origin_descriptor)),
-                    };
-                    match serde_json::to_string(&spool_rec_ext) {
-                        Ok(s) => match file_store.write_file_str(&spool_rec_ext_file_path, 0, &s, false).await {
-                            Ok(_) => {
-                                info!("Stored extra spool {} information to file {spool_rec_ext_file_path}", spool_rec.id);
-                            }
+                    match file_store.read_file_str(&spool_rec_ext_file_path).await {
+                        Ok(ext_str) => match serde_json::from_str::<SpoolRecordExt>(&ext_str) {
+                            Ok(ext) => Ok(ext),
                             Err(err) => {
-                                error!("Error writing tag file to {spool_rec_ext_file_path} : {err}");
-                                store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (1),\ncheck logs"), cookie);
-                                continue;
+                                error!("Error parsing spool extra information : {err:?}");
+                                Err("Error parsing spool extra information".to_string())
                             }
                         },
-                        Err(e) => {
-                            error!("Error serializing tag information to store: {e}");
-                            store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (2),\ncheck logs"), cookie);
-                            continue;
+                        Err(err) => {
+                            error!("Error loading tag information : {err:?}");
+                            Err("Error loading spool extra information : {err}".to_string())
                         }
                     }
                 } else {
-                    continue;
-                }
+                    error!("Internal Error: Requested spool extra info with bad Id : {id}");
+                    Err("Internal Error: Requested spool extra info with bad Id : {id}".to_string())
+                };
+                store.notify_read_spool_record_ext(res);
             }
         }
     }
+}
+
+// TODO: think if to change it to get the spoolRecord from store (and it will hold Rc to store)
+#[derive(Debug,Clone)]
+pub struct FullSpoolRecord {
+    pub spool_rec: SpoolRecord,
+    pub spool_rec_ext: SpoolRecordExt
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -739,18 +806,12 @@ pub struct SpoolRecord {
     pub encode_time: Option<i32>,
     #[serde(default, serialize_with = "serialize_optional_bool_yn", deserialize_with = "deserialize_optional_bool_yn")]
     pub added_full: Option<bool>,
-    #[serde(
-        default,
-        serialize_with = "serialize_f32_base64",
-        deserialize_with = "deserialize_f32_base64"
-    )]
+    #[serde(default, serialize_with = "serialize_f32_base64", deserialize_with = "deserialize_f32_base64")]
     pub consumed_since_add: f32,
-    #[serde(
-        default,
-        serialize_with = "serialize_f32_base64",
-        deserialize_with = "deserialize_f32_base64"
-    )]
+    #[serde(default, serialize_with = "serialize_f32_base64", deserialize_with = "deserialize_f32_base64")]
     pub consumed_since_weight: f32,
+    #[serde(default, serialize_with = "serialize_bool_yn", deserialize_with = "deserialize_bool_yn_empty_n")]
+    pub ext_has_k: bool,
     // #[serde(default,deserialize_with = "deserialize_optional_unit")]
     // pub price: Option<()>,
     // #[serde(default,deserialize_with = "deserialize_optional_unit")]
@@ -773,9 +834,17 @@ pub struct SpoolRecord {
     // pub used: Option<()>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct SpoolRecordExt<'a> {
-    tag: Option<Cow<'a, String>>,
+#[derive(Debug,Serialize, Deserialize, Clone, Default)]
+pub struct SpoolRecordExt {
+    pub tag: Option<String>,
+    pub k_info: Option<KInfo>,
+}
+
+impl SpoolRecordExt {
+    pub fn get_calibrations(&self, printer: &str, extruder: i32, diameter: &str, nozzle_id: &str) -> Option<&KNozzleId> {
+        let res = self.k_info.as_ref()?.printers.get(printer)?.extruders.get(&extruder)?.diameters.get(diameter)?.nozzles.get(nozzle_id);
+        res
+    }
 }
 
 impl CsvDbId for SpoolRecord {
@@ -785,15 +854,16 @@ impl CsvDbId for SpoolRecord {
 }
 
 pub trait StoreObserver {
-    fn on_tag_stored(&mut self, result: Result<Option<String>, String>, cookie: Box<dyn AnyClone>); // String result is id of stored tag
+    fn on_tag_stored(&mut self, result: Result<Option<(SpoolRecord, SpoolRecordExt)>, String>, cookie: Box<dyn AnyClone>); // String result is id of stored tag
+    fn on_read_spool_record_ext(&mut self, result: Result<SpoolRecordExt, String>);
 }
 
 fn tag_id_hex(tag_id: &[u8]) -> String {
     hex::encode_upper(tag_id)
 }
 
-fn spool_rec_ext_file_path(ext_rec: &SpoolRecord) -> Result<String, InternalError> {
-    if let Ok(id_num) = ext_rec.id.parse::<i32>() {
+fn spool_rec_ext_file_path(ext_rec_id: &str) -> Result<String, InternalError> {
+    if let Ok(id_num) = ext_rec_id.parse::<i32>() {
         let folder_num = ((id_num / 16) % 16) + 1;
         let file_path = format!("/store/spools.ext/{folder_num}/{id_num}.jsn");
         Ok(file_path)
