@@ -1545,6 +1545,23 @@ impl BambuPrinterObserver for ViewModel {
             1
         };
 
+        let chars_to_replace_for_file = match printer.model_series() {
+            bambu::PrinterModelSeries::P1 | bambu::PrinterModelSeries::A1 => "!@#\'@/",
+            bambu::PrinterModelSeries::X1 | bambu::PrinterModelSeries::H2 | bambu::PrinterModelSeries::Unknown => "/",
+        };
+
+        let base_threemf_ftp_filename : String = subtask_name
+            .chars()
+            .map(|c| {
+                if chars_to_replace_for_file.contains(c) {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect();
+        let threemf_ftp_filename = format!("/cache/{base_threemf_ftp_filename}.3mf");
+
         let ftp_memory_save = required_tls_slots == 1;
 
         let gcode_analysis_request = GcodeAnalysisRequest {
@@ -1554,7 +1571,7 @@ impl BambuPrinterObserver for ViewModel {
             access_code,
             printer_number,
             printer_index,
-            subtask_name,
+            threemf_ftp_filename,
             job_number: self.gcode_last_job_number,
             threemf_url,
             gcode_filename_in_3mf,
