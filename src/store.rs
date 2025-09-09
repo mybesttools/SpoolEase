@@ -62,7 +62,7 @@ pub enum StoreError {
     ExtFileUnread { error: String },
 
     #[snafu(display("Extended record format error"))]
-    ExtFormat { source: serde_json::error::Error }
+    ExtFormat { source: serde_json::error::Error },
 }
 
 #[allow(clippy::enum_variant_names, dead_code)]
@@ -339,7 +339,12 @@ impl Store {
         let spool_rec_ext_file_path = spool_rec_ext_file_path(id).map_err(|_| StoreError::NotFound { id: id.to_string() })?;
         let file_store = self.framework.borrow().file_store();
         let mut file_store = file_store.lock().await;
-        let ext_str = file_store.read_file_str(&spool_rec_ext_file_path).await.map_err(|err| StoreError::ExtFileUnread { error: format!("{err} reading '{spool_rec_ext_file_path}'") } )?;
+        let ext_str = file_store
+            .read_file_str(&spool_rec_ext_file_path)
+            .await
+            .map_err(|err| StoreError::ExtFileUnread {
+                error: format!("{err} reading '{spool_rec_ext_file_path}'"),
+            })?;
         let spool_rec_ext = serde_json::from_str::<SpoolRecordExt>(&ext_str).context(ExtFormatSnafu)?;
         Ok(spool_rec_ext)
     }
@@ -385,18 +390,22 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>) {
     {
         debug!("Started store_task");
         let file_store = framework.borrow().file_store();
-        match CsvDb::<SpoolRecord, _, FILE_STORE_MAX_DIRS, FILE_STORE_MAX_FILES>::new(file_store.clone(), "/store/spools", 1024, 200, true, true)
-            .await
-        {
-            Ok(db) => {
-                store
-                    .spools_db
-                    .set(db)
-                    .map_err(|_e| "Fatal Internal Error: Can't assign spools_db to once_cell?")
-                    .unwrap();
-                term_info!("Opened spools database");
-                db_available = true;
-            }
+        match CsvDb::<SpoolRecord, _, FILE_STORE_MAX_DIRS, FILE_STORE_MAX_FILES>::new(file_store.clone(), "/store/spools", 1024, 200).await {
+            Ok(mut db) => match db.start(true, true).await {
+                Ok(_) => {
+                    store
+                        .spools_db
+                        .set(db)
+                        .map_err(|_e| "Fatal Internal Error: Can't assign spools_db to once_cell?")
+                        .unwrap();
+                    term_info!("Opened spools database");
+                    db_available = true;
+                }
+                Err(e) => {
+                    term_error!("Failed to start spools database (and load data): {:?}", e);
+                    db_available = false;
+                }
+            },
             Err(e) => {
                 term_error!("Failed to open spools database : {}", e);
                 db_available = false;
