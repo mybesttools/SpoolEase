@@ -77,6 +77,7 @@ pub struct ViewModel {
     gcode_last_job_number: i32,
     gcode_jobs: Vec<GcodeJob>,
     console_available_gcode_tasks: usize,
+    ssdp_pub_sub: &'static SSDPPubSubChannel,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -172,20 +173,119 @@ impl ViewModel {
             gcode_last_job_number: 0,
             gcode_jobs: Vec::new(),
             console_available_gcode_tasks: 0,
+            ssdp_pub_sub,
         };
         let view_model_rc = Rc::new(RefCell::new(view_model));
-        
-        view_model_rc.borrow().store.start(view_model_rc.clone());
 
         // hold a reference to itself to hand over to others, this is a 'memory leak' but object never gets destroyed so eaiser than weak reference
         view_model_rc.borrow_mut().view_model = Some(view_model_rc.clone());
 
         // Initialize
         view_model_rc.borrow_mut().init_framework_stuff();
-        view_model_rc.borrow_mut().init_app_stuff(ssdp_pub_sub);
+        view_model_rc.borrow_mut().init_app_stuff();
+
+        // later from main will be called the part that depends on sd_card only if sd_card initialized properly
 
         // Done
         view_model_rc
+    }
+
+    pub fn init_only_if_sdcard_init_ok(&mut self) {
+        self.store.start(self.view_model.clone().unwrap());
+
+        // Initialize Printers ///////////////////////////
+
+        let mut default_printer_set = false;
+        let mut printer_number = 1; // starts from one and incremented for any printer
+        let mut printer_index = 0; // starts from zero and incremented only on successful init and adding to array
+        let mut available_printers: Vec<SharedString> = Vec::new();
+        for printer_config in &self.app_config.borrow().configured_printers.printers {
+            match bambu::init(
+                self.framework.clone(),
+                printer_number,
+                printer_index,
+                printer_config,
+                self.app_config.clone(),
+                self.ssdp_pub_sub,
+            ) {
+                Ok(bambu_printer_model) => {
+                    self.bambu_printer_model.printers.push(bambu_printer_model.clone());
+                    if !default_printer_set
+                        && Some(&bambu_printer_model.borrow().printer_serial) == self.app_config.borrow().configured_default_printer.serial.as_ref()
+                    {
+                        // set the first with default serial to be the default (in case of using the same printer several times, for testing ...)
+                        self.bambu_printer_model.index = self.bambu_printer_model.printers.len() - 1;
+                        default_printer_set = true;
+                    }
+                    available_printers.push(bambu_printer_model.borrow().printer_selector_name.to_shared_string());
+
+                    // notification from printer on events, should be treated for all printers,
+                    // but selected printer should be considered as to what to update in the UI
+                    if let Some(view_model_rc) = &self.view_model {
+                        let trait_for_bambu_printer_rc: Rc<RefCell<dyn bambu::BambuPrinterObserver>> = view_model_rc.clone();
+                        let trait_for_bambu_printer_weak: Weak<RefCell<dyn bambu::BambuPrinterObserver>> = Rc::downgrade(&trait_for_bambu_printer_rc);
+                        bambu_printer_model.borrow_mut().subscribe(trait_for_bambu_printer_weak);
+                    }
+                    printer_index += 1; // index is increased only if printer is added to array
+                }
+                Err(e) => {
+                    term_info!("[{}] Error initializing printer: {}", printer_number, e);
+                }
+            }
+            printer_number += 1; // printer_number is always increased, even if printer is bad config
+        }
+
+        let ui = self.ui_weak.unwrap();
+        let ui_app_backend = ui.global::<crate::app::AppBackend>();
+        let ui_app_state = ui.global::<crate::app::AppState>();
+
+        if !self.bambu_printer_model.printers.is_empty() {
+            let default_printer = self.bambu_printer_model.printers[self.bambu_printer_model.index]
+                .borrow()
+                .printer_selector_name
+                .to_shared_string();
+            let available_printers = slint::ModelRc::new(slint::VecModel::from(available_printers));
+            ui_app_state.invoke_set_printers_info(available_printers, default_printer.clone());
+            ui_app_state.invoke_set_curr_printer(default_printer);
+            self.register_printer_related_listeners();
+
+            let moved_ui = self.ui_weak.clone();
+            let moved_view_model = self.view_model.as_ref().unwrap().clone();
+            // this select_printer handler CAN'T depend on printer because then it would need to change itself while running
+            ui_app_backend.on_select_printer(move |selected_printer: SharedString| {
+                // First stored UI for this printer for when we switch back to it
+                Self::perform_select_printer(moved_ui.clone(), moved_view_model.clone(), &selected_printer);
+            });
+            self.framework
+                .borrow()
+                .spawner
+                .spawn(printers_scheduled_store_state_task(
+                    self.framework.clone(),
+                    self.view_model.clone().unwrap(),
+                    self.store.clone(),
+                ))
+                .ok();
+
+            self.framework
+                .borrow()
+                .spawner
+                .spawn(store_printers_consume(self.view_model.clone().unwrap()))
+                .ok();
+
+            // let trait_for_gcode_analyzer_rc: Rc<RefCell<dyn GcodeAnalyzerObserver>> = self.view_model.as_ref().unwrap().clone();
+            // let trait_for_gcode_analyzer_weak: Weak<RefCell<dyn GcodeAnalyzerObserver>> = Rc::downgrade(&trait_for_gcode_analyzer_rc);
+            //
+            // let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| {
+            //     fetch_gcode_analysis_task(
+            //         self.framework.clone(),
+            //         self.gcode_analysis_request_channel.clone(),
+            //         self.gcode_analysis_notification_channel.clone(),
+            //         trait_for_gcode_analyzer_weak,
+            //         None,
+            //     )
+            // });
+            // self.framework.borrow().spawner.spawn(task).ok();
+        }
     }
 
     pub fn init_framework_stuff(&mut self) {
@@ -239,7 +339,7 @@ impl ViewModel {
         });
     }
 
-    pub fn init_app_stuff(&mut self, ssdp_pub_sub: &'static SSDPPubSubChannel) {
+    pub fn init_app_stuff(&mut self) {
         // Subscribe to rust spool_tag events
         let trait_for_spool_tag_rc: Rc<RefCell<dyn spool_tag::SpoolTagObserver>> = self.view_model.as_ref().unwrap().clone();
         let trait_for_spool_tag_weak: Weak<RefCell<dyn spool_tag::SpoolTagObserver>> = Rc::downgrade(&trait_for_spool_tag_rc);
@@ -348,95 +448,6 @@ impl ViewModel {
             }
             slint::ModelRc::new(slint::VecModel::from(available_scales_res))
         });
-
-        // Initialize Printers ///////////////////////////
-
-        let mut default_printer_set = false;
-        let mut printer_number = 1; // starts from one and incremented for any printer
-        let mut printer_index = 0; // starts from zero and incremented only on successful init and adding to array
-        let mut available_printers: Vec<SharedString> = Vec::new();
-        for printer_config in &self.app_config.borrow().configured_printers.printers {
-            match bambu::init(
-                self.framework.clone(),
-                printer_number,
-                printer_index,
-                printer_config,
-                self.app_config.clone(),
-                ssdp_pub_sub,
-            ) {
-                Ok(bambu_printer_model) => {
-                    self.bambu_printer_model.printers.push(bambu_printer_model.clone());
-                    if !default_printer_set
-                        && Some(&bambu_printer_model.borrow().printer_serial) == self.app_config.borrow().configured_default_printer.serial.as_ref()
-                    {
-                        // set the first with default serial to be the default (in case of using the same printer several times, for testing ...)
-                        self.bambu_printer_model.index = self.bambu_printer_model.printers.len() - 1;
-                        default_printer_set = true;
-                    }
-                    available_printers.push(bambu_printer_model.borrow().printer_selector_name.to_shared_string());
-
-                    // notification from printer on events, should be treated for all printers,
-                    // but selected printer should be considered as to what to update in the UI
-                    if let Some(view_model_rc) = &self.view_model {
-                        let trait_for_bambu_printer_rc: Rc<RefCell<dyn bambu::BambuPrinterObserver>> = view_model_rc.clone();
-                        let trait_for_bambu_printer_weak: Weak<RefCell<dyn bambu::BambuPrinterObserver>> = Rc::downgrade(&trait_for_bambu_printer_rc);
-                        bambu_printer_model.borrow_mut().subscribe(trait_for_bambu_printer_weak);
-                    }
-                    printer_index += 1; // index is increased only if printer is added to array
-                }
-                Err(e) => {
-                    term_info!("[{}] Error initializing printer: {}", printer_number, e);
-                }
-            }
-            printer_number += 1; // printer_number is always increased, even if printer is bad config
-        }
-        if !self.bambu_printer_model.printers.is_empty() {
-            let default_printer = self.bambu_printer_model.printers[self.bambu_printer_model.index]
-                .borrow()
-                .printer_selector_name
-                .to_shared_string();
-            let available_printers = slint::ModelRc::new(slint::VecModel::from(available_printers));
-            ui_app_state.invoke_set_printers_info(available_printers, default_printer.clone());
-            ui_app_state.invoke_set_curr_printer(default_printer);
-            self.register_printer_related_listeners();
-
-            let moved_ui = self.ui_weak.clone();
-            let moved_view_model = self.view_model.as_ref().unwrap().clone();
-            // this select_printer handler CAN'T depend on printer because then it would need to change itself while running
-            ui_app_backend.on_select_printer(move |selected_printer: SharedString| {
-                // First stored UI for this printer for when we switch back to it
-                Self::perform_select_printer(moved_ui.clone(), moved_view_model.clone(), &selected_printer);
-            });
-            self.framework
-                .borrow()
-                .spawner
-                .spawn(printers_scheduled_store_state_task(
-                    self.framework.clone(),
-                    self.view_model.clone().unwrap(),
-                    self.store.clone(),
-                ))
-                .ok();
-
-            self.framework
-                .borrow()
-                .spawner
-                .spawn(store_printers_consume(self.view_model.clone().unwrap()))
-                .ok();
-
-            // let trait_for_gcode_analyzer_rc: Rc<RefCell<dyn GcodeAnalyzerObserver>> = self.view_model.as_ref().unwrap().clone();
-            // let trait_for_gcode_analyzer_weak: Weak<RefCell<dyn GcodeAnalyzerObserver>> = Rc::downgrade(&trait_for_gcode_analyzer_rc);
-            //
-            // let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| {
-            //     fetch_gcode_analysis_task(
-            //         self.framework.clone(),
-            //         self.gcode_analysis_request_channel.clone(),
-            //         self.gcode_analysis_notification_channel.clone(),
-            //         trait_for_gcode_analyzer_weak,
-            //         None,
-            //     )
-            // });
-            // self.framework.borrow().spawner.spawn(task).ok();
-        }
 
         // Initialize SpoolScale and weight related stuff
 
@@ -1468,36 +1479,53 @@ impl ViewModel {
             let diameter = calibration.0;
             // because for security reasond in the tag the serial is hashed, can't reverse
             // so need to run over all printers and search for a matching printer
-            for printer in &self.bambu_printer_model.printers {
-                let printer_borrow = printer.borrow();
-                if printer_borrow.printer_uuid_to_encode == tag_with_k.calibrations_printer_uuid {
-                    return Some(KInfo {
-                        printers: HashMap::from([(
-                            printer_borrow.printer_serial.clone(),
-                            KPrinter {
-                                extruders: HashMap::from([(
-                                    0,
-                                    KExtruder {
-                                        diameters: HashMap::from([(
-                                            diameter.clone(),
-                                            KNozzleDiameter {
-                                                nozzles: HashMap::from([(
-                                                    "".to_string(),
-                                                    KNozzleId {
-                                                        name: calibration.1.name.clone(),
-                                                        k_value: calibration.1.k_value.clone(),
-                                                        setting_id: calibration.1.setting_id.clone(),
-                                                        cali_idx: calibration.1.cali_idx,
-                                                    },
-                                                )]),
-                                            },
-                                        )]),
-                                    },
-                                )]),
-                            },
-                        )]),
-                    });
+            let mut printer_found = None;
+            if !tag_with_k.calibrations_printer_uuid.is_empty() {
+                for printer in &self.bambu_printer_model.printers {
+                    let printer_borrow = printer.borrow();
+                    if printer_borrow.printer_uuid_to_encode == tag_with_k.calibrations_printer_uuid {
+                        printer_found = Some(printer.clone());
+                    }
                 }
+            }
+
+            if printer_found.is_none() && !tag_with_k.calibrations_printer_name.is_empty() {
+                for printer in &self.bambu_printer_model.printers {
+                    let printer_borrow = printer.borrow();
+                    if printer_borrow.printer_name == tag_with_k.calibrations_printer_name {
+                        printer_found = Some(printer.clone());
+                    }
+                }
+            }
+
+            if let Some(printer) = printer_found {
+                let printer_borrow = printer.borrow();
+                return Some(KInfo {
+                    printers: HashMap::from([(
+                        printer_borrow.printer_serial.clone(),
+                        KPrinter {
+                            extruders: HashMap::from([(
+                                0,
+                                KExtruder {
+                                    diameters: HashMap::from([(
+                                        diameter.clone(),
+                                        KNozzleDiameter {
+                                            nozzles: HashMap::from([(
+                                                "".to_string(),
+                                                KNozzleId {
+                                                    name: calibration.1.name.clone(),
+                                                    k_value: calibration.1.k_value.clone(),
+                                                    setting_id: calibration.1.setting_id.clone(),
+                                                    cali_idx: calibration.1.cali_idx,
+                                                },
+                                            )]),
+                                        },
+                                    )]),
+                                },
+                            )]),
+                        },
+                    )]),
+                });
             }
         }
         None
@@ -1803,7 +1831,6 @@ impl SpoolTagObserver for ViewModel {
                 // // Note: Moved
                 //     self.encode_from_blank = None;
 
-
                 // This call is triggered by a call from either spool_tag or spool_scale, so they are already borrowed.
                 // They internally handle the switch from write to read for themselves, but not for the other.
                 // So here we use the try_borrow to check who needs extra notification to stop writing
@@ -1818,7 +1845,6 @@ impl SpoolTagObserver for ViewModel {
                     TagInformation::from_descriptor(encoded_descriptor),
                     serde_json::from_str::<EncodeCookie>(cookie),
                 ) {
-
                     // let tag_info_clone = if self.store.is_available() { Some(tag_info.clone()) } else { None };
 
                     // if let Some(mut tag_info) = tag_info {

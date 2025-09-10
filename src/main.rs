@@ -462,9 +462,10 @@ async fn main(spawner: Spawner) {
     if sdcard_available {
         term_info!("SD Card installed");
     } else {
-        term_info!("SD Card not installed, some features unavailable");
+        term_info!("Error initializing SD Card, system can't function");
     }
 
+    // just wait for all initalization to be known
     loop {
         if app_config.borrow().initialization_ok(false).is_some() {
             break;
@@ -474,7 +475,11 @@ async fn main(spawner: Spawner) {
 
     framework
         .borrow()
-        .notify_initialization_completed(app_config.borrow().initialization_ok(true).unwrap());
+        .notify_initialization_completed(sdcard_available && app_config.borrow().initialization_ok(true).unwrap());
+
+    if sdcard_available {
+        view_model.borrow_mut().init_only_if_sdcard_init_ok();
+    }
 
     Framework::wait_for_wifi(&framework).await; // this is mostly to start the web app after all tasks initialized and won't miss this start message
     framework.borrow_mut().start_web_app(sta_stack, framework::framework::WebConfigMode::STA);

@@ -405,18 +405,15 @@ impl Store {
         }
     }
 
-    pub async fn store_spool_rec_ext(&self, id: &str, spool_rec_ext: &SpoolRecordExt) -> Result<(), StoreError> {
-        let spool_rec_ext_file_path = spool_rec_ext_file_path(&id)?;
+    pub async fn store_spool_rec_ext(&self, id: &str, spool_rec_ext: &SpoolRecordExt) -> Result<String, StoreError> {
+        let spool_rec_ext_file_path = spool_rec_ext_file_path(id)?;
         let file_store = self.framework.borrow().file_store();
         let mut file_store = file_store.lock().await;
         let s = serde_json::to_string(&spool_rec_ext).map_err(|_err| StoreError::InternalError)?;
-        file_store
-            .create_write_file_str(&spool_rec_ext_file_path, &s)
-            .await
-            .context(StoreSnafu)?;
-        Ok(())
+        file_store.create_write_file_str(&spool_rec_ext_file_path, &s).await.context(StoreSnafu)?;
+        Ok(spool_rec_ext_file_path)
     }
-    
+
     #[allow(unused_variables)]
     pub async fn upgrade_versions(
         &self,
@@ -425,36 +422,30 @@ impl Store {
         view_model: Rc<RefCell<ViewModel>>,
     ) -> Result<(), StoreError> {
         if let Some(spools_db) = self.spools_db.get() {
-            let spool_ids : Vec<_> = {
+            let spool_ids: Vec<_> = {
                 let records = spools_db.records.borrow();
                 records.keys().cloned().collect()
             };
             for spool_id in spool_ids {
+                info!("Upgrading store spool {spool_id}");
+                let mut spool_rec_ext = SpoolRecordExt::default();
                 match self.get_spool_ext_by_id(&spool_id).await {
-                    Ok(mut spool_rec_ext) => {
+                    Ok(loaded_spool_rec_ext) => {
+                        spool_rec_ext = loaded_spool_rec_ext;
                         if let Some(tag_desciptor) = &spool_rec_ext.tag {
                             match TagInformation::from_descriptor(tag_desciptor) {
                                 Ok(tag_info) => {
-                                    if tag_info.calibrations.is_empty() || tag_info.calibrations_printer_uuid.is_empty() {
-                                        continue;
-                                    }
-                                    let k_info = view_model.borrow().get_k_info_from_old_tag(&tag_info);
-                                    if let Some(k_info) = k_info {
-                                        info!("Upgrading spool {} with k_info {:?}", spool_id, k_info);
-                                        spool_rec_ext.k_info = Some(k_info);
-                                        if let Err(err) = self.store_spool_rec_ext(&spool_id, &spool_rec_ext).await {
-                                            // TODO: undo upgrade and restore old version of file system?
-                                            error!("Error storing ext data for spool {}, ignoring : {err:?}", spool_id);
-                                        } else {
-                                            spools_db.records.borrow_mut().get_mut(&spool_id).unwrap().data.ext_has_k = true;
+                                    if !tag_info.calibrations.is_empty() {
+                                        let k_info = view_model.borrow().get_k_info_from_old_tag(&tag_info);
+                                        if let Some(k_info) = k_info {
+                                            info!("Upgrading spool {}, adding k_info {:?} to extended info", spool_id, k_info);
+                                            spool_rec_ext.k_info = Some(k_info);
                                         }
-                                    } else {
-                                        warn!("Couldn't convert tag information to new K information for spool {}", spool_id);
                                     }
                                 }
                                 Err(err) => {
                                     error!("Error parsing tag descriptor for spool {}, ignoring : {err:?}", spool_id);
-                                    continue;
+                                    // Store anyway, since there were issues with old files that needs to be fixed
                                 }
                             }
                         } else {
@@ -464,6 +455,14 @@ impl Store {
                     Err(err) => {
                         error!("Error reading extra data for spool {}, ignoring : {err:?}", spool_id);
                     }
+                }
+                // Store anyway, since there were issues with old files that needs to be fixed (writing small file on larger file leave extra in file)
+                // and potentially past versions with missing files
+                if let Err(err) = self.store_spool_rec_ext(&spool_id, &spool_rec_ext).await {
+                    // TODO: undo upgrade and restore old version of file system?
+                    error!("Error storing ext data for spool {}, ignoring : {err:?}", spool_id);
+                } else {
+                    spools_db.records.borrow_mut().get_mut(&spool_id).unwrap().data.ext_has_k = spool_rec_ext.k_info.is_some();
                 }
             }
             spools_db.save_all_records_only_before_use().await.context(CsvDbSnafu)?;
@@ -494,7 +493,11 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>, vie
                         Ok(db_version) => {
                             let current_version = semver::Version::parse(STORE_VER).unwrap();
                             if current_version < db_version {
-                                term_info!("Store version is {db_version), this firmware supports up to {current_version}");
+                                term_info!(
+                                    "Critical Error: Store version is {}, this firmware supports up to {}",
+                                    db_version,
+                                    current_version
+                                );
                                 db_available = false;
                             } else {
                                 // currently upgrade is only for ext, so done after loading the db
@@ -506,20 +509,27 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>, vie
                                 term_info!("Opened spools database");
 
                                 if current_version > db_version {
-                                    term_info!("Upgrading store from {db_version} to (current_version}");
+                                    info!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                                    term_info!("Upgrading store from {} to {}", db_version, current_version);
+                                    info!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
                                     if let Err(err) = store.upgrade_versions(db_version, current_version, view_model.clone()).await {
-                                        term_info!("Error upgrading store : {:?}", err);
+                                        info!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                                        term_error!("Error upgrading store : {:?}", err);
+                                        info!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
                                         db_available = false;
                                     } else {
+                                        info!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                                        term_info!("Store upgrade completed successfully");
+                                        info!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
                                         db_available = true;
-                                    } 
+                                    }
                                 } else {
                                     db_available = true;
                                 }
                             }
                         }
                         Err(err) => {
-                            term_error!("Unparsable store DB version {} {:?}",db_version, err);
+                            term_error!("Unparsable store DB version {} {:?}", db_version, err);
                             db_available = false;
                         }
                     }
@@ -860,37 +870,49 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>, vie
                     // Write extr info file  ////////////////////////////////////////////////////////////////
                     //////////////////////////////////////////////////////////////////////////////////////////
 
-                    // TODO: switch to save_spool_rec_ext()
-                    if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&spool_rec.id) {
-                        let file_store = framework.borrow().file_store();
-                        let mut file_store = file_store.lock().await;
-                        let spool_rec_ext = SpoolRecordExt {
-                            tag: Some(tag_info.origin_descriptor),
-                            k_info,
-                        };
-                        match serde_json::to_string(&spool_rec_ext) {
-                            Ok(s) => match file_store.create_write_file_str(&spool_rec_ext_file_path, &s).await {
-                                Ok(_) => {
-                                    info!("Stored extra spool {} information to file {spool_rec_ext_file_path}", spool_rec.id);
-                                }
-                                Err(err) => {
-                                    error!("Error writing tag file to {spool_rec_ext_file_path} : {err}");
-                                    store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (1),\ncheck logs"), cookie);
-                                    continue;
-                                }
-                            },
-                            Err(e) => {
-                                error!("Error serializing tag information to store: {e}");
-                                store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (2),\ncheck logs"), cookie);
-                                continue;
-                            }
+                    let spool_rec_ext = SpoolRecordExt {
+                        tag: Some(tag_info.origin_descriptor),
+                        k_info,
+                    };
+
+                    match store.store_spool_rec_ext(&spool_rec.id, &spool_rec_ext).await {
+                        Ok(file_path) => {
+                            info!("Stored extra spool {} information to file '{file_path}'", spool_rec.id);
+                            store.notify_tag_stored(Ok(Some((&spool_rec, &spool_rec_ext))), cookie.clone());
                         }
-                        store.notify_tag_stored(Ok(Some((&spool_rec, &spool_rec_ext))), cookie.clone());
-                    } else {
-                        error!("Internal Error: Trying to store ext with bad id : {id}");
-                        store.notify_tag_stored(Err(&format!("Internal Error: Trying to store ext with bad id : {id}")), cookie);
-                        continue;
+                        Err(err) => {
+                            error!("Error writing tag {} : {err:?}", spool_rec.id);
+                            store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info,\ncheck logs"), cookie);
+                        }
                     }
+
+                    // // TODO: switch to save_spool_rec_ext() (Done, above)
+                    // if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&spool_rec.id) {
+                    //     let file_store = framework.borrow().file_store();
+                    //     let mut file_store = file_store.lock().await;
+                    //     match serde_json::to_string(&spool_rec_ext) {
+                    //         Ok(s) => match file_store.create_write_file_str(&spool_rec_ext_file_path, &s).await {
+                    //             Ok(_) => {
+                    //                 info!("Stored extra spool {} information to file {spool_rec_ext_file_path}", spool_rec.id);
+                    //             }
+                    //             Err(err) => {
+                    //                 error!("Error writing tag file to {spool_rec_ext_file_path} : {err}");
+                    //                 store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (1),\ncheck logs"), cookie);
+                    //                 continue;
+                    //             }
+                    //         },
+                    //         Err(e) => {
+                    //             error!("Error serializing tag information to store: {e}");
+                    //             store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (2),\ncheck logs"), cookie);
+                    //             continue;
+                    //         }
+                    //     }
+                    //     store.notify_tag_stored(Ok(Some((&spool_rec, &spool_rec_ext))), cookie.clone());
+                    // } else {
+                    //     error!("Internal Error: Trying to store ext with bad id : {id}");
+                    //     store.notify_tag_stored(Err(&format!("Internal Error: Trying to store ext with bad id : {id}")), cookie);
+                    //     continue;
+                    // }
                 } else {
                     store.notify_tag_stored(Ok(None), cookie.clone());
                     continue;
@@ -986,7 +1008,9 @@ pub struct SpoolRecord {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct SpoolRecordExt {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub k_info: Option<KInfo>,
 }
 

@@ -78,9 +78,9 @@ pub struct BambuPrinter {
     pub printer_uuid_to_encode: String,
     pub printer_connectivity_ok: Option<bool>,
     inner_nozzle_diameter: Option<String>,
-    nozzle_diameter_dirty: bool,
     inner_ams_trays: Vec<Tray>, // [Tray; 24], // 16 in standard AMS, 8 in HT (H2D)
     inner_virt_tray: Tray,
+    nozzle_diameter_dirty: bool,
     ams_trays_dirty: [bool; 24],
     virty_tray_dirty: bool,
     tray_exist_bits_dirty: bool,
@@ -342,6 +342,10 @@ impl BambuPrinter {
             printer.borrow_mut().virty_tray_dirty = false;
             printer.borrow_mut().ams_trays_dirty.fill(false);
             printer.borrow_mut().nozzle_diameter_dirty = false;
+            printer.borrow_mut().ams_exist_bits_dirty = false;
+            printer.borrow_mut().tray_exist_bits_dirty = false;
+            printer.borrow_mut().tray_read_done_bits_dirty = false;
+            printer.borrow_mut().calibrations_dirty = false;
             let mut file_store = file_store.lock().await;
             match file_store.create_write_file_str(&path, &printer_state_str).await {
                 Ok(_) => {}
@@ -2000,7 +2004,9 @@ impl From<&bambu_api::PrintTray> for FilamentInfo {
 #[allow(dead_code)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct Calibration {
+    pub extruder: i32,
     pub diameter: String,
+    pub nozzle_id: String,
     pub filament_id: String,
     pub k_value: String,
     // n_coef: f32,
@@ -2094,6 +2100,8 @@ impl Calibration {
     pub fn from(v: &bambu_api::Filament, diameter: &str) -> Self {
         // this "Filament" in bambu_api is really calibrations, bambulab naming ...
         Self {
+            extruder: 0,
+            nozzle_id: String::new(),
             diameter: diameter.to_string(),
             filament_id: v.filament_id.clone(),
             name: v.name.clone(),
@@ -2106,6 +2114,8 @@ impl Calibration {
 
     pub fn _new_minimal(diameter: &str, k_value: &str, filament_id: &str, setting_id: &str, name: &str, cali_idx: i32) -> Self {
         Self {
+            extruder: 0,
+            nozzle_id: String::new(),
             diameter: diameter.to_string(),
             k_value: formatted_k_value(k_value),
             filament_id: String::from(filament_id),
