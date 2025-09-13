@@ -27,7 +27,7 @@ use framework::{
 };
 
 use crate::{
-    bambu::{FilamentInfo, KInfo, KNozzleId, TagInformation},
+    bambu::{KInfo, KNozzleId, TagInformation},
     csvdb::{CsvDb, CsvDbError, CsvDbId},
     view_model::ViewModel,
 };
@@ -82,61 +82,11 @@ pub enum WeightStoreDirective {
 }
 
 #[derive(Debug)]
-pub enum TagOperation {
-    EncodeTag { weight: Option<i32>, set_encoded_as_new: Option<bool> },
-    ReadTag,
-    UpdateWeight { weight: i32 },
-}
-
-pub enum SpoolRecOp {
-    Noop,
-    FullStore(SpoolRecord),
-    Update (Box<dyn FnOnce(&mut SpoolRecord)>)
-}
-
-impl core::fmt::Debug for SpoolRecOp {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            SpoolRecOp::Noop => write!(f, "Noop"),
-            SpoolRecOp::FullStore(record) => f.debug_tuple("FullStore").field(record).finish(),
-            SpoolRecOp::Update(_) => write!(f, "Update(<closure>)"),
-        }
-    }
-}
-
-pub enum SpoolRecExtOp {
-    Noop,
-    Update (Box<dyn FnOnce(&mut SpoolRecordExt)>)
-}
-
-impl core::fmt::Debug for SpoolRecExtOp {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            SpoolRecExtOp::Noop => write!(f, "Noop"),
-            SpoolRecExtOp::Update(_) => write!(f, "Update(<closure>)"),
-        }
-    }
-}
-
-#[derive(Debug)]
 pub enum StoreOp {
-    WriteTag {
-        tag_info: Box<TagInformation>,
-        k_info: Option<KInfo>,
-        tag_operation: TagOperation,
-        // weight: WeightStoreDirective,
-        cookie: Box<dyn AnyClone>,
-    },
     ReadExtInfo {
         id: String,
         // if need several use cases, add cookie
     },
-    Write {
-        id: String,
-        spool_rec_op: SpoolRecOp,
-        spool_rec_ext_op: SpoolRecExtOp,
-        cookie: Box<dyn AnyClone>,
-    }
 }
 
 // Cookie - General code
@@ -227,16 +177,6 @@ impl Store {
         self.observers.borrow_mut().push(observer);
     }
 
-    pub fn notify_tag_stored(&self, result: Result<Option<(&SpoolRecord, &SpoolRecordExt)>, &str>, cookie: Box<dyn AnyClone>) {
-        for weak_observer in self.observers.borrow().iter() {
-            let observer = weak_observer.upgrade().unwrap();
-            observer.borrow_mut().on_tag_stored(
-                result.map(|s| s.map(|s| (s.0.clone(), s.1.clone()))).map_err(|e| e.to_string()),
-                cookie.clone(),
-            );
-        }
-    }
-
     pub fn notify_read_spool_record_ext(&self, result: Result<SpoolRecordExt, String>) {
         if let Some((last, rest)) = self.observers.borrow().split_last() {
             for weak_observer in rest.iter() {
@@ -316,15 +256,21 @@ impl Store {
                 true => {
                     *self.last_spool_id.borrow_mut() = new_spool_id;
                     // deal with tag_id
-                    if !tag_id.is_empty() {
+                    let tag_id_update_res = if !tag_id.is_empty() {
                         // check if tag_id was with some other record, if so remove that mapping and 'strikeout' that spool_record
-                        if let Some(mut existing_spool_rec_with_tag_id) = self.get_spool_by_hex_tag(&tag_id) {
-                            existing_spool_rec_with_tag_id.tag_id = format!("-{}",existing_spool_rec_with_tag_id.tag_id);
-                            self.update_spool(existing_spool_rec_with_tag_id, None);
-                        }
+                        let update_res = if let Some(mut existing_spool_rec_with_tag_id) = self.get_spool_by_hex_tag(&tag_id) {
+                            existing_spool_rec_with_tag_id.tag_id = format!("-{}", existing_spool_rec_with_tag_id.tag_id);
+                            self.update_spool(existing_spool_rec_with_tag_id, None).await.map(|_| ())
+                        } else {
+                            Ok(())
+                        };
                         self.tag_id_index.borrow_mut().insert(tag_id, id);
-                    }
+                        update_res
+                    } else {
+                        Ok(())
+                    };
                     self.store_spool_rec_ext(&new_spool_id.to_string(), &spool_rec_ext).await?;
+                    tag_id_update_res?; // want to perform all operations and report error if anything happened in the middle
                     Ok(new_spool_id.to_string())
                 }
                 false => {
@@ -372,14 +318,13 @@ impl Store {
             };
 
             spools_db.insert(updated_record).await.context(CsvDbSnafu)?;
-            let mut spool_rec_ext = 
-                match self.get_spool_ext_by_id(&spool_record.id).await {
-                    Ok(spool_rec_ext) => spool_rec_ext,
-                    Err(err) => {
-                        error!("Error loading extended info when editing file, using empty as baseline for edit: {err:?}");
-                        SpoolRecordExt::default()
-                    }
-                };
+            let mut spool_rec_ext = match self.get_spool_ext_by_id(&spool_record.id).await {
+                Ok(spool_rec_ext) => spool_rec_ext,
+                Err(err) => {
+                    error!("Error loading extended info when editing file, using empty as baseline for edit: {err:?}");
+                    SpoolRecordExt::default()
+                }
+            };
             spool_rec_ext.k_info = k_info;
             self.store_spool_rec_ext(&spool_record.id, &spool_rec_ext).await?;
             Ok(())
@@ -430,12 +375,18 @@ impl Store {
         Ok(spool_rec_ext)
     }
 
-    pub async fn update_spool(&self, mut spool_record: SpoolRecord, update_spool_rec_ext_fn: Option<Box<dyn FnOnce(&mut SpoolRecordExt)>>) -> Result<Option<SpoolRecordExt>, StoreError> {
+
+    #[allow(clippy::type_complexity)]
+    pub async fn update_spool(
+        &self,
+        mut spool_record: SpoolRecord,
+        update_ext_fn: Option<Box<dyn FnOnce(&mut SpoolRecordExt)>>,
+    ) -> Result<Option<SpoolRecordExt>, StoreError> {
         let mut ret_spool_rec_ext = None;
         if let Some(spools_db) = self.spools_db.get() {
             if !spool_record.id.is_empty() {
                 if spools_db.records.borrow().contains_key(&spool_record.id) {
-                    if let Some(update_ext_fn) = update_spool_rec_ext_fn {
+                    if let Some(update_ext_fn) = update_ext_fn {
                         let mut spool_rec_ext = self.get_spool_ext_by_id(&spool_record.id).await.ok().unwrap_or_default(); // on read error don't raise error
                         update_ext_fn(&mut spool_rec_ext);
                         spool_record.ext_has_k = spool_rec_ext.k_info.is_some();
@@ -640,385 +591,6 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>, vie
     let receiver = store.requests_channel.receiver();
     loop {
         match receiver.receive().await {
-            StoreOp::Write { id, spool_rec_op, spool_rec_ext_op, cookie } => {
-                if let Some(mut spool_rec) = store.get_spool_by_id(&id) {
-                    match spool_rec_op {
-                        SpoolRecOp::Noop => (),
-                        SpoolRecOp::FullStore(new_spool_record) => {
-                            // TODO: need to deal with notifications back properly, different than today
-                            // match store.update_spool(new_spool_record).await {
-                            //     Ok(_) => {
-                            //         store.notify_tag_stored(Err("Likely Internal Software Error\nWrite to missing spool\nspool id {id}"), cookie);
-                            //     }
-                            //     Err(err) => todo!(),
-                            // }
-                        }
-                        SpoolRecOp::Update(update_fn) => {
-                            // TODO: need to deal with notifications back properly, different than today
-                            //       or maybe switch to tasks instead of notifications and cookies
-                            //       currently assuming here update is a tag update for weight only
-                            update_fn(&mut spool_rec);
-                            match store.update_spool(spool_rec.clone(), None).await {
-                                Ok(_) => {
-                                    store.notify_tag_stored(Ok(Some((&spool_rec, &SpoolRecordExt::default()))), cookie.clone());
-                                }
-                                Err(err) => {
-                                   store.notify_tag_stored(Err(&format!("Error updating store: {err:?}")), cookie);
-                                }
-                            }
-
-                        }
-                    }
-                } else {
-                    error!("Request for store Write to a missing spool {id}");
-                    store.notify_tag_stored(Err("Likely Internal Software Error\nWrite to missing spool\nspool id {id}"), cookie);
-                }
-            },
-            StoreOp::WriteTag {
-                tag_info,
-                k_info,
-                tag_operation,
-                cookie,
-            } => {
-                let mut spool_rec; // to database and to file
-
-                if let Some(spools_db) = store.spools_db.get() {
-                    let request_tag_id = tag_id_hex(tag_info.tag_id.as_ref().unwrap());
-                    let request_spool_id = tag_info.id.clone();
-                    // debug!(">>>> on entry use_spool_id={use_spool_id}");
-
-                    let use_spool_id; // "" if need to add, otherwise the one to use
-                    let matching_spool_id = store.tag_id_index.borrow().get(&request_tag_id).cloned();
-                    let matching_tag_id = if let Some(request_spool_id) = request_spool_id.as_ref() {
-                        if let Some((tag_id, _spool_id)) = store.tag_id_index.borrow().iter().find(|v| v.1 == request_spool_id) {
-                            Some(tag_id.clone())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-
-                    // This is tricky - here is the logic, below in code comments are repeated for clarity
-                    // The outtpub is eventually use_spool_id - which record to write to eventually, existing and which or new
-                    //
-                    // If there isn't an ID ??(so user didn't enter ID on encode, or it's a scan of a tag)
-                    //   if found matching_spool_id for tag_id
-                    //     if encode-tag
-                    //       strike matching_spool_id
-                    //       create new record
-                    //     if read-tag
-                    //       use matching spool_id
-                    //   else
-                    //     create new record
-                    //
-                    // If there is ID
-                    //   if it isn't tagged
-                    //     if found matching_spool_id for request_tag_id
-                    //       strike matching_spool_id
-                    //     use ID
-                    //   else (the ID is tagged already)
-                    //     if matching_tag_id == request_tag_id
-                    //       Use ID
-                    //     else
-                    //       if found matching_spool_id for request_tag_id
-                    //         strike old record with request_tag_id
-                    //       use new record (because it is used already, no switches of tags on same record)
-
-                    match tag_info.id {
-                        None => {
-                            // If there isn't an ID
-                            if let Some(matching_spool_id) = matching_spool_id {
-                                //   if found matching_spool_id for tag_id
-                                match tag_operation {
-                                    TagOperation::EncodeTag {
-                                        weight: _,
-                                        set_encoded_as_new: _,
-                                    } => {
-                                        //     if encode-tag
-                                        //       strike matching_spool_id
-                                        // TODO: to function
-                                        let mut record_to_strike = {
-                                            let records_borrow = spools_db.records.borrow();
-                                            let record_wrapper = records_borrow.get(&matching_spool_id).unwrap();
-                                            record_wrapper.data.clone()
-                                        };
-                                        record_to_strike.tag_id = format!("-{}", record_to_strike.tag_id);
-                                        let _ = spools_db.insert(record_to_strike).await;
-                                        store.tag_id_index.borrow_mut().remove(&request_tag_id);
-
-                                        //       create new record
-                                        use_spool_id = None;
-                                    }
-                                    TagOperation::ReadTag => {
-                                        //       use matching spool_id
-                                        use_spool_id = Some(matching_spool_id.clone());
-                                    }
-                                    TagOperation::UpdateWeight { weight: _ } => {
-                                        error!("Error: Update weight without ID");
-                                        store.notify_tag_stored(Err("Internal Software Error, update weight Spool-ID not found"), cookie);
-                                        continue;
-                                    }
-                                }
-                            } else {
-                                //     create new record
-                                use_spool_id = None;
-                            }
-                        }
-                        Some(request_spool_id) => {
-                            // If there is ID
-                            match matching_tag_id {
-                                None => {
-                                    //   if it isn't tagged
-                                    if let Some(matching_spool_id) = matching_spool_id {
-                                        //     if found matching_spool_id for request_tag_id
-                                        //       strike matching_spool_id
-                                        let mut record_to_strike = {
-                                            let records_borrow = spools_db.records.borrow();
-                                            let record_wrapper = records_borrow.get(&matching_spool_id).unwrap();
-                                            record_wrapper.data.clone()
-                                        };
-                                        record_to_strike.tag_id = format!("-{}", record_to_strike.tag_id);
-                                        let _ = spools_db.insert(record_to_strike).await;
-                                        store.tag_id_index.borrow_mut().remove(&request_tag_id);
-                                    }
-                                    //     use ID
-                                    use_spool_id = Some(request_spool_id.clone());
-                                }
-                                Some(matching_tag_id) => {
-                                    //   else (the ID is tagged already)
-                                    if request_tag_id == matching_tag_id {
-                                        //     if matching_tag_id == request_tag_id
-                                        //       Use ID
-                                        use_spool_id = Some(request_spool_id.clone());
-                                    } else {
-                                        //     if matching_tag_id == request_tag_id
-                                        if matching_tag_id == request_tag_id {
-                                            use_spool_id = Some(request_spool_id.clone());
-                                        } else {
-                                            //       if found matching_spool_id for request_tag_id
-                                            if let Some(matching_spool_id) = matching_spool_id {
-                                                //         strike old record with request_tag_id
-                                                let mut record_to_strike = {
-                                                    let records_borrow = spools_db.records.borrow();
-                                                    let record_wrapper = records_borrow.get(&matching_spool_id).unwrap();
-                                                    record_wrapper.data.clone()
-                                                };
-                                                record_to_strike.tag_id = format!("-{}", record_to_strike.tag_id);
-                                                let _ = spools_db.insert(record_to_strike).await;
-                                                store.tag_id_index.borrow_mut().remove(&request_tag_id);
-                                            }
-                                            //       use new record (because it is used already, no switches of tags on same record)
-                                            use_spool_id = None;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    info!("use_spool_id = {use_spool_id:?}");
-
-                    // if let Some(spools_db) = store.spools_db.get() {
-                    //     if !use_spool_id.is_empty() && !spools_db.records.borrow().contains_key(&use_spool_id) {
-                    //         error!("Software Logic Error, encoded from id that isn't found");
-                    //         store.notify_tag_stored(Err(&format!("Internal Software Error, encoded ID not found {use_spool_id}")), cookie);
-                    //         continue;
-                    //     }
-                    //     let spool_id_from_tag_id_clone = store.tag_id_index.borrow().get(&tag_id_hex).cloned();
-                    //     if let Some(spool_id_from_tag_id) = spool_id_from_tag_id_clone {
-                    //         // debug!(">>>>> Found tag_id {spool_id_from_tag_id}");
-                    //         if !use_spool_id.is_empty() && spool_id_from_tag_id != use_spool_id {
-                    //             // debug!(">>>> spool_id_from_tag_id ({spool_id_from_tag_id} != use_spool_id {use_spool_id}");
-                    //             // This is a case where encoding using an inventory spool-id when the tag_id is already in use
-                    //             // in such case we need to 'strikeout' the tag_id (add a "-" to the beginning)
-                    //             // practically this means tag_id doen't exist after we are done here
-                    //             let mut record_to_strike = {
-                    //                 let records_borrow = spools_db.records.borrow();
-                    //                 let record_wrapper = records_borrow.get(&spool_id_from_tag_id).unwrap();
-                    //                 record_wrapper.data.clone()
-                    //             };
-                    //             record_to_strike.tag_id = format!("-{}", record_to_strike.tag_id);
-                    //             let _ = spools_db.insert(record_to_strike).await;
-                    //             store.tag_id_index.borrow_mut().remove(&tag_id_hex);
-                    //             tag_id_already_exist = false;
-                    //         } else if let Some(current_rec) = spools_db.records.borrow().get(&spool_id_from_tag_id) {
-                    //             // debug!(
-                    //             //     ">>>> spool_id_from_tag_id ({spool_id_from_tag_id} == use_spool_id {use_spool_id}, and gained access to the record"
-                    //             // );
-                    //             // get the record, should exist if got here, if not fatal error
-                    //             existing_record_current_weight = current_rec.data.weight_current;
-                    //             existing_record_current_note = current_rec.data.note.clone();
-                    //             use_spool_id = current_rec.data.id.clone();
-                    //             tag_id_already_exist = true;
-                    //         } else {
-                    //             error!("Fatal Error: Internal error in tag_id to spool_id mapping, tag exist but not found");
-                    //             store.notify_tag_stored(Err("Internal software error, tag exists but not found"), cookie);
-                    //             continue;
-                    //         }
-                    //     } else {
-                    //         // debug!(">>>>> tag_id doesn't exist (1)");
-                    //         tag_id_already_exist = false;
-                    //     }
-                    // } else {
-                    //     // debug!(">>>>> tag_id doesn't exist (2)");
-                    //     tag_id_already_exist = false;
-                    //     mistake here, this else is on no access to db
-                    // }
-
-                    let (id, added_new_record) = match use_spool_id {
-                        Some(existing_spool_id) => (existing_spool_id, false),
-                        None => ((*store.last_spool_id.borrow() + 1).to_string(), true),
-                    };
-
-                    let curr_record = if added_new_record {
-                        None
-                    } else {
-                        #[allow(clippy::collapsible_if)]
-                        if let Some(curr_csv_rec) = spools_db.records.borrow().get(&id) {
-                            Some(curr_csv_rec.data.clone())
-                        } else {
-                            store.notify_tag_stored(Err(&format!("Internal Software Error\n Using existing record not found {id}")), cookie);
-                            continue;
-                        }
-                    };
-
-                    let tag_info_filament_info = tag_info.filament.unwrap_or(FilamentInfo::new());
-                    spool_rec = SpoolRecord {
-                        id: id.clone(),
-                        tag_id: request_tag_id.clone(),
-                        slicer_filament: tag_info_filament_info.tray_info_idx,
-                        material_type: tag_info_filament_info.tray_type,
-                        material_subtype: tag_info.filament_subtype.unwrap_or_default(),
-                        color_name: tag_info.color_name.unwrap_or_default(),
-                        color_code: tag_info_filament_info.tray_color,
-                        note: tag_info.note.unwrap_or_default(), // this is the only (?) field where data in the encode can be changed in store, so there's special handling later
-                        brand: tag_info.brand.unwrap_or_default(),
-                        weight_advertised: tag_info.weight_advertised,
-                        weight_core: tag_info.weight_core,
-                        weight_new: tag_info.weight_new,
-                        encode_time: tag_info.encode_time,
-                        weight_current: curr_record.as_ref().and_then(|rec| rec.weight_current),
-                        added_time: curr_record.as_ref().and_then(|rec| rec.added_time).or(store_safe_time_now()), // a field that isn't coming from tag
-                        added_full: curr_record.as_ref().and_then(|rec| rec.added_full), // a field that isn't coming from tag
-                        consumed_since_add: curr_record.as_ref().map_or_else(|| 0.0, |rec| rec.consumed_since_add), // a field that isn't coming from tag
-                        consumed_since_weight: curr_record.as_ref().map_or_else(|| 0.0, |rec| rec.consumed_since_weight), // a field that isn't coming from tag
-                        ext_has_k: if k_info.is_some() {
-                            true
-                        } else {
-                            curr_record.as_ref().map_or_else(|| false, |rec| rec.ext_has_k)
-                        },
-                    };
-
-                    match tag_operation {
-                        TagOperation::EncodeTag { weight, set_encoded_as_new } => {
-                            if let Some(weight) = weight {
-                                spool_rec.weight_current = Some(weight);
-                                spool_rec.consumed_since_weight = 0.0; // updating current weight should clear the consumed since_weight
-                            }
-                            if set_encoded_as_new.is_some() {
-                                spool_rec.added_full = set_encoded_as_new;
-                            }
-                            spool_rec.encode_time = store_safe_time_now();
-                        }
-                        TagOperation::ReadTag => {
-                            // if we read a tag, with a note, the record note takes precedence and should override what's in the tag
-                            if let Some(existing_spool_rec) = curr_record {
-                                spool_rec.note = existing_spool_rec.note;
-                            }
-                        }
-                        TagOperation::UpdateWeight { weight } => {
-                            // if we update weight, with a note coming from tag, the record note takes precedence and should override what's in the tag
-                            if let Some(existing_spool_rec) = curr_record {
-                                spool_rec.note = existing_spool_rec.note;
-                            }
-                            spool_rec.weight_current = Some(weight);
-                            spool_rec.consumed_since_weight = 0.0; // updating ccurrent weight should clear the consumed since_weight
-                        }
-                    }
-
-                    if !added_new_record {
-                        if let Some(current_rec) = spools_db.records.borrow().get(&id) {
-                            if current_rec.data.added_time.is_some() {
-                                spool_rec.added_time = current_rec.data.added_time;
-                            }
-                        }
-                    }
-
-                    // debug!(">>>> Storing {spool_rec:?}");
-
-                    match spools_db.insert(spool_rec.clone()).await {
-                        Ok(true) => {
-                            info!("Stored tag to spools database");
-                        }
-                        Ok(false) => {
-                            info!("Stored tag to spools database, but no change");
-                        }
-                        Err(e) => {
-                            error!("Error storing record to spools database {e}");
-                            store.notify_tag_stored(Err(&format!("Failed to store Tag\n{e}")), cookie);
-                            continue;
-                        }
-                    }
-
-                    // Store of record succeeded and case of new record added, so need to update index and last_spool_id
-                    if added_new_record {
-                        *store.last_spool_id.borrow_mut() = id.parse().unwrap();
-                    }
-
-                    store.tag_id_index.borrow_mut().insert(request_tag_id, id.clone());
-
-                    //////////////////////////////////////////////////////////////////////////////////////////
-                    // Write extr info file  ////////////////////////////////////////////////////////////////
-                    //////////////////////////////////////////////////////////////////////////////////////////
-
-                    let spool_rec_ext = SpoolRecordExt {
-                        tag: None, // TODO:  IMPORTANT! Solve this issue - was Some(tag_info.origin_descriptor),
-                        k_info,
-                    };
-
-                    match store.store_spool_rec_ext(&spool_rec.id, &spool_rec_ext).await {
-                        Ok(file_path) => {
-                            info!("Stored extra spool {} information to file '{file_path}'", spool_rec.id);
-                            store.notify_tag_stored(Ok(Some((&spool_rec, &spool_rec_ext))), cookie.clone());
-                        }
-                        Err(err) => {
-                            error!("Error writing tag {} : {err:?}", spool_rec.id);
-                            store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info,\ncheck logs"), cookie);
-                        }
-                    }
-
-                    // // TODO: switch to save_spool_rec_ext() (Done, above)
-                    // if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&spool_rec.id) {
-                    //     let file_store = framework.borrow().file_store();
-                    //     let mut file_store = file_store.lock().await;
-                    //     match serde_json::to_string(&spool_rec_ext) {
-                    //         Ok(s) => match file_store.create_write_file_str(&spool_rec_ext_file_path, &s).await {
-                    //             Ok(_) => {
-                    //                 info!("Stored extra spool {} information to file {spool_rec_ext_file_path}", spool_rec.id);
-                    //             }
-                    //             Err(err) => {
-                    //                 error!("Error writing tag file to {spool_rec_ext_file_path} : {err}");
-                    //                 store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (1),\ncheck logs"), cookie);
-                    //                 continue;
-                    //             }
-                    //         },
-                    //         Err(e) => {
-                    //             error!("Error serializing tag information to store: {e}");
-                    //             store.notify_tag_stored(Err("Inventory updated,\nbut failed writing extended info (2),\ncheck logs"), cookie);
-                    //             continue;
-                    //         }
-                    //     }
-                    //     store.notify_tag_stored(Ok(Some((&spool_rec, &spool_rec_ext))), cookie.clone());
-                    // } else {
-                    //     error!("Internal Error: Trying to store ext with bad id : {id}");
-                    //     store.notify_tag_stored(Err(&format!("Internal Error: Trying to store ext with bad id : {id}")), cookie);
-                    //     continue;
-                    // }
-                } else {
-                    store.notify_tag_stored(Ok(None), cookie.clone());
-                    continue;
-                }
-            }
             StoreOp::ReadExtInfo { id } => {
                 let res = if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&id) {
                     let file_store = framework.borrow().file_store();
@@ -1139,7 +711,6 @@ impl CsvDbId for SpoolRecord {
 }
 
 pub trait StoreObserver {
-    fn on_tag_stored(&mut self, result: Result<Option<(SpoolRecord, SpoolRecordExt)>, String>, cookie: Box<dyn AnyClone>); // String result is id of stored tag
     fn on_read_spool_record_ext(&mut self, result: Result<SpoolRecordExt, String>);
 }
 

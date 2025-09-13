@@ -13,7 +13,7 @@ use alloc::{
 use embassy_executor::raw::TaskStorage;
 use embassy_net::Stack;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::channel::{Channel, TrySendError};
+use embassy_sync::channel::Channel;
 use embassy_time::{Instant, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hashbrown::HashMap;
@@ -40,8 +40,7 @@ use crate::filament_staging::StagingOrigin;
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
 use crate::store::{
-    store_safe_time_now, AnyClone, Cookie, FullSpoolRecord, SpoolRecExtOp, SpoolRecOp, SpoolRecord, SpoolRecordExt, Store, StoreObserver, StoreOp,
-    TagOperation,
+    store_safe_time_now, AnyClone, Cookie, FullSpoolRecord, SpoolRecord, SpoolRecordExt, Store, StoreObserver, StoreOp,
 };
 use crate::web_app::EncodeInfoDTO;
 use crate::{
@@ -262,20 +261,6 @@ impl ViewModel {
                 .spawner
                 .spawn(store_printers_consume(self.view_model.clone().unwrap()))
                 .ok();
-
-            // let trait_for_gcode_analyzer_rc: Rc<RefCell<dyn GcodeAnalyzerObserver>> = self.view_model.as_ref().unwrap().clone();
-            // let trait_for_gcode_analyzer_weak: Weak<RefCell<dyn GcodeAnalyzerObserver>> = Rc::downgrade(&trait_for_gcode_analyzer_rc);
-            //
-            // let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| {
-            //     fetch_gcode_analysis_task(
-            //         self.framework.clone(),
-            //         self.gcode_analysis_request_channel.clone(),
-            //         self.gcode_analysis_notification_channel.clone(),
-            //         trait_for_gcode_analyzer_weak,
-            //         None,
-            //     )
-            // });
-            // self.framework.borrow().spawner.spawn(task).ok();
         }
     }
 
@@ -1163,226 +1148,6 @@ impl ViewModel {
         }
     }
 
-    // fn old_calc_encode_request_display(&self, mode: crate::app::FilamentInfoMode) {
-    //     let moved_ui = self.ui_weak.unwrap();
-    //     let ui_app_state = moved_ui.global::<crate::app::AppState>();
-    //     let mut encode_request = ui_app_state.get_curr_encode_request();
-    //     let mut encode_request_display = ui_app_state.get_curr_encode_request_display();
-    //     encode_request_display.pa_line1 = "".into();
-    //     encode_request_display.pa_line2 = "".into();
-    //     let tray_id = encode_request.tray_id;
-    //
-    //     let staging_borrow = self.filament_staging.borrow();
-    //     let bambu_borrow = self.bambu_printer_model.borrow();
-    //
-    //     // This is a bit delicate here
-    //     // To display/encode there are two potential sources of information - the tray information and the tag information.
-    //     // tray information exists with tray_is is external tray or ams trays
-    //     // tag information exist when a tray has a tag inside (not always) or in staging
-    //     // when from blank (998) nothing is available at start but built in encode_from_blank variable
-    //     // Then, tray takes precedence over tag information
-    //     // Tag information is used based on if there are differences in tray information and tag information (so for example color name will be used if color codes are the same)
-    //     // On top of that, there are differences in case of encode and in case of display
-    //     //  In case of display we show the inventory-id, but in case of encode we don't want to override the inventory-id so it won't show the inventory-id and will be empty
-    //     //  Later either the user can set an explicit ID to use, or on the tag_id itself when encoded if match will mark off the previous id record and create a new one,
-    //
-    //     // Start first with getting the relevant tag information and the filament information
-    //     let (filament_info, spool_id) = match tray_id {
-    //         -1 => {
-    //             // Special case to avoid a call after encode_request is cleared
-    //             return;
-    //         }
-    //         999 | 998 => {
-    //             // For staging (999) for View - use the staging data, for encode use blank data (which is copied into when encode starts)
-    //             let full_spool_rec_source = if tray_id == 999 && mode == FilamentInfoMode::View {
-    //                 staging_borrow.full_spool_rec()
-    //             } else {
-    //                 &self.encode_editing_area
-    //             };
-    //             if let Some(tag_info) = tag_info_source {
-    //                 if let Some(filament_info) = &tag_info.filament {
-    //                     let calibration = self
-    //                         .bambu_printer_model
-    //                         .borrow()
-    //                         .get_matching_printer_calibration_for_current_nozzle(tag_info, full_spool_rec_source);
-    //                     // if let Some((nozzle_diameter, calibration)) = &tag_info.calibrations.iter().next() {
-    //                     if let Some(calibration) = calibration {
-    //                         encode_request_display.pa_line2 = format!("{}, {}", calibration.k_value, calibration.name).into();
-    //                         encode_request_display.pa_line1 = format!(
-    //                             "{}, {}",
-    //                             bambu_borrow.printer_name(),
-    //                             bambu_borrow.nozzle_diameter().as_ref().unwrap_or(&"?".to_string())
-    //                         )
-    //                         .into();
-    //                     } else if self
-    //                         .encode_editing_area
-    //                         .full_spool_rec
-    //                         .as_ref()
-    //                         .map(|f| f.spool_rec_ext.k_info.is_some())
-    //                         .is_some()
-    //                     {
-    //                         encode_request_display.pa_line1 = "Set".into();
-    //                         encode_request_display.pa_line1 = "Not for this printer/nozzle".into();
-    //                         // TODO: For H2D will need to do something smarter than this, show two extruders
-    //                     }
-    //                     // }
-    //                     (Some(filament_info.clone()), staging_borrow.tag_info())
-    //                 } else {
-    //                     (None, &None)
-    //                 }
-    //             } else {
-    //                 (None, &None)
-    //             }
-    //         }
-    //         254 => {
-    //             // External Tray
-    //             let tray = &bambu_borrow.virt_tray();
-    //             // Show the calibration of the slot, not the Tag
-    //             if let Some(calibration) = bambu_borrow.get_tray_calibration(tray) {
-    //                 encode_request_display.pa_line2 = format!("{}, {}", calibration.k_value, calibration.name,).into();
-    //             }
-    //             if let bambu::Filament::Known(filament_info) = &tray.filament {
-    //                 (Some(filament_info.clone()), &tray.meta_info.tag_info)
-    //             } else {
-    //                 (None, &None)
-    //             }
-    //         }
-    //         0..23 => {
-    //             // Standard trays
-    //             // let bambu = moved_bambu.borrow();
-    //             let tray = &bambu_borrow.ams_trays()[tray_id as usize];
-    //             // Show the calibration of the slot, not the Tag
-    //             if let Some(calibration) = bambu_borrow.get_tray_calibration(tray) {
-    //                 encode_request_display.pa_line2 = format!("{}, {}", calibration.k_value, calibration.name,).into();
-    //             }
-    //             if let bambu::Filament::Known(filament_info) = &tray.filament {
-    //                 (Some(filament_info.clone()), &tray.meta_info.tag_info)
-    //             } else {
-    //                 (None, &None)
-    //             }
-    //         }
-    //         _ => {
-    //             error!("UI request to update display for tray out of range, software error or printer issue");
-    //             (None, &None)
-    //         }
-    //     };
-    //
-    //     if let Some(tag_info) = tag_info {
-    //         if let Some(id) = &tag_info.id {
-    //             encode_request.id = id.to_shared_string();
-    //         }
-    //     }
-    //
-    //     // Case when id was selected (differently) from UI
-    //     // In such case need to fetch from store the data and fill it in
-    //
-    //     let first_request_to_display = encode_request_display.filament_type.is_empty();
-    //
-    //     if let Some(filament_info) = filament_info {
-    //         if first_request_to_display {
-    //             // checking tray_type is empty to know if it is the first time, later if user changes to empty some value it shouldn't be overriden
-    //             if let Some(tag_info) = tag_info {
-    //                 let mut material_changed_from_tag = false;
-    //                 let mut color_code_changed_from_tag = false;
-    //                 if let Some(tag_filament_info) = &tag_info.filament {
-    //                     if tag_filament_info.tray_color != filament_info.tray_color {
-    //                         color_code_changed_from_tag = true;
-    //                     }
-    //                     if tag_filament_info.tray_type != filament_info.tray_type || tag_filament_info.tray_info_idx != filament_info.tray_info_idx {
-    //                         material_changed_from_tag = true;
-    //                     }
-    //                 }
-    //                 // if tray filament type didn't change from the tag, then we can use the brand, subtype,
-    //                 if !material_changed_from_tag {
-    //                     if encode_request.brand.is_empty() && tag_info.brand.is_some() {
-    //                         encode_request.brand = tag_info.brand.as_ref().unwrap().to_shared_string();
-    //                     }
-    //                     if encode_request.filament_subtype.is_empty() && tag_info.filament_subtype.is_some() {
-    //                         encode_request.filament_subtype = tag_info.filament_subtype.as_ref().unwrap().to_shared_string();
-    //                     }
-    //                 }
-    //
-    //                 // if tray filament color code didn't change from tag we can use tag color name, otherwise we calculate name again
-    //                 #[allow(clippy::collapsible_if)]
-    //                 if !color_code_changed_from_tag {
-    //                     if encode_request.color_name.is_empty() && tag_info.color_name.is_some() {
-    //                         encode_request.color_name = tag_info.color_name.as_ref().unwrap().to_shared_string();
-    //                     }
-    //                 }
-    //                 // If there is tag_info,  there is always also filament_info so can do it here instead of a separate tag_info unwrapping outside the if filament_info
-    //                 if encode_request.note.is_empty() && tag_info.note.is_some() {
-    //                     encode_request.note = tag_info.note.as_ref().unwrap().to_shared_string();
-    //                 }
-    //                 if encode_request.weight_advertised == 0 && tag_info.weight_advertised.is_some() {
-    //                     encode_request.weight_advertised = tag_info.weight_advertised.unwrap();
-    //                 }
-    //                 if encode_request.weight_core == 0 && tag_info.weight_core.is_some() {
-    //                     encode_request.weight_core = tag_info.weight_core.unwrap();
-    //                 }
-    //                 // in case of encode we don't copy weight_new
-    //                 #[allow(clippy::collapsible_if)]
-    //                 if mode == FilamentInfoMode::View {
-    //                     if encode_request.weight_new == 0 && tag_info.weight_new.is_some() {
-    //                         encode_request.weight_new = tag_info.weight_new.unwrap();
-    //                     }
-    //                 }
-    //             }
-    //
-    //             if encode_request.color_name.is_empty() && filament_info.tray_color.len() >= 6 {
-    //                 let color = u32::from_str_radix(&filament_info.tray_color[..6], 16).unwrap() + 0xFF000000; // the plus 0xFF at the end is fo add alpha
-    //                 let color = slint::Color::from_argb_encoded(color);
-    //                 let color_name_info = get_color_name(color.red(), color.green(), color.blue());
-    //                 encode_request.color_name = color_name_info.0.to_shared_string();
-    //                 if mode == crate::app::FilamentInfoMode::View {
-    //                     encode_request.color_name = format!("({})", encode_request.color_name).to_shared_string();
-    //                 }
-    //             }
-    //         }
-    //
-    //         encode_request_display.color_code = filament_info.tray_color[..filament_info.tray_color.len().min(8)].into();
-    //         if filament_info.tray_color.len() >= 6 {
-    //             let color = u32::from_str_radix(&filament_info.tray_color[..6], 16).unwrap() + 0xFF000000; // the plus 0xFF at the end is fo add alpha
-    //             encode_request_display.title_color = slint::Color::from_argb_encoded(color);
-    //         }
-    //         encode_request_display.temp_min = filament_info.nozzle_temp_min.try_into().unwrap_or_default();
-    //         encode_request_display.temp_max = filament_info.nozzle_temp_max.try_into().unwrap_or_default();
-    //         encode_request_display.filament_type = filament_info.tray_type.into();
-    //         // TODO: Add support for custom filaments here
-    //
-    //         if let Some((base, slicer_name, _, _)) = self.get_filament_info(&filament_info.tray_info_idx) {
-    //             encode_request_display.slicer_name = format!("{slicer_name} ({})", if base { "Base" } else { "Custom" }).into();
-    //         } else {
-    //             encode_request_display.slicer_name = "Unknown Filament".into();
-    //         }
-    //
-    //         if encode_request_display.pa_line1.is_empty() && !encode_request_display.pa_line2.is_empty() {
-    //             // if there is a line 2 but line 1 was not filled (staging case)
-    //             encode_request_display.pa_line1 = format!(
-    //                 "{}, {}",
-    //                 bambu_borrow.printer_name(),
-    //                 bambu_borrow.nozzle_diameter().as_ref().unwrap_or(&"Unknown".to_string())
-    //             )
-    //             .into();
-    //         }
-    //
-    //         if first_request_to_display && encode_request.brand.is_empty() {
-    //             if let Some(brand_name) = get_brand_from_text(encode_request_display.pa_line2.as_str()) {
-    //                 encode_request.brand = brand_name.to_shared_string();
-    //             } else if let Some(brand_name) = get_brand_from_text(encode_request_display.slicer_name.as_str()) {
-    //                 encode_request.brand = brand_name.to_shared_string();
-    //             }
-    //             if !encode_request.brand.is_empty() && mode == crate::app::FilamentInfoMode::View {
-    //                 encode_request.brand = format!("({})", encode_request.brand).to_shared_string();
-    //             }
-    //         }
-    //
-    //         ui_app_state.set_curr_encode_request_display(encode_request_display);
-    //         if first_request_to_display {
-    //             ui_app_state.set_curr_encode_request(encode_request);
-    //         }
-    //     }
-    // }
-
     fn tag_info_to_ui_spool_info_direct(
         &self,
         bambu_printer_borrow: &BambuPrinter,
@@ -1398,16 +1163,6 @@ impl ViewModel {
             0x00FFFFFF
         };
 
-        // let mut final_k = bambu_printer_borrow.get_tag_k_for_current_nozzle(tag_info);
-        // if let Some(calibration) = tag_info
-        //     .calibrations
-        //     .get(bambu_printer_borrow.nozzle_diameter().as_ref().unwrap_or(&"NA".to_string()))
-        // {
-        //     let source_k = &calibration.k_value;
-        //     if source_k != &final_k {
-        //         final_k = format!("?{final_k}");
-        //     }
-        // }
         let mut ui_spool_info = crate::app::UiSpoolInfo {
             id: spool_rec.id.clone().to_shared_string(),
             color: slint::Color::from_argb_encoded(color),
@@ -1428,11 +1183,6 @@ impl ViewModel {
 
         Some(ui_spool_info)
     }
-
-    // fn _tag_info_to_ui_spool_info(&self, tag_info: &TagInformation, full_spool_rec: &Option<FullSpoolRecord>) -> Option<crate::app::UiSpoolInfo> {
-    //     let bambu_printer_borrow = self.bambu_printer_model.borrow();
-    //     self.tag_info_to_ui_spool_info_direct(&bambu_printer_borrow, tag_info, full_spool_rec)
-    // }
 
     fn update_ui_from_printer(&self, bambu_printer: &BambuPrinter) {
         // note - accepting bambu_printer rather than taking from self, because it may be called during callback on_trays_update,
@@ -1515,13 +1265,6 @@ impl ViewModel {
                     let realtime_weight = (weight_current - (weight_new - weight_advertised)) as f32 - tray.meta_info.consumed_since_weight;
                     res = slint::format!("{:.1}g", realtime_weight);
                 }
-
-                // weight_left:
-                //   weight_current && weight_core
-                //     ? weight_current - weight_core
-                //     : weight_current && weight_advertised && weight_new
-                //       ? weight_current - (weight_new - weight_advertised)
-                //       : null,
             }
         }
         res
@@ -1663,43 +1406,9 @@ impl ViewModel {
         None
     }
 
-    // fn set_filament_staging_and_update_ui_on_read_before_ext(&self, mut tag_info: TagInformation, spool_rec: Option<SpoolRecord>) {
-    //     if let Some(ui_spool_info) = self.tag_info_to_ui_spool_info(&tag_info) {
-    //         if let Some(spool_rec) = &spool_rec {
-    //             tag_info.id = Some(spool_rec.id.clone());
-    //             if spool_rec.ext_has_k {
-    //                 let _ = self.store.try_send_op(StoreOp::ReadExtInfo { id: spool_rec.id.clone() });
-    //             }
-    //         }
-    //         let ui = self.ui_weak.clone();
-    //         if let Some(ui_spool_info) = self.tag_info_to_ui_spool_info(&tag_info) {
-    //             ui.unwrap()
-    //                 .global::<crate::app::AppState>()
-    //                 .invoke_update_spool_staging(ui_spool_info, crate::app::SpoolStagingState::Unchanged);
-    //         }
-    //         self.filament_staging.borrow_mut().set_tag_info(tag_info, StagingOrigin::Scanned);
-    //         ui.unwrap().global::<crate::app::AppState>().invoke_read_tag_succeeded(ui_spool_info);
-    //     }
-    // }
-
     fn display_filament_staging_direct(&self, bambu_printer_borrow: &BambuPrinter) {
         let filament_staging_borrow = self.filament_staging.borrow();
         if let Some(ui_spool_info) = self.tag_info_to_ui_spool_info_direct(bambu_printer_borrow, filament_staging_borrow.full_spool_rec()) {
-            // // went into the prior fn call
-            // let calibration =
-            //     bambu_printer_borrow.get_matching_printer_calibration_for_current_nozzle(tag_info, filament_staging_borrow.full_spool_rec());
-            // if let Some(calibration) = calibration {
-            //     ui_spool_info.k = calibration.k_value.into();
-            // } else if filament_staging_borrow
-            //     .spool_rec_ext()
-            //     .as_ref()
-            //     .and_then(|ext| ext.k_info.as_ref())
-            //     .is_some()
-            // {
-            //     ui_spool_info.k = "NoMatch".into()
-            // } else {
-            //     ui_spool_info.k = "N/A".into();
-            // }
             let ui = self.ui_weak.clone();
             if *filament_staging_borrow.origin() == StagingOrigin::Scanned {
                 ui.unwrap().global::<crate::app::AppState>().invoke_read_tag_succeeded(ui_spool_info);
@@ -1735,7 +1444,7 @@ impl ViewModel {
     pub fn update_spool_weight(&self, scale_weight: ScaleWeight) -> Option<bool> {
         let ui = self.ui_weak.unwrap();
         let ui_app_state = ui.global::<crate::app::AppState>();
-        if let Some(full_spool_rec) = self.filament_staging.borrow().full_spool_rec() {
+        if self.filament_staging.borrow().full_spool_rec().is_some() {
             match scale_weight {
                 ScaleWeight::Stable(weight) => {
                     if weight == 0 {
@@ -1750,26 +1459,6 @@ impl ViewModel {
                             Ok(_) => None,
                             Err(_) => Some(false),
                         }
-                        // if let Err(err) = self.store.try_send_op(StoreOp::Write {
-                        //     id: full_spool_rec.spool_rec.id.clone(),
-                        //     spool_rec_op: SpoolRecOp::Update(Box::new(move |spool_rec| spool_rec.weight_current = Some(weight))),
-                        //     spool_rec_ext_op: SpoolRecExtOp::Noop,
-                        //     cookie: Box::new(StoreWriteTagCookie {
-                        //         notify_scale: true,
-                        //         store_request_origin: StoreRequestOrigin::UpdateWeight,
-                        //     }),
-                        // }) {
-                        //     info!("Error writing tag to store : {}", err);
-                        //     ui_app_state.invoke_show_spoolscale_dialog(
-                        //         "Internal Error\n\nFailed to Update Filament Weight".to_shared_string(),
-                        //         crate::app::StatusType::Error,
-                        //     );
-                        //     // TODO: notify on GUI and on Scale Led
-                        //     Some(false)
-                        // } else {
-                        //     info!("Submitted internally a request to store weight");
-                        //     None
-                        // }
                     }
                 }
                 ScaleWeight::Unstable(_) => {
@@ -1802,7 +1491,6 @@ impl ViewModel {
     }
 
     pub async fn update_spool_weight_async(view_model: Rc<RefCell<ViewModel>>, weight: i32) {
-        debug!(">>>>>> in update_spool_weight_async");
         let store = view_model.borrow().store.clone();
         let spool_rec = {
             let view_model_borrow = view_model.borrow();
@@ -1856,43 +1544,6 @@ impl ViewModel {
                     tag: tag.to_string(),
                     scanned_on_scale,
                 });
-
-                // let (spool_rec, need_to_store, tag_k_info) = {
-                //     let spool_rec = self.store.get_spool_by_tag_id(tag_id);
-                //     let mut need_to_store = spool_rec.is_none();
-                //
-                //     let mut k_info = None;
-                //     if !tag_info.calibrations.is_empty() {
-                //         let need_to_store_k = if let Some(spool_rec) = &spool_rec { !spool_rec.ext_has_k } else { true };
-                //         need_to_store |= need_to_store_k;
-                //         if need_to_store_k {
-                //             k_info = self.get_k_info_from_old_tag(&tag_info);
-                //         }
-                //     }
-                //     (spool_rec, need_to_store, k_info)
-                // };
-                //
-                // if need_to_store {
-                //     if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
-                //         tag_info: Box::new(tag_info.clone()),
-                //         k_info: tag_k_info,
-                //         tag_operation: TagOperation::ReadTag,
-                //         cookie: Box::new(StoreWriteTagCookie {
-                //             notify_scale: false,
-                //             store_request_origin: StoreRequestOrigin::Scan,
-                //         }),
-                //     }) {
-                //         info!("Error writing tag to store : {}", err);
-                //     }
-                // }
-                //
-                // if let Some(spool_rec) = spool_rec {
-                //     // lets get also the SpoolRecordExt to have it
-                //     // but if we performed store, it will arrive in the store operation so it will be handled there
-                //     if !need_to_store {
-                //         let _ = self.store.try_send_op(StoreOp::ReadExtInfo { id: spool_rec.id.clone() });
-                //     }
-                // }
             } else {
                 error!("Error with scanned V1 tag - old tag read with no tag_id");
                 ui.unwrap()
@@ -2109,12 +1760,6 @@ impl BambuPrinterObserver for ViewModel {
                     self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Unloaded);
                     self.display_filament_staging_direct(bambu_printer);
                     let _ = self.store.try_send_op(StoreOp::ReadExtInfo { id: removed_spool.1.clone() });
-                    // if let Some(ui_spool_info) = self.tag_info_to_ui_spool_info_direct(bambu_printer, removed_tag.1) {
-                    //     self.ui_weak
-                    //         .unwrap()
-                    //         .global::<crate::app::AppState>()
-                    //         .invoke_update_spool_staging(ui_spool_info, crate::app::SpoolStagingState::Unloaded);
-                    // }
                 }
             }
         }
@@ -2283,20 +1928,20 @@ impl SpoolTagObserver for ViewModel {
                         }
                     }
 
-                    if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
-                        tag_info: Box::new(tag_info.clone()),
-                        k_info: self.bambu_printer_model.borrow().get_tray_k_info(*pure_tray_id),
-                        tag_operation: TagOperation::EncodeTag {
-                            weight,
-                            set_encoded_as_new: encode_cookie.set_encoded_as_new,
-                        },
-                        cookie: Box::new(StoreWriteTagCookie {
-                            notify_scale: false,
-                            store_request_origin: StoreRequestOrigin::Encode,
-                        }),
-                    }) {
-                        info!("Error writing tag to store : {}", err);
-                    }
+                    // if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
+                    //     tag_info: Box::new(tag_info.clone()),
+                    //     k_info: self.bambu_printer_model.borrow().get_tray_k_info(*pure_tray_id),
+                    //     tag_operation: TagOperation::EncodeTag {
+                    //         weight,
+                    //         set_encoded_as_new: encode_cookie.set_encoded_as_new,
+                    //     },
+                    //     cookie: Box::new(StoreWriteTagCookie {
+                    //         notify_scale: false,
+                    //         store_request_origin: StoreRequestOrigin::Encode,
+                    //     }),
+                    // }) {
+                    //     info!("Error writing tag to store : {}", err);
+                    // }
 
                     let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(*pure_tray_id);
                     let ams_id_for_ui = Self::ams_if_for_ui(ams_id);
@@ -2308,72 +1953,6 @@ impl SpoolTagObserver for ViewModel {
             }
             Status::ReadSuccess(read_text) => {
                 self.process_v1_tag_read(read_text.as_str(), false);
-                return;
-                // TODO: When moving to no need to encode tag, displaying here in staging should only take place
-                // if there is data from store. All processing here will be only to import old tags not in store
-                if let Ok(tag_info) = TagInformation::from_descriptor(read_text) {
-                    // we need to store tag on read in two cases:
-                    // Tag with this tag_id is not in store  - for upgrading from non inventory release to inventory release
-                    // Tag with this tag_id is in store, but w/o K there, and the tag has K - for upgrading from old tags with K to new K approach
-                    // if let Some(mut tag_info) = tag_info_clone {
-                    if let Some(tag_id) = &tag_info.tag_id {
-                        let (spool_rec, need_to_store, k_info) = {
-                            if self.store.is_available() {
-                                let spool_rec = self.store.get_spool_by_tag_id(tag_id);
-                                let mut need_to_store = spool_rec.is_none();
-
-                                let mut k_info = None;
-                                if !tag_info.calibrations.is_empty() {
-                                    let need_to_store_k = if let Some(spool_rec) = &spool_rec { !spool_rec.ext_has_k } else { true };
-                                    need_to_store |= need_to_store_k;
-                                    if need_to_store_k {
-                                        k_info = self.get_k_info_from_old_tag(&tag_info);
-                                    }
-                                }
-                                (spool_rec, need_to_store, k_info)
-                            } else {
-                                (None, false, None)
-                            }
-                        };
-
-                        if need_to_store {
-                            if let Err(err) = self.store.try_send_op(StoreOp::WriteTag {
-                                tag_info: Box::new(tag_info.clone()),
-                                k_info,
-                                tag_operation: TagOperation::ReadTag,
-                                cookie: Box::new(StoreWriteTagCookie {
-                                    notify_scale: false,
-                                    store_request_origin: StoreRequestOrigin::Scan,
-                                }),
-                            }) {
-                                info!("Error writing tag to store : {}", err);
-                            }
-                        }
-
-                        if let Some(spool_rec) = spool_rec {
-                            // lets get also the SpoolRecordExt to have it
-                            // but if we performed store, it will arrive in the store operation so it will be handled there
-                            if !need_to_store {
-                                let _ = self.store.try_send_op(StoreOp::ReadExtInfo { id: spool_rec.id.clone() });
-                            }
-
-                            // filament_staging will update the tag "id" field from this
-                            self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Scanned);
-                        }
-                        // at this time (becaue tag has data, which won't be the case in the future),
-                        // we can already display the tag info accumulated so far
-                        self.display_filament_staging();
-                    } else {
-                        error!("Internal error in scan - tag with no tag_id shouldn't occur");
-                        ui.unwrap()
-                            .global::<crate::app::AppState>()
-                            .invoke_read_tag_failed(SharedString::from("Internal Error in Scan"));
-                    }
-                } else {
-                    ui.unwrap()
-                        .global::<crate::app::AppState>()
-                        .invoke_read_tag_failed(SharedString::from("Invalid Tag Content"));
-                }
             }
             Status::Failure(spool_tag::Failure::TagWriteFailure) => {
                 ui.unwrap().global::<crate::app::AppState>().invoke_encoding_failed("".to_shared_string());
@@ -2611,66 +2190,6 @@ impl SpoolScaleObserver for ViewModel {
 
     fn on_button_pressed(&mut self, scale_weight: ScaleWeight) -> Option<bool> {
         return self.update_spool_weight(scale_weight);
-        let ui = self.ui_weak.unwrap();
-        let ui_app_state = ui.global::<crate::app::AppState>();
-        if let Some(full_spool_rec) = self.filament_staging.borrow().full_spool_rec() {
-            match scale_weight {
-                ScaleWeight::Stable(weight) => {
-                    if weight == 0 {
-                        info!("User Error: Reqeust to store tag with no weight on scale");
-                        ui_app_state.invoke_show_spoolscale_dialog(
-                            "No Weight on Scale\n\nCan't Update Spool Weight".to_shared_string(),
-                            crate::app::StatusType::Error,
-                        );
-                        Some(false)
-                    } else if let Err(err) = self.store.try_send_op(StoreOp::Write {
-                        id: full_spool_rec.spool_rec.id.clone(),
-                        spool_rec_op: SpoolRecOp::Update(Box::new(move |spool_rec| spool_rec.weight_current = Some(weight))),
-                        spool_rec_ext_op: SpoolRecExtOp::Noop,
-                        cookie: Box::new(StoreWriteTagCookie {
-                            notify_scale: true,
-                            store_request_origin: StoreRequestOrigin::UpdateWeight,
-                        }),
-                    }) {
-                        info!("Error writing tag to store : {}", err);
-                        ui_app_state.invoke_show_spoolscale_dialog(
-                            "Internal Error\n\nFailed to Update Filament Weight".to_shared_string(),
-                            crate::app::StatusType::Error,
-                        );
-                        // TODO: notify on GUI and on Scale Led
-                        Some(false)
-                    } else {
-                        info!("Submitted internally a request to store weight");
-                        None
-                    }
-                }
-                ScaleWeight::Unstable(_) => {
-                    info!("User Error: Reqeust to store tag with weight but scale weight is not stable");
-                    ui_app_state.invoke_show_spoolscale_dialog(
-                        "Weight on Scale Not Stable\n\nCan't Update Spool Weight".to_shared_string(),
-                        crate::app::StatusType::Error,
-                    );
-                    Some(false)
-                    // TODO: notify on GUI and on Scale Led
-                }
-                ScaleWeight::Unknown => {
-                    info!("Software Error: scale weight unknown after connec?");
-                    ui_app_state.invoke_show_spoolscale_dialog(
-                        "Internal Software Error\n\nCan't Update Spool Weight".to_shared_string(),
-                        crate::app::StatusType::Error,
-                    );
-                    Some(false)
-                }
-            }
-        } else {
-            info!("User Error: Reqeust to store tag with weight but no tag information in staging");
-            ui_app_state.invoke_show_spoolscale_dialog(
-                "No Spool Tag in Staging\n\nCan't Update Spool Weight".to_shared_string(),
-                crate::app::StatusType::Error,
-            );
-            Some(false)
-            // TODO:  notify on GUI and on Scale Led
-        }
     }
 
     // note that this is from Scale (which ends up calling the GcodeAnalyzerObserver on_gcode_analysis)
@@ -2712,61 +2231,6 @@ struct StoreWriteTagCookie {
 impl Cookie for StoreWriteTagCookie {}
 
 impl StoreObserver for ViewModel {
-    fn on_tag_stored(&mut self, result: Result<Option<(SpoolRecord, SpoolRecordExt)>, String>, cookie: Box<dyn AnyClone>) {
-        if let Ok(cookie) = cookie.into_any().downcast::<StoreWriteTagCookie>() {
-            let ui = self.ui_weak.unwrap();
-            let ui_app_state = ui.global::<crate::app::AppState>();
-            // on error we update on any failure to store using same message - for consistency
-            // id == None means no database (sd card) available
-            match result {
-                Ok(Some((spool_rec, spool_rec_ext))) => {
-                    let spool_rec_id = spool_rec.id.clone();
-                    if [StoreRequestOrigin::Scan, StoreRequestOrigin::Encode].contains(&cookie.store_request_origin) {
-                        // filament_staging will update the tag "id" field from this
-                        let staging_origin = match cookie.store_request_origin {
-                            StoreRequestOrigin::Scan => StagingOrigin::Scanned,
-                            StoreRequestOrigin::Encode => StagingOrigin::Encoded,
-                            StoreRequestOrigin::UpdateWeight => unreachable!(),
-                        };
-                        self.filament_staging.borrow_mut().set_spool_record(spool_rec, staging_origin);
-                        self.filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
-                        self.display_filament_staging();
-                    } else if cookie.store_request_origin == StoreRequestOrigin::UpdateWeight {
-                        ui_app_state.invoke_show_spoolscale_dialog(
-                            format!("Updated Filament Weight\n\nFor Spool {}", spool_rec_id).into(),
-                            crate::app::StatusType::Success,
-                        );
-                        if cookie.notify_scale {
-                            // TODO: maybe do that on all operations when came from scale (scane, encode)
-                            // and then maybe rename the method from button_response to operation_response, probably no difference in scale side code on either operations
-                            self.spool_scale_model.borrow().button_response(true);
-                        }
-                    }
-                }
-                Ok(None) => {
-                    if cookie.notify_scale {
-                        self.spool_scale_model.borrow().button_response(false);
-                        // We use the same UI style message on any error writing to store for consistency, so it's not really 'spoolscale' dialog
-                        ui_app_state.invoke_show_spoolscale_dialog(
-                            "Operation Not Allowed\n\nDatabase Missing or Unavailable".to_shared_string(),
-                            crate::app::StatusType::Error,
-                        );
-                    }
-                }
-                Err(err) => {
-                    if cookie.notify_scale {
-                        self.spool_scale_model.borrow().button_response(false);
-                    }
-                    // We use the same UI style message on any error writing to store for consistency, so it's not really 'spoolscale' dialog
-                    ui_app_state.invoke_show_spoolscale_dialog(
-                        format!("Failed to Update Filament Weight/Tag\n\n{err}").to_shared_string(),
-                        crate::app::StatusType::Error,
-                    );
-                }
-            }
-        }
-    }
-
     fn on_read_spool_record_ext(&mut self, result: Result<SpoolRecordExt, String>) {
         if let Ok(spool_record_ext) = result {
             self.filament_staging.borrow_mut().set_spool_record_ext(spool_record_ext);
