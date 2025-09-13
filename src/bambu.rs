@@ -21,6 +21,7 @@ use alloc::{
 };
 use bambu_print::PrintProject;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use slint::ModelExt;
 use core::{cell::RefCell, mem::swap, str::FromStr};
 use derivative::Derivative;
 use embassy_executor::raw::TaskStorage;
@@ -2604,6 +2605,34 @@ impl TagInformation {
             calibrations: HashMap::new(),
             calibrations_printer_name: String::new(),
             calibrations_printer_uuid: String::new(),
+        }
+    }
+    pub fn to_spool_rec(&self) -> SpoolRecord {
+        let empty = &String::new();
+        // let empty_filament = &FilamentInfo::default(),
+        let calibration_filament_id = if let Some(key)  = self.calibrations.keys().next() {
+            self.calibrations.get(key).map(|c| c.filament_id.clone())
+        } else {None};
+        SpoolRecord {
+            id: self.id.as_ref().unwrap_or(empty).clone(),
+            tag_id: self.tag_id.as_ref().map(|tag_id| hex::encode_upper(&tag_id)).unwrap_or_default(),
+            material_type: self.filament.as_ref().and_then(|f| Some(f.tray_type.clone())).unwrap_or_default(),
+            material_subtype: self.filament_subtype.as_ref().unwrap_or(empty).clone(),
+            color_name: self.color_name.as_ref().unwrap_or(empty).clone(),
+            color_code: self.filament.as_ref().and_then(|f| Some(f.tray_color.clone())).unwrap_or_default(),
+            note: self.note.as_ref().unwrap_or(empty).clone(),
+            brand: self.brand.as_ref().unwrap_or(empty).clone(),
+            weight_advertised: self.weight_advertised,
+            weight_core: self.weight_core,
+            weight_new: self.weight_new,
+            weight_current: None,
+            slicer_filament: calibration_filament_id.unwrap_or_default(),
+            added_time: None,
+            encode_time: self.encode_time,
+            added_full: self.weight_new.map(|_| true), // Some(true) if weight_new exists
+            consumed_since_add: 0.0,
+            consumed_since_weight: 0.0,
+            ext_has_k: false, // this means if in the store, so need to be set to true when saving store
         }
     }
 }

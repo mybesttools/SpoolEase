@@ -33,7 +33,7 @@ use shared::gcode_analysis_task::Fetch3mf;
 
 use crate::app_config::{AppConfig, DefaultPrinterConfig, PrinterConfig, PrintersConfig, ScaleConfig, FILAMENT_BRAND_NAMES, SPOOLS_CATALOG};
 use crate::bambu::KInfo;
-use crate::store::Store;
+use crate::store::{SpoolRecordExt, Store};
 use crate::view_model::ViewModel;
 
 #[derive(Clone)]
@@ -332,7 +332,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
                         ext_has_k: add_spool.k_info.is_some(),
                     };
                     if new_spool.id.is_empty() {
-                        match store.add_untagged_spool(new_spool, add_spool.k_info).await {
+                        match store.add_spool(new_spool, SpoolRecordExt { tag: None, k_info: add_spool.k_info}).await {
                             Ok(new_id) => match store.query_spools() {
                                 Some(csv) => AddSpoolDTOResponse { id: new_id, csv }.encrypt(&key.borrow()),
                                 None => {

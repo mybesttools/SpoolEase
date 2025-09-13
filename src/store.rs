@@ -304,19 +304,26 @@ impl Store {
         Ok(())
     }
 
-    pub async fn add_untagged_spool(&self, mut spool_record: SpoolRecord, k_info: Option<KInfo>) -> Result<String, StoreError> {
+    pub async fn add_spool(&self, mut spool_rec: SpoolRecord, spool_rec_ext: SpoolRecordExt) -> Result<String, StoreError> {
         let new_spool_id = (*self.last_spool_id.borrow()) + 1;
         if let Some(spools_db) = &self.spools_db.get() {
-            spool_record.id = new_spool_id.to_string();
-            spool_record.added_time = store_safe_time_now();
-            spool_record.ext_has_k = k_info.is_some();
-            match spools_db.insert(spool_record).await.context(CsvDbSnafu)? {
+            spool_rec.id = new_spool_id.to_string();
+            spool_rec.added_time = store_safe_time_now();
+            spool_rec.ext_has_k = spool_rec_ext.k_info.is_some();
+            let tag_id = spool_rec.tag_id.clone();
+            let id = spool_rec.id.clone();
+            match spools_db.insert(spool_rec).await.context(CsvDbSnafu)? {
                 true => {
                     *self.last_spool_id.borrow_mut() = new_spool_id;
-                    let spool_rec_ext = SpoolRecordExt {
-                        tag: None,
-                        k_info,
-                    };
+                    // deal with tag_id
+                    if !tag_id.is_empty() {
+                        // check if tag_id was with some other record, if so remove that mapping and 'strikeout' that spool_record
+                        if let Some(mut existing_spool_rec_with_tag_id) = self.get_spool_by_hex_tag(&tag_id) {
+                            existing_spool_rec_with_tag_id.tag_id = format!("-{}",existing_spool_rec_with_tag_id.tag_id);
+                            self.update_spool(existing_spool_rec_with_tag_id, None);
+                        }
+                        self.tag_id_index.borrow_mut().insert(tag_id, id);
+                    }
                     self.store_spool_rec_ext(&new_spool_id.to_string(), &spool_rec_ext).await?;
                     Ok(new_spool_id.to_string())
                 }
@@ -423,15 +430,23 @@ impl Store {
         Ok(spool_rec_ext)
     }
 
-    pub async fn update_spool(&self, spool_record: SpoolRecord) -> Result<(), StoreError> {
+    pub async fn update_spool(&self, mut spool_record: SpoolRecord, update_spool_rec_ext_fn: Option<Box<dyn FnOnce(&mut SpoolRecordExt)>>) -> Result<Option<SpoolRecordExt>, StoreError> {
+        let mut ret_spool_rec_ext = None;
         if let Some(spools_db) = self.spools_db.get() {
             if !spool_record.id.is_empty() {
                 if spools_db.records.borrow().contains_key(&spool_record.id) {
+                    if let Some(update_ext_fn) = update_spool_rec_ext_fn {
+                        let mut spool_rec_ext = self.get_spool_ext_by_id(&spool_record.id).await.ok().unwrap_or_default(); // on read error don't raise error
+                        update_ext_fn(&mut spool_rec_ext);
+                        spool_record.ext_has_k = spool_rec_ext.k_info.is_some();
+                        self.store_spool_rec_ext(&spool_record.id, &spool_rec_ext).await?;
+                        ret_spool_rec_ext = Some(spool_rec_ext);
+                    }
                     let tag_id = spool_record.tag_id.clone();
                     let id = spool_record.id.clone();
                     // TODO: ? theoretically need transaction mechanism here (so lock db and then do the index operation as well)
                     spools_db.insert(spool_record).await.context(CsvDbSnafu)?;
-                    if !tag_id.is_empty() {
+                    if !tag_id.is_empty() && !tag_id.starts_with("-") {
                         self.tag_id_index.borrow_mut().insert(tag_id, id);
                     } else {
                         let tag_id = self
@@ -444,7 +459,7 @@ impl Store {
                             self.tag_id_index.borrow_mut().remove(&tag_id);
                         }
                     }
-                    Ok(())
+                    Ok(ret_spool_rec_ext)
                 } else {
                     error!("Internal error, can't access store");
                     Err(StoreError::NoCsvDb)
@@ -643,7 +658,7 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>, vie
                             //       or maybe switch to tasks instead of notifications and cookies
                             //       currently assuming here update is a tag update for weight only
                             update_fn(&mut spool_rec);
-                            match store.update_spool(spool_rec.clone()).await {
+                            match store.update_spool(spool_rec.clone(), None).await {
                                 Ok(_) => {
                                     store.notify_tag_stored(Ok(Some((&spool_rec, &SpoolRecordExt::default()))), cookie.clone());
                                 }

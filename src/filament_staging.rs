@@ -40,7 +40,7 @@ impl FilamentStaging {
     pub fn full_spool_rec(&self) -> &Option<FullSpoolRecord> {
         &self.full_spool_rec
     }
-    pub fn _spool_rec(&self) -> Option<&SpoolRecord> {
+    pub fn spool_rec(&self) -> Option<&SpoolRecord> {
         self.full_spool_rec.as_ref().map(|f| &f.spool_rec)
     }
     pub fn _spool_rec_ext(&self) -> Option<&SpoolRecordExt> {
