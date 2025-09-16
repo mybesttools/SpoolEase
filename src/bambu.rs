@@ -1279,6 +1279,7 @@ impl BambuPrinter {
             } else {
                 None
             };
+            
             let old_tray = &self.ams_trays()[tray_id];
             let new_tray = self.get_updated_tray(old_tray, source_tray, Some(tray_id));
             if let Some(mut new_tray) = new_tray {
@@ -1296,7 +1297,7 @@ impl BambuPrinter {
             }
 
             // This is taken care of insidte get_updated_tray, but leaving here for now, just in case
-            // debug!(">>>>> Checking tray {tray_id} ready state;")
+            // debug!(">>>> Checking tray {tray_id} ready state;")
             // if self.ams_trays()[tray_id].state == TrayState::Ready {
             //     let detailed_tray_ready_state = self.get_tray_detailed_ready_state(Some(tray_id));
             //     if detailed_tray_ready_state != TrayState::Ready {
@@ -1655,7 +1656,6 @@ impl BambuPrinter {
         // Using the new K from SpoolRecordExt
 
         // If there is filament calibration for that nozzle size (assumption there can be only one, which makes sense)
-        debug!(">>> Trying to get filament k information for printer/nozzle/etc.");
         if let Some(nozzle_k) = full_spool_rec
             .spool_rec_ext
             .get_calibrations(&self.printer_serial, 0, self.nozzle_diameter().as_ref()?, "")

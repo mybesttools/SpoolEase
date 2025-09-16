@@ -39,7 +39,7 @@ use crate::color_utils::get_color_name;
 use crate::filament_staging::StagingOrigin;
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
-use crate::store::{store_safe_time_now, FullSpoolRecord, SpoolRecordExt, Store, StoreObserver, StoreOp};
+use crate::store::{FullSpoolRecord, SpoolRecordExt, Store, StoreObserver};
 // use crate::web_app::EncodeInfoDTO;
 use crate::{
     app_config::AppConfig,
@@ -1809,7 +1809,8 @@ impl BambuPrinterObserver for ViewModel {
                 if let Some(spool_rec) = self.store.get_spool_by_id(removed_spool.1) {
                     self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Unloaded);
                     self.display_filament_staging_direct(bambu_printer, true);
-                    let _ = self.store.try_send_op(StoreOp::ReadExtInfo { id: removed_spool.1.clone() });
+                    let _ = self.dispatch_async_task(AppAsyncTaskRequest::SetStagingRecExt { spool_id: removed_spool.1.clone() });
+                    // let _ = self.store.try_send_op(StoreOp::ReadExtInfo { id: removed_spool.1.clone() });
                 }
             }
         }
@@ -2306,12 +2307,12 @@ impl SpoolScaleObserver for ViewModel {
 // impl Cookie for StoreWriteTagCookie {}
 
 impl StoreObserver for ViewModel {
-    fn on_read_spool_record_ext(&mut self, result: Result<SpoolRecordExt, String>) {
-        if let Ok(spool_record_ext) = result {
-            self.filament_staging.borrow_mut().set_spool_record_ext(spool_record_ext);
-            self.display_filament_staging(false);
-        }
-    }
+    // fn on_read_spool_record_ext(&mut self, result: Result<SpoolRecordExt, String>) {
+    //     if let Ok(spool_record_ext) = result {
+    //         self.filament_staging.borrow_mut().set_spool_record_ext(spool_record_ext);
+    //         self.display_filament_staging(false);
+    //     }
+    // }
 }
 
 fn get_brand_from_text(text: &str) -> Option<&'static str> {

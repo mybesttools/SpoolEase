@@ -201,12 +201,13 @@ export global AppState {
     in-out property <EncodeRequest> curr-encode-request:  { tray_id: -1 }; // -1 is important so when pressing slot 0, it will still appear as change (for the changed that comes next)
     in-out property <EncodeRequestDisplay> curr-encode-request-display; // updated by rust for formatting needs
     in-out property <int> encode-timeout: 999;
-    // changed curr-encode-request => {
-    //    // TODO: This is a bit tricky, call backend to update display (and it also updates the request itself so cometimes drive an extra update)
-    //    // If code is not consistent it could lead to infinite recursion. 
-    //    // So maybe better to change how it works in the future ...
-    //     AppBackend.calc-encode-request-display(AppState.control-state == ControlState.EncodeEditing ? FilamentInfoMode.Encode : FilamentInfoMode.View);
-    // }
+    // TODO: change how this work, could infinite updating (change cause update which cause change etc.)
+    changed curr-encode-request => {
+       // TODO: This is a bit tricky, call backend to update display (and it also updates the request itself so cometimes drive an extra update)
+       // If code is not consistent it could lead to infinite recursion. 
+       // So maybe better to change how it works in the future ...
+        AppBackend.calc-encode-request-display(FilamentInfoMode.View);
+    }
 
       in-out property <int> curr-ams-id: 0;
       in-out property <[int]> ams-exists: [0];

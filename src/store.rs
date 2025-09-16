@@ -1,5 +1,5 @@
 use core::{any::Any, cell::RefCell};
-use embassy_time::Instant;
+use embassy_time::{Instant, Timer};
 use hashbrown::HashMap;
 use once_cell::unsync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
+// use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
 use framework::{
     debug, error, info, mk_static,
     ntp::InstantExt,
@@ -74,20 +74,20 @@ pub enum StoreError {
     ExtFormat { source: serde_json::error::Error },
 }
 
-#[allow(clippy::enum_variant_names, dead_code)]
-#[derive(Debug)]
-pub enum WeightStoreDirective {
-    ProvidedCurrentWeight(i32),
-    UseStoreCurrentWeight,
-}
-
-#[derive(Debug)]
-pub enum StoreOp {
-    ReadExtInfo {
-        id: String,
-        // if need several use cases, add cookie
-    },
-}
+// #[allow(clippy::enum_variant_names, dead_code)]
+// #[derive(Debug)]
+// pub enum WeightStoreDirective {
+//     ProvidedCurrentWeight(i32),
+//     UseStoreCurrentWeight,
+// }
+//
+// #[derive(Debug)]
+// pub enum StoreOp {
+//     ReadExtInfo {
+//         id: String,
+//         // if need several use cases, add cookie
+//     },
+// }
 
 // DON'T ERASE - May be useful in the future
 // // Cookie - General code
@@ -124,7 +124,7 @@ pub enum StoreOp {
 
 //
 
-type StoreRequestsChannel = Channel<NoopRawMutex, StoreOp, 5>;
+// type StoreRequestsChannel = Channel<NoopRawMutex, StoreOp, 5>;
 // type StoreRequestsReceiver<'a> = Receiver::<'a, NoopRawMutex, StoreOp, 5>;
 
 // embedded_hal_bus::spi::ExclusiveDevice<esp_hal::spi::master::Spi<'_, esp_hal::Async>, esp_hal::gpio::Output<'_>, embedded_hal_bus::spi::NoDelay>
@@ -138,7 +138,7 @@ type TheSpi = embedded_hal_bus::spi::ExclusiveDevice<
 pub struct Store {
     framework: Rc<RefCell<Framework>>,
     observers: RefCell<Vec<alloc::rc::Weak<RefCell<dyn StoreObserver>>>>,
-    pub requests_channel: &'static StoreRequestsChannel,
+    // pub requests_channel: &'static StoreRequestsChannel,
     // TODO: make spools_db mutext or something that doesn't need borrow
     // Think if need to make the entire store under mutex (if there are several related dbs could case issues)
     pub spools_db: OnceCell<CsvDb<SpoolRecord, TheSpi, 20, 5>>,
@@ -150,11 +150,11 @@ pub struct Store {
 
 impl Store {
     pub fn new(framework: Rc<RefCell<Framework>>) -> Rc<Store> {
-        let requests_channel = mk_static!(StoreRequestsChannel, StoreRequestsChannel::new());
+        // let requests_channel = mk_static!(StoreRequestsChannel, StoreRequestsChannel::new());
         let store = Rc::new(Self {
             framework: framework.clone(),
             observers: RefCell::new(Vec::new()),
-            requests_channel,
+            // requests_channel,
             spools_db: OnceCell::new(),
             last_spool_id: RefCell::new(0),
             tag_id_index: RefCell::new(HashMap::new()),
@@ -178,20 +178,20 @@ impl Store {
         self.observers.borrow_mut().push(observer);
     }
 
-    pub fn notify_read_spool_record_ext(&self, result: Result<SpoolRecordExt, String>) {
-        if let Some((last, rest)) = self.observers.borrow().split_last() {
-            for weak_observer in rest.iter() {
-                let observer = weak_observer.upgrade().unwrap();
-                observer.borrow_mut().on_read_spool_record_ext(result.clone());
-            }
-            let observer = last.upgrade().unwrap();
-            observer.borrow_mut().on_read_spool_record_ext(result);
-        }
-    }
+    // pub fn notify_read_spool_record_ext(&self, result: Result<SpoolRecordExt, String>) {
+    //     if let Some((last, rest)) = self.observers.borrow().split_last() {
+    //         for weak_observer in rest.iter() {
+    //             let observer = weak_observer.upgrade().unwrap();
+    //             observer.borrow_mut().on_read_spool_record_ext(result.clone());
+    //         }
+    //         let observer = last.upgrade().unwrap();
+    //         observer.borrow_mut().on_read_spool_record_ext(result);
+    //     }
+    // }
 
-    pub fn try_send_op(&self, op: StoreOp) -> Result<(), StoreError> {
-        self.requests_channel.try_send(op).map_err(|_| StoreError::TooManyOps)
-    }
+    // pub fn try_send_op(&self, op: StoreOp) -> Result<(), StoreError> {
+    //     self.requests_channel.try_send(op).map_err(|_| StoreError::TooManyOps)
+    // }
 
     pub fn is_available(&self) -> bool {
         self.spools_db.get().is_some()
@@ -596,33 +596,11 @@ pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>, vie
     *store.last_spool_id.borrow_mut() = largest_id;
     *store.initialized.borrow_mut() = true;
 
-    let receiver = store.requests_channel.receiver();
+    // let receiver = store.requests_channel.receiver();
     loop {
-        match receiver.receive().await {
-            StoreOp::ReadExtInfo { id } => {
-                let res = if let Ok(spool_rec_ext_file_path) = spool_rec_ext_file_path(&id) {
-                    let file_store = framework.borrow().file_store();
-                    let mut file_store = file_store.lock().await;
-                    match file_store.read_file_str(&spool_rec_ext_file_path).await {
-                        Ok(ext_str) => match serde_json::from_str::<SpoolRecordExt>(&ext_str) {
-                            Ok(ext) => Ok(ext),
-                            Err(err) => {
-                                error!("Error parsing spool extra information : {err:?}");
-                                Err("Error parsing spool extra information".to_string())
-                            }
-                        },
-                        Err(err) => {
-                            error!("Error loading tag information : {err:?}");
-                            Err("Error loading spool extra information : {err}".to_string())
-                        }
-                    }
-                } else {
-                    error!("Internal Error: Requested spool extra info with bad Id : {id}");
-                    Err("Internal Error: Requested spool extra info with bad Id : {id}".to_string())
-                };
-                store.notify_read_spool_record_ext(res);
-            }
-        }
+        Timer::after_secs(60).await;
+        // match receiver.receive().await {
+        // }
     }
 }
 
@@ -680,11 +658,9 @@ pub struct SpoolRecord {
     // #[serde(default,deserialize_with = "deserialize_optional_unit")]
     // pub opened: Option<()>,
     // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-    // pub encoded: Option<()>,
-    // #[serde(default,deserialize_with = "deserialize_optional_unit")]
     // pub dried: Option<()>,
     // #[serde(default,deserialize_with = "deserialize_optional_unit")]
-    // pub used: Option<()>,
+    // pub last_used: Option<()>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -719,7 +695,7 @@ impl CsvDbId for SpoolRecord {
 }
 
 pub trait StoreObserver {
-    fn on_read_spool_record_ext(&mut self, result: Result<SpoolRecordExt, String>);
+    // fn on_read_spool_record_ext(&mut self, result: Result<SpoolRecordExt, String>);
 }
 
 fn tag_id_hex(tag_id: &[u8]) -> String {
