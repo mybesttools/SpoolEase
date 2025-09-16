@@ -5,9 +5,10 @@ import { AppBackend, AppState } from "app.slint";
 export component SelectInventoryId inherits Rectangle {
     background: black;
     property <string> error: "";
+    in-out property <string> title: "Select Untagged Inventory Spool ID to Use";
     VerticalLayout {
-        Title {
-            text: "Select Untagged Inventory Spool ID to Use";
+        if root.title != "": Title {
+            text: title;
         }
 
         HorizontalLayout {

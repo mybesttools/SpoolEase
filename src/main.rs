@@ -125,7 +125,7 @@ async fn main(spawner: Spawner) {
     heap_dram2_allocator!(64 * 1024);
 
     // Last, reserve from 'standard' area, if need additional memory for esp-wifi/esp-mbedtls, need to increase this
-    esp_alloc::heap_allocator!(166 * 1024);
+    esp_alloc::heap_allocator!(160 * 1024);
 
     let task = Box::leak(Box::new(TaskStorage::new())).spawn(heap_stats_task);
     spawner.spawn(task).ok();

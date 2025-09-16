@@ -1,0 +1,328 @@
+import { MyText, MyButton, ButtonType, WizardButtons, Title } from "framework/widgets.slint";
+import { SelectInventoryId } from "select-inventory-id.slint";
+import { NumPad } from "numpad.slint";
+import { AppBackend, AppState, ControlState,FilamentInfoMode, NewTagScanPage, NewTagOperation, SpoolScaleState } from "app.slint";
+import { FilamentInfo  } from "filament-info.slint";
+import { Utils } from "utils.slint";
+import { ScaleWeightDisplay } from "app-widgets.slint";
+
+component OperationSelectionStep inherits Rectangle {
+    callback next-clicked;
+    callback cancel-clicked;
+    background: white;
+    VerticalLayout {
+        Title {
+            text: "New Tag Scanned";
+        }
+
+        VerticalLayout {
+            alignment: start;
+            padding: 5px;
+            padding-top: 10px;
+            spacing: 8px;
+            Rectangle {
+                MyText {
+                    width: parent.width;
+                    wrap: word-wrap;
+                    text: "New Tag Scanned — Please Choose an Action";
+                    color: black;
+                }
+            }
+
+            VerticalLayout {
+                b1 := MyButton {
+                    type: ButtonType.PushButton;
+                    height: 56px;
+                    text: "Link Tag to an Untagged Spool";
+                    clicked => {
+                        b2.pushed = false;
+                        AppState.new-tag-operation = self.pushed ? NewTagOperation.LinkTagToSpoolId : NewTagOperation.None;
+                    }
+                }
+
+                b2 := MyButton {
+                    visible: AppBackend.recently_added_spool_id_if_untagged() != "";
+                    type: ButtonType.PushButton;
+                    height: 56px;
+                    text: "Link Tag to Recently Added Spool (ID: \{AppBackend.recently_added_spool_id_if_untagged()})";
+                    clicked => {
+                        b1.pushed = false;
+                        AppState.new-tag-operation = self.pushed ? NewTagOperation.LinkTagToRecentlyAddedSpool : NewTagOperation.None;
+                    }
+                }
+            }
+        }
+
+        WizardButtons {
+            next-enabled: AppState.new-tag-operation != NewTagOperation.None;
+            next-clicked => {
+                root.next-clicked();
+            }
+            cancel-clicked => {
+                root.cancel-clicked();
+            }
+        }
+    }
+}
+
+component SpoolSelectStep inherits Rectangle {
+    height: 320px;
+    width: 480px;
+    callback next-clicked;
+    callback back-clicked;
+    callback cancel-clicked;
+    background: white;
+    in-out property <string> spool-id: num-pad.number;
+    VerticalLayout {
+        Title {
+            text: "Please Select Spool Id to Link";
+        }
+
+        Rectangle {
+            num-pad := NumPad {
+                changed number => {
+                    wiz-buttons.next-enabled = false;
+                }
+                property <string> error: "";
+                display-postfix: "";
+                ok-clicked => {
+                    error = AppBackend.fill-encode-request-from-spool-id(num-pad.number);
+                    if error == "" {
+                        AppState.encoding-select-spool-id = false;
+                        wiz-buttons.next-enabled = true;
+                    } else {
+                        num-pad.display-error = error;
+                        wiz-buttons.next-enabled = false;
+                    }
+                }
+            }
+        }
+
+        wiz-buttons := WizardButtons {
+            back-enabled: true;
+            back-clicked => {
+                back-clicked();
+            }
+            cancel-clicked => {
+                cancel-clicked();
+            }
+            next-clicked => {
+                next-clicked();
+            }
+        }
+    }
+}
+
+component SpoolDisplayStep inherits Rectangle {
+    callback next-clicked;
+    callback back-clicked;
+    callback cancel-clicked;
+    in-out property <bool> back-enabled: true;
+    in-out property <bool> next-enabled: true;
+    in-out property <bool> cancel-enabled: true;
+    in-out property <string> cancel-text: "";
+    in-out property <string> next-text: "";
+    VerticalLayout {
+        FilamentInfo {
+            height: 320px - 56px;
+            mode: FilamentInfoMode.Wizard;
+        }
+
+        WizardButtons {
+            back-enabled: root.back-enabled;
+            next-enabled: root.next-enabled;
+            cancel-enabled: root.cancel-enabled;
+            cancel-text: root.cancel-text;
+            next-text: root.next-text;
+            back-clicked => {
+                back-clicked();
+            }
+            cancel-clicked => {
+                cancel-clicked();
+            }
+            next-clicked => {
+                next-clicked();
+            }
+        }
+    }
+}
+
+component MeasureWeightPage inherits Rectangle {
+    callback cancel-clicked;
+    callback next-clicked;
+    in-out property <bool> success;
+    in-out property <string> message;
+    in-out property <bool> unused: unused.pushed;
+    background: white;
+    VerticalLayout {
+        Title {
+            text: "Linking Tag Succeeded, Measure Weight";
+        }
+
+        VerticalLayout {
+            alignment: start;
+            padding: 5px;
+            spacing: 8px;
+
+            Rectangle {
+                VerticalLayout {
+                    spacing: 8px;
+                    Rectangle {
+                        MyText {
+                            width: parent.width;
+                            text: "Now is a good time to measure spool weight,\nplease place it on the scale.";
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        alignment: center;
+                        scale-display := ScaleWeightDisplay {
+                            weight-display-content: Gross;
+                            width: 160px;
+                        }
+                    }
+
+                    MyText {
+                        width: parent.width;
+                        text: "Is the spool currently new or has been used?";
+                    }
+
+                    // TODO: default based on backend info (need to add to encode-request/display the added-as-new)
+                    HorizontalLayout {
+                        used := MyButton {
+                            height: 56px;
+                            type: PushButton;
+                            text: "Used";
+                            clicked => {
+                                unused.pushed = false;
+                            }
+                        }
+
+                        unused := MyButton {
+                            height: 56px;
+                            type: PushButton;
+                            text: "New/Unused";
+                            clicked => {
+                                used.pushed = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        WizardButtons {
+            back-enabled: false;
+            next-enabled: scale-display.stable-weight && (used.pushed || unused.pushed);
+            cancel-enabled: true;
+            next-text: "Weight & Finish";
+            cancel-clicked => {
+                cancel-clicked();
+            }
+            next-clicked => {
+                next-clicked();
+            }
+        }
+    }
+}
+
+component StatusDisplayPage inherits Rectangle {
+    callback cancel-clicked;
+    in-out property <bool> success;
+    in-out property <string> message;
+    VerticalLayout {
+        Rectangle {
+            background: success ? lightgreen : red;
+            MyText {
+                text: message;
+                color: Utils.contrasting_color(parent.background);
+            }
+        }
+
+        WizardButtons {
+            back-enabled: false;
+            next-enabled: false;
+            cancel-enabled: true;
+            cancel-text: "Close";
+            cancel-clicked => {
+                cancel-clicked();
+            }
+        }
+    }
+}
+
+export component NewTagScan inherits Rectangle {
+    width: 480px;
+    height: 320px;
+
+    oper-select := OperationSelectionStep {
+        visible: AppState.new-tag-scan-page == NewTagScanPage.OperationSelect;
+        next-clicked => {
+            if AppState.new-tag-operation == NewTagOperation.LinkTagToSpoolId {
+                AppState.new-tag-scan-page = NewTagScanPage.SpoolSelect;
+            } else {
+                AppState.new-tag-scan-spool-id = AppBackend.recently_added_spool_id_if_untagged();
+                AppBackend.fill-encode-request-from-spool-id(AppBackend.recently_added_spool_id_if_untagged());
+                AppState.encoding-select-spool-id = false;
+                AppState.new-tag-scan-page = NewTagScanPage.LinkSpoolDisplay;
+            }
+        }
+        cancel-clicked => {
+            AppState.control-state = ControlState.Ready;
+        }
+    }
+
+    spool-select := SpoolSelectStep {
+        visible: AppState.new-tag-scan-page == NewTagScanPage.SpoolSelect;
+        back-clicked => {
+            AppState.new-tag-scan-page = NewTagScanPage.OperationSelect;
+        }
+        next-clicked => {
+            AppState.new-tag-scan-spool-id = self.spool-id;
+            AppState.new-tag-scan-page = NewTagScanPage.LinkSpoolDisplay;
+        }
+        cancel-clicked => {
+            AppState.control-state = ControlState.Ready;
+        }
+    }
+
+    if AppState.new-tag-scan-page == NewTagScanPage.LinkSpoolDisplay: spool-display := SpoolDisplayStep {
+        visible: AppState.new-tag-scan-page == NewTagScanPage.LinkSpoolDisplay;
+        property <bool> last-step:AppState.spool-scale-state == SpoolScaleState.NotAvailable ? true : false;
+        next-text: "✓ Link Tag" + (last-step ? "" : " ▶");
+        back-clicked => {
+            AppState.new-tag-scan-page = NewTagScanPage.SpoolSelect;
+        }
+        next-clicked => {
+            spool-display.back-enabled = false;
+            spool-display.next-enabled = false;
+            spool-display.cancel-text = "Close";
+            // perform action
+            AppBackend.link_tag_to_spool_id(AppState.new-tag-scan-tag-id, AppState.new-tag-scan-spool-id, last-step);
+        }
+        cancel-clicked => {
+            AppState.control-state = ControlState.Ready;
+        }
+    }
+
+    if AppState.new-tag-scan-page == NewTagScanPage.MeasureWeight: measure-weight-display := MeasureWeightPage {
+        next-clicked => {
+          AppBackend.set-spool-weight(AppState.new-tag-scan-spool-id, AppState.spool-scale-weight, self.unused, true);
+        }
+        cancel-clicked => {
+            AppState.control-state = ControlState.Ready;
+        }
+    }
+
+    if AppState.new-tag-scan-page == NewTagScanPage.StatusDisplay: status-display := StatusDisplayPage {
+        visible: AppState.new-tag-scan-page == NewTagScanPage.StatusDisplay;
+        cancel-clicked => {
+            AppState.new-tag-scan-page = NewTagScanPage.OperationSelect;
+            AppState.new-tag-scan-status = "";
+            AppState.control-state = ControlState.Ready;
+        }
+        success: AppState.new-tag-scan-status == "";
+        message: self.success ? "Tag Linked to Spool Successfuly" : AppState.new-tag-scan-status;
+    }
+}

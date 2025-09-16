@@ -21,7 +21,6 @@ use alloc::{
 };
 use bambu_print::PrintProject;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use slint::ModelExt;
 use core::{cell::RefCell, mem::swap, str::FromStr};
 use derivative::Derivative;
 use embassy_executor::raw::TaskStorage;
@@ -52,6 +51,7 @@ use crate::{
 };
 
 const FILAMENT_URL_PREFIX: &str = "https://info.filament3d.org/";
+const FILAMENT_URL_PREFIX_V1_TAG: &str = "https://info.filament3d.org/V1/";
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -659,6 +659,7 @@ impl BambuPrinter {
         None
     }
 
+    #[allow(dead_code)]
     pub fn get_tray_k_info(&self, tray_id: usize) -> Option<KInfo> {
         let tray = self.get_any_tray(tray_id);
         let calibration = self.get_tray_calibration(tray)?;
@@ -2615,11 +2616,11 @@ impl TagInformation {
         } else {None};
         SpoolRecord {
             id: self.id.as_ref().unwrap_or(empty).clone(),
-            tag_id: self.tag_id.as_ref().map(|tag_id| hex::encode_upper(&tag_id)).unwrap_or_default(),
-            material_type: self.filament.as_ref().and_then(|f| Some(f.tray_type.clone())).unwrap_or_default(),
+            tag_id: self.tag_id.as_ref().map(hex::encode_upper).unwrap_or_default(),
+            material_type: self.filament.as_ref().map(|f| f.tray_type.clone()).unwrap_or_default(),
             material_subtype: self.filament_subtype.as_ref().unwrap_or(empty).clone(),
             color_name: self.color_name.as_ref().unwrap_or(empty).clone(),
-            color_code: self.filament.as_ref().and_then(|f| Some(f.tray_color.clone())).unwrap_or_default(),
+            color_code: self.filament.as_ref().map(|f| f.tray_color.clone()).unwrap_or_default(),
             note: self.note.as_ref().unwrap_or(empty).clone(),
             brand: self.brand.as_ref().unwrap_or(empty).clone(),
             weight_advertised: self.weight_advertised,
@@ -2681,7 +2682,7 @@ pub struct KNozzleId {
 // k_info.printers["01P..."][0]["0.4"]["HH00"].name / .k
 
 impl TagInformation {
-    pub fn to_descriptor(&self, _printer_name: Option<&str>, _printer_uuid: Option<&str>) -> Option<String> {
+    pub fn to_v1_descriptor(&self, _printer_name: Option<&str>, _printer_uuid: Option<&str>) -> Option<String> {
         // let mut inner_calibrations_part = String::new();
         //
         // // if printer_name not supplied, it means a reuest to encode using printer information in tag (e.g. encoding from staging)
@@ -2797,7 +2798,7 @@ impl TagInformation {
 
     // TODO: remove all the printer parts, should only parse, the rest of the matching thould go elsewhere
 
-    pub fn from_descriptor(descriptor: &str) -> Result<Self, Error> {
+    pub fn from_v1_descriptor(descriptor: &str) -> Result<Self, Error> {
         let mut filament_info_result = FilamentInfo::new();
         let mut calibrations_result = HashMap::new();
         let mut weight_advertised = None;
@@ -2810,7 +2811,7 @@ impl TagInformation {
         let mut tag_id = None;
         let mut encode_time = None;
 
-        if !(descriptor.starts_with(FILAMENT_URL_PREFIX)) {
+        if !(descriptor.starts_with(FILAMENT_URL_PREFIX_V1_TAG)) { // below the code should still use the base FILAMENT_URL_PREFIX
             return Err(Error::ParseError);
         }
         // let descriptor = descriptor.trim_start_matches(FILAMENT_URL_PREFIX);

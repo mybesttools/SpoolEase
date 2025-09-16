@@ -2,36 +2,46 @@ import { ListView } from "std-widgets.slint";
 
 export component MyText inherits Text {
     font-size: 20px;
+    color: black;
+}
+
+export enum ButtonType {
+  Standard,
+  PushButton,
 }
 
 export component MyButton inherits Rectangle {
+    in property <ButtonType> type: ButtonType.Standard;
     in property <string> text;
     in property <length> text-padding;
     in property <bool> enabled: true;
-    in property <bool> pushed: false;
+    in-out property <bool> pushed: false;
     in property <TextHorizontalAlignment> horizontal-alignment: center;
     callback clicked;
-        background: enabled ? @linear-gradient(20deg, #3559E0 0%, #c2cdf6 100%) : @linear-gradient(20deg, #5C5C5C 0%, #CFCFCF 100%);
-        Text {
-            x: text-padding;
-            width: parent.width - text-padding * 2;
-            horizontal-alignment: root.horizontal-alignment;
-            text: root.text;
-            font-size: 20px;
-            font-weight: 400 + (enabled && area.pressed ? 500 : 0);
-            wrap: word-wrap;
-            color: enabled ? black : #666666;
-        }
+    background: (type == ButtonType.Standard) ? (enabled ? @linear-gradient(20deg, #3559E0 0%, #c2cdf6 100%) : @linear-gradient(20deg, #5C5C5C 0%, #CFCFCF 100%)) : ((enabled && area.pressed) || pushed ? green : white);
+    Text {
+        x: text-padding;
+        width: parent.width - text-padding * 2;
+        horizontal-alignment: root.horizontal-alignment;
+        text: root.text;
+        font-size: 20px;
+        font-weight: 400 + (enabled && area.pressed && type == ButtonType.Standard ? 500 : 0);
+        wrap: word-wrap;
+        color: enabled ? black : #666666;
+    }
 
-        area := TouchArea {
-            width: parent.width;
-            height: parent.height;
-            clicked => {
-                if enabled {
-                    root.clicked();
-                }
+    area := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => {
+            if type == ButtonType.PushButton {
+                root.pushed = !root.pushed;
+            }
+            if enabled {
+                root.clicked();
             }
         }
+    }
 
     Rectangle {
         // to add the border - slint software renderer doen't do gradents with border
@@ -202,7 +212,7 @@ export component Selector inherits Rectangle {
             }
 
             VerticalLayout {
-                if filter-button-height!= 0: filter := MyButton {
+                if filter-button-height != 0: filter := MyButton {
                     text: "ABC";
                     height: filter-button-height;
                     clicked => {
@@ -399,7 +409,7 @@ export component HorizontalSelector inherits Window {
                 border-width: 1px;
                 MyText {
                     text: option;
-                    color: option == selected-option ?  black : gray;
+                    color: option == selected-option ? black : gray;
                 }
 
                 TouchArea {
@@ -419,6 +429,124 @@ export component HorizontalSelector inherits Window {
         text: "▶";
         clicked => {
             centerd-option-index = min(centerd-option-index + 1, options.length - 1);
+        }
+    }
+}
+
+// export component WizardScreen {
+//     callback cancel;
+//     callback finish;
+//     callback leave-page(int);
+//     callback enter-page(int);
+//
+//     in-out property <int> num-pages;
+//     in-out property <int> cur-page: 0;
+//     in-out property <string> title;
+//     in-out property <bool> enable-next: true;
+//
+//     VerticalLayout {
+//         Title {
+//             text: title;
+//         }
+//
+//         @children
+//
+//         HorizontalLayout {
+//             height: 60px;
+//             MyButton {
+//                 text: "◀ Back";
+//                 enabled: root.cur_page > 0;
+//                 clicked => {
+//                     if root.cur-page > 0 {
+//                         leave-page(root.cur-page);
+//                         root.cur-page -= 1;
+//                         enter-page(root.cur-page);
+//                     }
+//                 }
+//             }
+//
+//             MyButton {
+//                 text: root.cur_page < root.num_pages? "Next ▶" : "✓ Finish";
+//                 enabled: root.enable-next;
+//                 clicked => {
+//                     if root.cur-page < root.num-pages {
+//                         leave-page(root.cur-page);
+//                         root.cur-page += 1;
+//                         enter-page(root.cur-page);
+//                     } else {
+//                         finish();
+//                     }
+//                 }
+//             }
+//
+//             MyButton {
+//                 text: "× Cancel";
+//                 clicked => { cancel(); }
+//             }
+//         }
+//     }
+// }
+//
+// component TestWizard {
+//     width: 480px;
+//     height: 320px;
+//     wizard := WizardScreen {
+//         width: parent.width;
+//         height: parent.height;
+//         enter-page => {
+//             self.title = self.cur-page;
+//         }
+//         num_pages: 4;
+//         title: "Wizard Title";
+//         if wizard.cur_page == 0: Rectangle {
+//             background: green;
+//             MyText {
+//                 text: wizard.cur_page;
+//                 color: black;
+//             }
+//         }
+//         if wizard.cur_page == 1: Rectangle {
+//             background: yellow;
+//             MyText {
+//                 text: wizard.cur_page;
+//                 color: black;
+//             }
+//         }
+//     }
+// }
+export component WizardButtons inherits HorizontalLayout {
+    callback next-clicked;
+    callback back-clicked;
+    callback cancel-clicked;
+    in-out property <string> next-text: "";
+    in-out property <string> cancel-text: "";
+    in-out property <bool> back-enabled: false;
+    in-out property <bool> next-enabled: false;
+    in-out property <bool> cancel-enabled: true;
+    in-out property <bool> last-page: false;
+
+    height: 56px;
+    MyButton {
+        text: "◀ Back";
+        clicked => {
+          back-clicked();
+        }
+        enabled: back-enabled;
+    }
+
+    MyButton {
+        text: next-text == "" ? (last-page ? "✓ Finish" : "Next ▶") : next-text ;
+        enabled: next-enabled;
+        clicked => {
+          next-clicked();
+        }
+    }
+
+    MyButton {
+        text: cancel-text == "" ? "× Cancel" : cancel-text;
+        enabled: cancel-enabled;
+        clicked => {
+            cancel-clicked();
         }
     }
 }

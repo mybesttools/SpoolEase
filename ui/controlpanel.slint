@@ -1,7 +1,7 @@
 import { FrameworkBackend, FrameworkState } from "framework/framework.slint";
 import { MyButton } from "framework/widgets.slint";
 import { AppConsts, AppBackend, AppState, StatusType, ControlState, SpoolScaleState, SpoolStagingState } from "app.slint";
-import { Utils } from "utils.slint";
+import { Utils } from "Utils.slint";
 import { SpoolStaging } from "spoolstaging.slint";
 
 
@@ -31,8 +31,6 @@ export component ControlPanelBase inherits HorizontalLayout {
     }
     in-out property <length> button-width;
     in-out property <length> text-border-width: 1px;
-
-    utils := Utils { }
 
     in-out property <int> button1-timer-count: button1-timeout;
     button1-timer := Timer {
@@ -101,7 +99,7 @@ export component ControlPanelBase inherits HorizontalLayout {
             border-width: text-border-timer.text-border-width;
             background: AppState.spool-scale-state == SpoolScaleState.Disconnected || AppState.spool-scale-state == SpoolScaleState.Uncalibrated ? orangered : AppState.spool-scale-state == SpoolScaleState.Connected ? lightgreen : AppState.spool-scale-state == SpoolScaleState.Loaded && !AppState.spool-scale-weight-stable ? yellow : lightskyblue;
             Text {
-                color: utils.contrasting_color(parent.background);
+                color: Utils.contrasting_color(parent.background);
                 font-size: 20px;
                 text: AppState.spool-scale-state == SpoolScaleState.Disconnected ? "Scale Disconnected" : AppState.spool-scale-state == SpoolScaleState.Uncalibrated ? "Scale Not Calibrated" : AppState.spool-scale-state == SpoolScaleState.Connected ? "Scale Connected" : AppState.spool-scale-state == SpoolScaleState.Loaded ? weight-display() : "";
             }
@@ -118,7 +116,7 @@ export component ControlPanelBase inherits HorizontalLayout {
                 font-size: 20px;
                 wrap: word-wrap;
                 text: message-text;
-                color: message-color == black ? utils.contrasting_color(parent.background) : message-color;
+                color: message-color == black ? Utils.contrasting_color(parent.background) : message-color;
             }
         }
     }
@@ -183,7 +181,7 @@ export component Ready inherits ControlPanelBase {
     message-color: color-timer.color;
     message-text: (AppState.spool-staging-state == SpoolStagingState.Empty ? "Scanning for Tagged Spool..." : "Load Spool\nor Rescan Tag") + 
                   (AppState.available-printers.length > 1 ? "\n\n\{AppState.curr-printer}" : "") +
-                  (AppState.available-printers.length >= 1 && AppState.some-printer-connected ? "" : "\n\nConnecting to Printer(s)");
+                  (AppState.available-printers.length >= 1 && AppState.some-printer-connected ? "" : "\n\n- Connecting to Printer(s) -");
     button1-text: (AppState.spool-staging-state != SpoolStagingState.Empty) ? "Clear Staging" : "";
     button1-timeout: (AppState.spool-staging-state != SpoolStagingState.Empty) ? 60 : 0;
     button2-text: "Encode Tag";

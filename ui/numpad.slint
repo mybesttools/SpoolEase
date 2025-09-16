@@ -13,13 +13,14 @@ export component Display inherits Rectangle {
         padding-right: 20px;
         padding-left: 10px;
         Rectangle {
-          MyText {
-            text: display-error;
-            color: red;
-          }
+            MyText {
+                text: display-error;
+                color: red;
+            }
         }
+
         VerticalLayout {
-            horizontal-stretch:1;
+            horizontal-stretch: 1;
             padding: 4px;
             alignment: center;
             Text {
@@ -28,6 +29,7 @@ export component Display inherits Rectangle {
                 text: "\{number}\{postfix}";
                 font-size: 32px;
                 horizontal-alignment: right;
+                color: black;
             }
         }
     }
@@ -47,7 +49,8 @@ export component NumButton inherits MyButton {
 ////////////////////////
 
 export component NumPad inherits Rectangle {
-    in property<int> max-digits: 4;
+    in property <int> max-digits: 4;
+    in property <bool> ok-visible: true;
     width: 288px;
     callback ok-clicked;
     in property <string> title;
@@ -57,20 +60,20 @@ export component NumPad inherits Rectangle {
     in-out property <string> display-error;
     function pressed-digit(digit: int) {
         if log(number, 10) < max-digits - 1 {
-          number = number * 10 + digit;
-          display-error = "";
+            number = number * 10 + digit;
+            display-error = "";
         }
     }
     main := VerticalLayout {
         Display {
-            height: root.height/5;
+            height: root.height / 5;
             postfix: display-postfix;
             number: root.number;
             display-error: display-error;
         }
 
         HorizontalLayout {
-            vertical-stretch:1;
+            vertical-stretch: 1;
             NumButton {
                 digit: 7;
                 pressed(digit) => {
@@ -156,16 +159,18 @@ export component NumPad inherits Rectangle {
             }
 
             NumButton {
-                text: "Ok";
+                text: ok-visible ? "Ok" : "";
                 pressed(digit) => {
-                    root.ok-clicked();
+                    if ok-visible {
+                        root.ok-clicked();
+                    }
                 }
             }
         }
     }
 
     Rectangle {
-        y:  main.y - 1px;
+        y: main.y - 1px;
         width: main.width;
         border-color: black;
         border-width: 1px;

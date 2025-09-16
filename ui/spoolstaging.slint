@@ -1,11 +1,10 @@
 import { MyText, MyButton } from "framework/widgets.slint";
-import { Utils } from "utils.slint"; 
+import { Utils } from "Utils.slint"; 
 import { AppState, AppConsts, AppBackend, SpoolStagingState, ControlState, SpoolScaleState, UiSpoolInfo } from "app.slint";
 import { FrameworkState } from "framework/framework.slint";
 
 export component SpoolStaging inherits Window {
     callback clicked-ota;
-    utils := Utils { }
 
     main := VerticalLayout {
         spacing: AppConsts.trays-spacing;
@@ -13,7 +12,7 @@ export component SpoolStaging inherits Window {
             background: AppConsts.title-gradient;
             height: 30px;
             Text {
-                color: utils.contrasting_color(title.background);
+                color: Utils.contrasting_color(title.background);
                 text: AppState.spool-staging-state == SpoolStagingState.Empty ? "Staging" : AppState.spool-staging-state == SpoolStagingState.Scanned ? "Scanned" : AppState.spool-staging-state == SpoolStagingState.Encoded ? "Encoded" : "Unloaded";
                 font-size: 20px;
             }
@@ -41,7 +40,7 @@ export component SpoolStaging inherits Window {
                         horizontal-alignment: center;
                         font-size: 20px;
                         text: AppState.spool-staging-info.id != "" ? "ID: \{AppState.spool-staging-info.id}" : "";
-                        color: utils.contrasting_color(filament-box.background);
+                        color: Utils.contrasting_color(filament-box.background);
                     }
 
                     material := Text {
@@ -49,7 +48,7 @@ export component SpoolStaging inherits Window {
                         horizontal-alignment: center;
                         font-size: 20px;
                         text: AppState.spool-staging-info.material;
-                        color: utils.contrasting_color(filament-box.background);
+                        color: Utils.contrasting_color(filament-box.background);
                     }
 
                   // K Value (show only if no ID, otherwiser no room)
@@ -58,7 +57,7 @@ export component SpoolStaging inherits Window {
                         horizontal-alignment: center;
                         font-size: 20px;
                         text: "K " + ((AppState.spool-staging-info.k != "") ? AppState.spool-staging-info.k : "N/A");
-                        color: utils.contrasting_color(filament-box.background);
+                        color: Utils.contrasting_color(filament-box.background);
                     }
 
                   // // Spool Core Weight
@@ -67,7 +66,7 @@ export component SpoolStaging inherits Window {
                   //       horizontal-alignment: center;
                   //       font-size: 20px;
                   //       text: (parent.show-weight ? "\{AppState.spool-staging-info.weight-core}g" : "");
-                  //       color: utils.contrasting_color(filament-box.background);
+                  //       color: Utils.contrasting_color(filament-box.background);
                   //   }
                 }
             }
@@ -119,7 +118,7 @@ export component SpoolStaging inherits Window {
         width: parent.width;
         height: parent.height;
         border-width: 4px;
-        border-color: utils.contrasting_color(filament-box.background);
+        border-color: Utils.contrasting_color(filament-box.background);
     }
 
     area := TouchArea {

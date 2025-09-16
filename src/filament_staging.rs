@@ -57,11 +57,16 @@ impl FilamentStaging {
         // if let Some(tag_info) = &mut self.tag_info {
         //     tag_info.id = Some(spool_rec.id.clone());
         // }
-        self.full_spool_rec.get_or_insert_with(|| FullSpoolRecord {
+        self.full_spool_rec = Some(FullSpoolRecord {
             spool_rec,
             spool_rec_ext: SpoolRecordExt::default()
         });
         self.origin = origin;
+    }
+    pub fn update_spool_rec_keep_rest(&mut self, spool_rec: SpoolRecord) {
+        if let Some(full_spool_rec) = &mut self.full_spool_rec {
+            full_spool_rec.spool_rec = spool_rec
+        }
     }
     // pub fn _tag_info_mut(&mut self) -> &mut Option<TagInformation> {
     //     &mut self.tag_info

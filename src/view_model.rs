@@ -39,9 +39,7 @@ use crate::color_utils::get_color_name;
 use crate::filament_staging::StagingOrigin;
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
-use crate::store::{
-    store_safe_time_now, AnyClone, Cookie, FullSpoolRecord, SpoolRecord, SpoolRecordExt, Store, StoreObserver, StoreOp,
-};
+use crate::store::{store_safe_time_now, Cookie, FullSpoolRecord, SpoolRecordExt, Store, StoreObserver, StoreOp};
 use crate::web_app::EncodeInfoDTO;
 use crate::{
     app_config::AppConfig,
@@ -81,6 +79,7 @@ pub struct ViewModel {
     console_available_gcode_tasks: usize,
     ssdp_pub_sub: &'static SSDPPubSubChannel,
     app_async_tasks_channel: Rc<AppAsyncTasksChannel>,
+    pub recently_added_spool_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -164,6 +163,7 @@ impl ViewModel {
             console_available_gcode_tasks: 0,
             ssdp_pub_sub,
             app_async_tasks_channel,
+            recently_added_spool_id: None,
         };
         let view_model_rc = Rc::new(RefCell::new(view_model));
 
@@ -262,6 +262,37 @@ impl ViewModel {
                 .spawn(store_printers_consume(self.view_model.clone().unwrap()))
                 .ok();
         }
+        let moved_view_model = self.view_model.clone().unwrap();
+        ui_app_backend.on_link_tag_to_spool_id(move |tag_id, spool_id, final_step| {
+            let _ = moved_view_model.borrow().dispatch_async_task(AppAsyncTaskRequest::LinkTagToSpool {
+                tag_id: tag_id.into(),
+                spool_id: spool_id.into(),
+                final_step,
+            });
+        });
+
+        let moved_view_model = self.view_model.clone().unwrap();
+        ui_app_backend.on_set_spool_weight(move |spool_id, weight, unused, final_step| {
+            let _ = moved_view_model.borrow().dispatch_async_task(AppAsyncTaskRequest::SetSpoolWeight {
+                spool_id: spool_id.into(),
+                weight,
+                unused,
+                final_step,
+            });
+        });
+
+        let moved_view_model = self.view_model.clone().unwrap();
+        ui_app_backend.on_recently_added_spool_id_if_untagged(move || {
+            let store = moved_view_model.borrow().store.clone();
+            if let Some(spool_id) = &moved_view_model.borrow().recently_added_spool_id {
+                if let Some(spool_rec) = store.get_spool_by_id(spool_id) {
+                    if spool_rec.tag_id.is_empty() {
+                        return spool_id.to_shared_string();
+                    }
+                }
+            }
+            SharedString::new()
+        });
     }
 
     pub fn init_framework_stuff(&mut self) {
@@ -740,25 +771,6 @@ impl ViewModel {
         view_model
             .borrow()
             .set_staging_to_tray_direct(filament_staging, &mut bambu_printer.borrow_mut(), ui, tray_id);
-        // let mut filament_staging = filament_staging.borrow_mut();
-        // if let Some(full_spool_rec) = filament_staging.full_spool_rec() {
-        //     let filament_info = view_model.borrow().get_filament_info(&full_spool_rec.spool_rec.slicer_filament);
-        //     let min_max_temps = filament_info.map(|fi| (fi.2, fi.3));
-        //     bambu_printer
-        //         .borrow_mut()
-        //         .set_tray_filament(tray_id, full_spool_rec, min_max_temps);
-        //     filament_staging.clear();
-        //     ui.unwrap().global::<crate::app::AppState>().invoke_empty_spool_staging();
-        //     let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
-        //     let ams_id_for_ui = Self::ams_if_for_ui(ams_id);
-        //     let tray_id = tray_id as i32;
-        //
-        //     ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_succeeded(
-        //         bambu_printer.borrow().printer_selector_name.to_shared_string(),
-        //         ams_id_for_ui,
-        //         tray_id,
-        //     );
-        // }
     }
 
     pub fn tag_info_to_encode(&self, encode_request: &EncodeRequest) -> Result<TagInformation, String> {
@@ -860,9 +872,9 @@ impl ViewModel {
             // Next encode
             let bambu_printer_borrow = moved_bambu_printer.borrow();
             let descriptor_res = if tray_id == 999 || tray_id == 998 {
-                &tag_info_to_encode.to_descriptor(None, None)
+                &tag_info_to_encode.to_v1_descriptor(None, None)
             } else {
-                &tag_info_to_encode.to_descriptor(
+                &tag_info_to_encode.to_v1_descriptor(
                     Some(bambu_printer_borrow.printer_name()),
                     Some(&bambu_printer_borrow.printer_uuid_to_encode),
                 )
@@ -899,60 +911,31 @@ impl ViewModel {
         // handle encoding related listener(s) - this depends on current printer
 
         let moved_ui = self.ui_weak.clone();
-        let moved_store = self.store.clone();
         let moved_view_model = self.view_model.as_ref().unwrap().clone();
         self.ui_weak
             .unwrap()
             .global::<crate::app::AppBackend>()
+            // TODO: simplify and rename structure and fields and everything
             .on_fill_encode_request_from_spool_id(move |spool_id| {
-                let moved_ui = moved_ui.unwrap();
-                let ui_app_state = moved_ui.global::<crate::app::AppState>();
-                let mut encode_request = ui_app_state.get_curr_encode_request();
-                let encode_request_display = ui_app_state.get_curr_encode_request_display();
-                if let Some(spool_rec) = moved_store.get_spool_by_id(spool_id.as_str()) {
-                    let from_blank_request = encode_request.tray_index == 998 || encode_request.tray_index == 999;
-                    if spool_rec.tag_id.is_empty() {
-                        if spool_rec.material_type.as_str() == encode_request_display.filament_type.as_str() || from_blank_request {
-                            encode_request.id = spool_id;
-                            if let Some(weight_advertised) = spool_rec.weight_advertised {
-                                encode_request.weight_advertised = weight_advertised;
-                            }
-                            if let Some(weight_core) = spool_rec.weight_core {
-                                encode_request.weight_core = weight_core;
-                            }
-                            encode_request.brand = spool_rec.brand.to_shared_string();
-                            encode_request.filament_subtype = spool_rec.material_subtype.to_shared_string();
-                            encode_request.color_name = spool_rec.color_name.to_shared_string();
-                            encode_request.note = spool_rec.note.to_shared_string();
-
-                            if encode_request.tray_index == 998 || encode_request.tray_index == 999 {
-                                let mut view_model_borrow_mut = moved_view_model.borrow_mut();
-                                if from_blank_request {
-                                    let slicer_filament_enriched_info = if !spool_rec.slicer_filament.is_empty() {
-                                        // if povided slicer filament setting, then set temps accordingly
-                                        view_model_borrow_mut.get_filament_info(&spool_rec.slicer_filament)
-                                    } else {
-                                        None
-                                    };
-
-                                    let encode_spool_rec = &mut view_model_borrow_mut.encode_editing_area.as_mut().unwrap().spool_rec;
-
-                                    encode_spool_rec.material_type = spool_rec.material_type;
-                                    encode_spool_rec.color_code = spool_rec.color_code;
-                                    encode_spool_rec.slicer_filament = spool_rec.slicer_filament;
-                                }
-                            }
-                            ui_app_state.set_curr_encode_request(encode_request);
-                            "".to_shared_string()
-                        } else {
-                            "Material Mismatch".to_shared_string()
-                        }
-                    } else {
-                        "Already Tagged".to_shared_string()
+                if let Some(spool_rec) = moved_view_model.borrow().store.get_spool_by_id(spool_id.as_str()) {
+                    if !spool_rec.tag_id.is_empty() {
+                        return "Already Tagged".to_shared_string();
                     }
                 } else {
-                    "ID Not Found".to_shared_string()
+                    return "ID Not Found".to_shared_string();
                 }
+                let moved_ui = moved_ui.unwrap();
+                let ui_app_state = moved_ui.global::<crate::app::AppState>();
+                let encode_request = EncodeRequest {
+                    id: spool_id,
+                    tray_id: 997,
+                    ..Default::default()
+                };
+                ui_app_state.set_curr_encode_request(encode_request);
+                moved_view_model
+                    .borrow()
+                    .calc_encode_request_display(crate::app::FilamentInfoMode::Wizard);
+                SharedString::new()
             });
 
         let moved_view_model = self.view_model.as_ref().unwrap().clone();
@@ -1016,6 +999,24 @@ impl ViewModel {
                 return;
             }
 
+            997 => { // display spool-record not in any specific spot
+                if let Some(spool_rec) = self.store.get_spool_by_id(&ui_app_state.get_curr_encode_request().id) {
+                    tray_full_rec.spool_rec = spool_rec;
+                    encode_request_display.pa_line1 = format!(
+                        "Tag: {}",
+                        if tray_full_rec.spool_rec.ext_has_k {
+                            "Configured"
+                        } else {
+                            "Not configured"
+                        }
+                    )
+                    .into();
+                    (&tray_full_rec, (0, 0))
+                } else {
+                    return;
+                }
+            } // just display w/o any special source what's in encode_request
+
             999 => {
                 // Staging
                 if let Some(full_spool_rec) = staging_borrow.full_spool_rec() {
@@ -1070,6 +1071,7 @@ impl ViewModel {
                         encode_request_display.pa_line2 =
                             format!("Tag: {}", if tray_spool_rec.ext_has_k { "Configured" } else { "Not configured" }).into();
                     }
+                    tray_spool_rec.id = tray.meta_info.spool_id.as_ref().map_or_else(String::new, |v| v.clone());
                 }
 
                 // deal with case things changed from tag
@@ -1143,9 +1145,9 @@ impl ViewModel {
         };
 
         ui_app_state.set_curr_encode_request_display(encode_request_display);
-        if first_request_to_display {
+        // if first_request_to_display {
             ui_app_state.set_curr_encode_request(encode_request);
-        }
+        // }
     }
 
     fn tag_info_to_ui_spool_info_direct(
@@ -1406,17 +1408,17 @@ impl ViewModel {
         None
     }
 
-    fn display_filament_staging_direct(&self, bambu_printer_borrow: &BambuPrinter) {
+    fn display_filament_staging_direct(&self, bambu_printer_borrow: &BambuPrinter, notify_operation: bool) {
         let filament_staging_borrow = self.filament_staging.borrow();
         if let Some(ui_spool_info) = self.tag_info_to_ui_spool_info_direct(bambu_printer_borrow, filament_staging_borrow.full_spool_rec()) {
             let ui = self.ui_weak.clone();
-            if *filament_staging_borrow.origin() == StagingOrigin::Scanned {
+            if *filament_staging_borrow.origin() == StagingOrigin::Scanned && notify_operation {
                 ui.unwrap().global::<crate::app::AppState>().invoke_read_tag_succeeded(ui_spool_info);
-            } else if *filament_staging_borrow.origin() == StagingOrigin::Encoded {
+            } else if *filament_staging_borrow.origin() == StagingOrigin::Encoded && notify_operation {
                 ui.unwrap()
                     .global::<crate::app::AppState>()
                     .invoke_update_spool_staging(ui_spool_info.clone(), crate::app::SpoolStagingState::Encoded);
-            } else if *filament_staging_borrow.origin() == StagingOrigin::Unloaded {
+            } else if *filament_staging_borrow.origin() == StagingOrigin::Unloaded && notify_operation {
                 ui.unwrap().global::<crate::app::AppState>().invoke_tag_unloaded(ui_spool_info);
             } else {
                 ui.unwrap()
@@ -1426,9 +1428,9 @@ impl ViewModel {
         }
     }
 
-    fn display_filament_staging(&self) {
+    fn display_filament_staging(&self, notify_operation: bool) {
         let bambu_printer_borrow = self.bambu_printer_model.borrow();
-        self.display_filament_staging_direct(&bambu_printer_borrow);
+        self.display_filament_staging_direct(&bambu_printer_borrow, notify_operation);
     }
 
     fn dispatch_async_task(&self, async_task_request: AppAsyncTaskRequest) -> Result<(), String> {
@@ -1525,11 +1527,11 @@ impl ViewModel {
         }
     }
 
-    pub fn process_v1_tag_read(&self, tag: &str, scanned_on_scale: bool) {
+    pub fn process_v1_tag_read(&self, tag: &str, scanned_on_scale: bool) -> bool {
         let ui = self.ui_weak.clone();
         // TODO: When moving to no need to encode tag, displaying here in staging should only take place
         // if there is data from store. All processing here will be only to import old tags not in store
-        if let Ok(tag_info) = TagInformation::from_descriptor(tag) {
+        if let Ok(tag_info) = TagInformation::from_v1_descriptor(tag) {
             // we need to store tag on read in two cases:
             // Tag with this tag_id is not in store  - for upgrading from non inventory release to inventory release
             // Tag with this tag_id is in store, but w/o K there, and the tag has K - for upgrading from old tags with K to new K approach
@@ -1537,7 +1539,7 @@ impl ViewModel {
             if let Some(tag_id) = &tag_info.tag_id {
                 if let Some(spool_rec) = self.store.get_spool_by_tag_id(tag_id) {
                     self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Scanned);
-                    self.display_filament_staging();
+                    self.display_filament_staging(true);
                 }
 
                 let _ = self.dispatch_async_task(AppAsyncTaskRequest::ProcessV1TagRead {
@@ -1550,18 +1552,16 @@ impl ViewModel {
                     .global::<crate::app::AppState>()
                     .invoke_read_tag_failed(SharedString::from("Tag missing tag id"));
             }
+            true
         } else {
-            error!("Error with scanned V1 tag - can't parse informtion");
-            ui.unwrap()
-                .global::<crate::app::AppState>()
-                .invoke_read_tag_failed(SharedString::from("Error parsing V1 tag"));
+            false
         }
     }
 
     pub async fn process_v1_tag_read_async(view_model: Rc<RefCell<ViewModel>>, tag: String, scanned_on_scale: bool) {
         debug!("Received to process async read tag {tag}");
 
-        if let Ok(tag_info) = TagInformation::from_descriptor(&tag) {
+        if let Ok(tag_info) = TagInformation::from_v1_descriptor(&tag) {
             if let Some(tag_id) = &tag_info.tag_id {
                 // we need to store tag on read in two cases:
                 // Tag with this tag_id is not in store  - for upgrading from non inventory release to inventory release
@@ -1622,7 +1622,7 @@ impl ViewModel {
                             if let Some(spool_rec_ext) = spool_rec_ext {
                                 view_model_borrow.filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
                             }
-                            view_model.borrow().display_filament_staging();
+                            view_model.borrow().display_filament_staging(true);
                             if scanned_on_scale {
                                 // TODO: notify scale to show on led succeess
                             }
@@ -1640,7 +1640,7 @@ impl ViewModel {
                 } else {
                     if let Ok(spool_rec_ext) = store.get_spool_ext_by_id(&spool_rec.unwrap().id).await {
                         view_model.borrow().filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
-                        view_model.borrow().display_filament_staging();
+                        view_model.borrow().display_filament_staging(true);
                     }
                     if scanned_on_scale {
                         // TODO: notify scale to show on led success
@@ -1663,6 +1663,55 @@ impl ViewModel {
             }
             error!("Cant parse tag descriptor {tag}");
             ui_app_state.invoke_show_spoolscale_dialog("Cant parse tag descriptor".to_shared_string(), crate::app::StatusType::Error);
+        }
+    }
+
+    async fn link_tag_to_spool_id_async(view_model: Rc<RefCell<ViewModel>>, tag_id: String, spool_id: String, final_step: bool) {
+        let store = view_model.borrow().store.clone();
+        if let Some(mut spool_rec) = store.get_spool_by_id(&spool_id) {
+            spool_rec.tag_id = tag_id.clone();
+            let store_res = store.update_spool(spool_rec.clone(), None).await;
+            let ui = view_model.borrow().ui_weak.unwrap();
+            let ui_app_state = ui.global::<crate::app::AppState>();
+            match store_res {
+                Ok(_) => {
+                    ui_app_state.invoke_link_tag_to_spool_id_status(SharedString::new());
+                    view_model
+                        .borrow()
+                        .filament_staging
+                        .borrow_mut()
+                        .set_spool_record(spool_rec, StagingOrigin::Scanned);
+                    view_model.borrow().display_filament_staging(final_step);
+                }
+                Err(err) => {
+                    error!("Failed to link tag {tag_id} to spool_id {spool_id}: {err:?}");
+                    ui_app_state.invoke_link_tag_to_spool_id_status(format!("Failed to link tag to spool {spool_id}: {err:?}").to_shared_string());
+                }
+            }
+        }
+    }
+    async fn set_staging_rec_ext_async(view_model: Rc<RefCell<ViewModel>>, spool_id: String) {
+        let store = view_model.borrow().store.clone();
+        if let Ok(spool_rec_ext) = store.get_spool_ext_by_id(&spool_id).await {
+            view_model.borrow().filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
+            view_model.borrow().display_filament_staging(false);
+        }
+    }
+    async fn set_spool_weight_async(view_model: Rc<RefCell<ViewModel>>, spool_id: String, weight: i32, unused: bool, final_step: bool) {
+        let store = view_model.borrow().store.clone();
+        if let Some(mut spool_rec) = store.get_spool_by_id(&spool_id) {
+            spool_rec.weight_current = Some(weight);
+            if unused {
+                spool_rec.weight_new = Some(weight);
+                spool_rec.added_full = Some(true);
+            }
+            match store.update_spool(spool_rec.clone(), None).await {
+                Ok(_) => {
+                    view_model.borrow().filament_staging.borrow_mut().update_spool_rec_keep_rest(spool_rec);
+                    view_model.borrow().display_filament_staging(final_step);
+                }
+                Err(_) => todo!(),
+            }
         }
     }
 }
@@ -1758,7 +1807,7 @@ impl BambuPrinterObserver for ViewModel {
                 // only if empty or was unloaded (so not scanned or encoded)
                 if let Some(spool_rec) = self.store.get_spool_by_id(removed_spool.1) {
                     self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Unloaded);
-                    self.display_filament_staging_direct(bambu_printer);
+                    self.display_filament_staging_direct(bambu_printer, true);
                     let _ = self.store.try_send_op(StoreOp::ReadExtInfo { id: removed_spool.1.clone() });
                 }
             }
@@ -1906,25 +1955,26 @@ impl SpoolTagObserver for ViewModel {
                 }
 
                 if let (Ok(mut tag_info), Ok(encode_cookie)) = (
-                    TagInformation::from_descriptor(encoded_descriptor),
+                    TagInformation::from_v1_descriptor(encoded_descriptor),
                     serde_json::from_str::<EncodeCookie>(cookie),
                 ) {
                     // let tag_info_clone = if self.store.is_available() { Some(tag_info.clone()) } else { None };
 
-                    // if let Some(mut tag_info) = tag_info {
-                    let mut weight = None;
-                    if let ScaleWeight::Stable(stable_weight) = encode_cookie.scale_weight {
-                        if stable_weight != 0 {
-                            // The threshold is set in SpoolEase Scale as const 5g
-                            weight = Some(stable_weight);
-                        }
-                    }
+                    // // if let Some(mut tag_info) = tag_info {
+
+                    // let mut weight = None;
+                    // if let ScaleWeight::Stable(stable_weight) = encode_cookie.scale_weight {
+                    //     if stable_weight != 0 {
+                    //         // The threshold is set in SpoolEase Scale as const 5g
+                    //         weight = Some(stable_weight);
+                    //     }
+                    // }
 
                     if !encode_cookie.spool_id.is_empty() {
                         tag_info.id = Some(encode_cookie.spool_id.clone());
                         if let Some(spool_rec) = self.store.get_spool_by_id(&encode_cookie.spool_id) {
                             self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Encoded);
-                            self.display_filament_staging();
+                            self.display_filament_staging(true);
                         }
                     }
 
@@ -1951,9 +2001,33 @@ impl SpoolTagObserver for ViewModel {
                         .invoke_encoding_succeeded(ams_id_for_ui, tray_id);
                 }
             }
-            Status::ReadSuccess(read_text) => {
-                self.process_v1_tag_read(read_text.as_str(), false);
-            }
+            Status::ReadSuccess(read_result) => match read_result {
+                spool_tag::ReadResult::NDEF {
+                    uid: _,
+                    text: Some(ndef_text),
+                } => {
+                    if !self.process_v1_tag_read(ndef_text.as_str(), false) {
+                        error!("Error with scanned V1 tag - can't parse informtion");
+                        ui.unwrap()
+                            .global::<crate::app::AppState>()
+                            .invoke_read_tag_failed(SharedString::from("Error parsing V1 tag"));
+                    }
+                }
+
+                spool_tag::ReadResult::NDEF { uid, text: None } => {
+                    let hex_tag = hex::encode_upper(uid);
+                    if let Some(spool_rec) = self.store.get_spool_by_hex_tag(&hex_tag) {
+                        let spool_rec_id = spool_rec.id.clone();
+                        self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Scanned);
+                        self.display_filament_staging(true);
+                        let _ = self.dispatch_async_task(AppAsyncTaskRequest::SetStagingRecExt { spool_id: spool_rec_id });
+                    } else {
+                        let ui = self.ui_weak.unwrap();
+                        let ui_app_state = ui.global::<crate::app::AppState>();
+                        ui_app_state.invoke_new_tag_scanned(hex_tag.to_shared_string());
+                    }
+                }
+            },
             Status::Failure(spool_tag::Failure::TagWriteFailure) => {
                 ui.unwrap().global::<crate::app::AppState>().invoke_encoding_failed("".to_shared_string());
             }
@@ -2189,7 +2263,7 @@ impl SpoolScaleObserver for ViewModel {
     }
 
     fn on_button_pressed(&mut self, scale_weight: ScaleWeight) -> Option<bool> {
-        return self.update_spool_weight(scale_weight);
+        self.update_spool_weight(scale_weight)
     }
 
     // note that this is from Scale (which ends up calling the GcodeAnalyzerObserver on_gcode_analysis)
@@ -2234,7 +2308,7 @@ impl StoreObserver for ViewModel {
     fn on_read_spool_record_ext(&mut self, result: Result<SpoolRecordExt, String>) {
         if let Ok(spool_record_ext) = result {
             self.filament_staging.borrow_mut().set_spool_record_ext(spool_record_ext);
-            self.display_filament_staging();
+            self.display_filament_staging(false);
         }
     }
 }
@@ -2478,6 +2552,9 @@ struct GcodeJob {
 enum AppAsyncTaskRequest {
     ProcessV1TagRead { tag: String, scanned_on_scale: bool },
     UpdateSpoolWeight { weight: i32 },
+    LinkTagToSpool { tag_id: String, spool_id: String, final_step: bool },
+    SetStagingRecExt { spool_id: String },
+    SetSpoolWeight { spool_id: String, weight: i32, unused: bool, final_step: bool },
 }
 
 type AppAsyncTasksChannel = Channel<NoopRawMutex, AppAsyncTaskRequest, 5>;
@@ -2499,9 +2576,16 @@ pub async fn app_async_task(view_model: Rc<RefCell<ViewModel>>) {
     loop {
         match requests.receive().await {
             AppAsyncTaskRequest::ProcessV1TagRead { tag, scanned_on_scale } => {
-                ViewModel::process_v1_tag_read_async(view_model.clone(), tag, scanned_on_scale).await
-            }
+                        ViewModel::process_v1_tag_read_async(view_model.clone(), tag, scanned_on_scale).await
+                    }
             AppAsyncTaskRequest::UpdateSpoolWeight { weight } => ViewModel::update_spool_weight_async(view_model.clone(), weight).await,
+            AppAsyncTaskRequest::LinkTagToSpool {
+                        tag_id,
+                        spool_id,
+                        final_step,
+                    } => ViewModel::link_tag_to_spool_id_async(view_model.clone(), tag_id, spool_id, final_step).await,
+            AppAsyncTaskRequest::SetStagingRecExt { spool_id } => ViewModel::set_staging_rec_ext_async(view_model.clone(), spool_id).await,
+            AppAsyncTaskRequest::SetSpoolWeight { spool_id, weight, unused, final_step } => ViewModel::set_spool_weight_async(view_model.clone(), spool_id, weight, unused, final_step).await,
         }
     }
 }

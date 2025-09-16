@@ -39,8 +39,6 @@ export component LabeledText inherits Rectangle {
 }
 
 export component LabeledInfo inherits LabeledText {
-    utils := Utils { }
-
     label-width: 90px;
 }
 
@@ -107,7 +105,6 @@ export component FilamentInfo inherits Rectangle {
     background: white;
     // property <color> filament-color: mode == FilamentInfoMode.View ? (AppState.curr-encode-request.tray-index == 999 ? AppState.spool-staging-info.color : AppState.trays-state[AppState.curr-encode-request.tray-index].filament.color) :
     property <color> filament-color: AppState.curr-encode-request-display.title-color;
-    utils := Utils { }
 
     VerticalLayout {
         alignment: stretch;
@@ -123,25 +120,25 @@ export component FilamentInfo inherits Rectangle {
 
             EncodeTitle {
                 background: filament-color;
-                text-color: utils.contrasting_color(filament-color);
+                text-color: Utils.contrasting_color(filament-color);
             }
         }
 
-        if mode == FilamentInfoMode.View: HorizontalLayout {
+        if mode == FilamentInfoMode.View || mode == FilamentInfoMode.Wizard : HorizontalLayout {
             Rectangle {
                 width: 80px;
                 background: filament-color;
                 border-color: black;
                 border-width: 1px;
                 MyText {
-                    color: utils.contrasting_color(filament-color);
+                    color: Utils.contrasting_color(filament-color);
                     text: AppState.curr-encode-request.id != "" ? AppState.curr-encode-request.id : "-";
                 }
             }
 
             ViewTitle {
                 background: filament-color;
-                text-color: utils.contrasting_color(filament-color);
+                text-color: Utils.contrasting_color(filament-color);
             }
         }
 

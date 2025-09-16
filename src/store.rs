@@ -375,7 +375,6 @@ impl Store {
         Ok(spool_rec_ext)
     }
 
-
     #[allow(clippy::type_complexity)]
     pub async fn update_spool(
         &self,
@@ -398,8 +397,16 @@ impl Store {
                     // TODO: ? theoretically need transaction mechanism here (so lock db and then do the index operation as well)
                     spools_db.insert(spool_record).await.context(CsvDbSnafu)?;
                     if !tag_id.is_empty() && !tag_id.starts_with("-") {
+                        // first search if this tag_id is in use already and strike it out before adding this tag to index
+                        if let Some(mut existing_spool_rec_with_tag_id) = self.get_spool_by_hex_tag(&tag_id) {
+                            if existing_spool_rec_with_tag_id.id != id {
+                                existing_spool_rec_with_tag_id.tag_id = format!("-{}", existing_spool_rec_with_tag_id.tag_id);
+                                spools_db.insert(existing_spool_rec_with_tag_id).await.context(CsvDbSnafu)?;
+                            }
+                        }
                         self.tag_id_index.borrow_mut().insert(tag_id, id);
                     } else {
+                        // for some reason tag_id was removed
                         let tag_id = self
                             .tag_id_index
                             .borrow()
@@ -451,7 +458,7 @@ impl Store {
                     Ok(loaded_spool_rec_ext) => {
                         spool_rec_ext = loaded_spool_rec_ext;
                         if let Some(tag_desciptor) = &spool_rec_ext.tag {
-                            match TagInformation::from_descriptor(tag_desciptor) {
+                            match TagInformation::from_v1_descriptor(tag_desciptor) {
                                 Ok(tag_info) => {
                                     if !tag_info.calibrations.is_empty() {
                                         let k_info = view_model.borrow().get_k_info_from_old_tag(&tag_info);

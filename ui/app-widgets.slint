@@ -1,0 +1,54 @@
+import { AppConsts, AppBackend, AppState, SpoolScaleState, SpoolStagingState  } from "app.slint";
+import { Utils } from "utils.slint";
+
+export enum WeightDisplayContent {
+  NetGross,
+  Gross,
+}
+export component ScaleWeightDisplay inherits Rectangle {
+    in-out property <WeightDisplayContent> weight-display-content: NetGross;
+    in-out property <bool> stable-weight: AppState.spool-scale-state == SpoolScaleState.Loaded && AppState.spool-scale-weight-stable;
+    function weight-display() -> string {
+        if weight-display-content == WeightDisplayContent.NetGross {
+            if AppState.spool-staging-state != SpoolStagingState.Empty && AppState.spool-staging-info.weight-core != 0 {
+                return "\{AppState.spool-scale-weight - AppState.spool-staging-info.weight-core}g / \{AppState.spool-scale-weight}g";
+            } else {
+                return "\{AppState.spool-scale-weight}g";
+            }
+        } else if weight-display-content == WeightDisplayContent.Gross {
+            return "\{AppState.spool-scale-weight}g";
+        }
+        return "???";
+    }
+    text-border-timer := Timer {
+        property <int> counter: 20;
+        property <length> text-border-width: 1px;
+        interval: 0.3s;
+        running: AppState.spool-scale-flash == true;
+        triggered() => {
+            if text-border-width == 1px {
+                text-border-width = 4px;
+            } else {
+                text-border-width = 1px;
+            }
+            counter = counter - 1;
+            if counter == 0 {
+                AppState.spool-scale-flash = false;
+                AppState.spool-scale-state = AppState.spool-scale-after-flash-state;
+                AppState.spool-scale-after-flash-state = SpoolScaleState.Unknown;
+                counter = 20;
+                text-border-width = 1px;
+            }
+        }
+    }
+
+    height: 30px;
+    border-color: black;
+    border-width: text-border-timer.text-border-width;
+    background: AppState.spool-scale-state == SpoolScaleState.Disconnected || AppState.spool-scale-state == SpoolScaleState.Uncalibrated ? orangered : AppState.spool-scale-state == SpoolScaleState.Connected ? lightgreen : AppState.spool-scale-state == SpoolScaleState.Loaded && !AppState.spool-scale-weight-stable ? yellow : lightskyblue;
+    Text {
+        color: Utils.contrasting_color(parent.background);
+        font-size: 20px;
+        text: AppState.spool-scale-state == SpoolScaleState.Disconnected ? "Scale Disconnected" : AppState.spool-scale-state == SpoolScaleState.Uncalibrated ? "Scale Not Calibrated" : AppState.spool-scale-state == SpoolScaleState.Connected ? "Scale Connected" : AppState.spool-scale-state == SpoolScaleState.Loaded ? weight-display() : "";
+    }
+}

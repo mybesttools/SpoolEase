@@ -334,7 +334,10 @@ impl AppWithStateBuilder for NestedAppBuilder {
                     if new_spool.id.is_empty() {
                         match store.add_spool(new_spool, SpoolRecordExt { tag: None, k_info: add_spool.k_info}).await {
                             Ok(new_id) => match store.query_spools() {
-                                Some(csv) => AddSpoolDTOResponse { id: new_id, csv }.encrypt(&key.borrow()),
+                                Some(csv) => {
+                                    state.view_model.borrow_mut().recently_added_spool_id = Some(new_id.clone());
+                                    AddSpoolDTOResponse { id: new_id, csv }.encrypt(&key.borrow())
+                                }
                                 None => {
                                     error!("Failed to generate response to spoole query");
                                     "".to_string()

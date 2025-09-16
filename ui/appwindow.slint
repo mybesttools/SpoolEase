@@ -17,6 +17,7 @@ import { FilamentInfo } from "filament-info.slint";
 import { FilamentInfoMode } from "app.slint";
 import { SelectInventoryId } from "select-inventory-id.slint";
 import { SelectInventoryId } from "select-inventory-id.slint";
+import { NewTagScan } from "new-tag-scan.slint";
 
 // reexport to rust
 
@@ -160,6 +161,11 @@ export component AppWindow inherits Window {
     if AppState.control-state == ControlState.FilamentInformation: filament-information := FilamentInfo {
         mode: FilamentInfoMode.View;
         height: root.height;
+    }
+
+    if AppState.control-state == ControlState.NewTagScan: new-tag-scan := NewTagScan {
+      width: root.width;
+      height: root.height;
     }
 
     if AppState.spool-inventory-dialog-message != "": Rectangle {
