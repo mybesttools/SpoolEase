@@ -1,6 +1,6 @@
 import { MyText, MyButton } from "framework/widgets.slint";
-import { Utils } from "Utils.slint"; 
 import { AppState, AppConsts, AppBackend, SpoolStagingState, ControlState, SpoolScaleState, UiSpoolInfo } from "app.slint";
+import { Utils } from "Utils.slint"; 
 import { FrameworkState } from "framework/framework.slint";
 
 export component SpoolStaging inherits Window {
@@ -12,7 +12,7 @@ export component SpoolStaging inherits Window {
             background: AppConsts.title-gradient;
             height: 30px;
             Text {
-                color: Utils.contrasting_color(title.background);
+                color: white;//Utils.contrasting_color(blue); // entered manually white because this cause a panic in slint for some reason
                 text: AppState.spool-staging-state == SpoolStagingState.Empty ? "Staging" : AppState.spool-staging-state == SpoolStagingState.Scanned ? "Scanned" : AppState.spool-staging-state == SpoolStagingState.Encoded ? "Encoded" : "Unloaded";
                 font-size: 20px;
             }
@@ -94,25 +94,25 @@ export component SpoolStaging inherits Window {
         }
     }
 
-    if AppState.control-state == ControlState.EncodeSelectSource && AppState.spool-staging-state == SpoolStagingState.Empty: encode-empty := Rectangle {
-        background: beige;
-        border-color: black;
-        border-width: 1px;
-        VerticalLayout {
-            alignment: center;
-            padding-top: 8px;
-            padding-bottom: 8px;
-            spacing: 10px;
-            MyText {
-                horizontal-alignment: center;
-                text: "Start";
-            }
-            MyText {
-                horizontal-alignment: center;
-                text: "Clean";
-            }
-        }
-    }
+    // if AppState.control-state == ControlState.EncodeSelectSource && AppState.spool-staging-state == SpoolStagingState.Empty: encode-empty := Rectangle {
+    //     background: beige;
+    //     border-color: black;
+    //     border-width: 1px;
+    //     VerticalLayout {
+    //         alignment: center;
+    //         padding-top: 8px;
+    //         padding-bottom: 8px;
+    //         spacing: 10px;
+    //         MyText {
+    //             horizontal-alignment: center;
+    //             text: "Start";
+    //         }
+    //         MyText {
+    //             horizontal-alignment: center;
+    //             text: "Clean";
+    //         }
+    //     }
+    // }
 
     if (AppState.highlight-tray == 999 && AppState.highlight-tray-flash) || (AppState.highlight-staging): highlight-border := Rectangle {
         width: parent.width;
@@ -126,15 +126,11 @@ export component SpoolStaging inherits Window {
         height: parent.height;
         clicked => {
             if AppState.spool-staging-state != SpoolStagingState.Empty {
-                if AppState.control-state == ControlState.EncodeSelectSource {
-                    AppState.encode-select-tray(999); // encode staging content
-                } else if AppState.control-state == ControlState.StagingSelected { // second press on staging (next else is the first press)
+                if AppState.control-state == ControlState.StagingSelected { // second press on staging (next else is the first press)
                     AppState.show-filament-information(999);
                 } else {
                     AppState.control-state = ControlState.StagingSelected;
                 }
-            } else if AppState.control-state == ControlState.EncodeSelectSource {
-                AppState.encode-select-tray(998); // encode only manually entered info or from inventory
             } else if FrameworkState.ota-info.newer {
                 root.clicked-ota();
             }

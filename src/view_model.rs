@@ -39,8 +39,8 @@ use crate::color_utils::get_color_name;
 use crate::filament_staging::StagingOrigin;
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
-use crate::store::{store_safe_time_now, Cookie, FullSpoolRecord, SpoolRecordExt, Store, StoreObserver, StoreOp};
-use crate::web_app::EncodeInfoDTO;
+use crate::store::{store_safe_time_now, FullSpoolRecord, SpoolRecordExt, Store, StoreObserver, StoreOp};
+// use crate::web_app::EncodeInfoDTO;
 use crate::{
     app_config::AppConfig,
     bambu::{self, BambuPrinter, BambuPrinterObserver, TagInformation, TrayState},
@@ -67,9 +67,9 @@ pub struct ViewModel {
     filament_staging: Rc<RefCell<FilamentStaging>>,
     printers_view_state: HashMap<String, PrinterUiState>,
 
-    cores_list_vec_rc: slint::ModelRc<crate::app::SelectorOption>,
-    spools_cores_weights: HashMap<i32, i32>,
-    spools_cores_filter: String,
+    // cores_list_vec_rc: slint::ModelRc<crate::app::SelectorOption>,
+    // spools_cores_weights: HashMap<i32, i32>,
+    // spools_cores_filter: String,
     pub store: Rc<Store>,
     encode_editing_area: Option<FullSpoolRecord>, // we use this to be the same as staging structure and simplify things (even though we use only the k_info for now)
     gcode_analysis_request_channel: Rc<GcodeAnalysisRequestChannel>,
@@ -127,10 +127,10 @@ impl ViewModel {
         // Initialize spool_scale_model
         let spool_scale_model = crate::spool_scale::init(framework.clone(), app_config.clone(), stack, spawner, ssdp_pub_sub);
 
-        // Prepare an empty spool weights lists, later we'll replace it
-        let spools_cores_weights: HashMap<i32, i32> = HashMap::with_capacity(300);
-        let selector_options_vec: slint::VecModel<crate::app::SelectorOption> = slint::VecModel::default();
-        let selector_options_vec_rc = slint::ModelRc::from(Rc::new(selector_options_vec));
+        // // Prepare an empty spool weights lists, later we'll replace it
+        // let spools_cores_weights: HashMap<i32, i32> = HashMap::with_capacity(300);
+        // let selector_options_vec: slint::VecModel<crate::app::SelectorOption> = slint::VecModel::default();
+        // let selector_options_vec_rc = slint::ModelRc::from(Rc::new(selector_options_vec));
 
         let gcode_analysis_request_channel = Rc::new(GcodeAnalysisRequestChannel::new());
         let gcode_analysis_notification_channel = Rc::new(GcodeAnalysisNotificationChannel::new());
@@ -151,9 +151,9 @@ impl ViewModel {
             app_config: app_config.clone(),
             filament_staging: Rc::new(RefCell::new(FilamentStaging::new(store.clone()))),
             printers_view_state: HashMap::new(),
-            cores_list_vec_rc: selector_options_vec_rc,
-            spools_cores_weights,
-            spools_cores_filter: String::new(),
+            // cores_list_vec_rc: selector_options_vec_rc,
+            // spools_cores_weights,
+            // spools_cores_filter: String::new(),
             store,
             encode_editing_area: None,
             gcode_analysis_request_channel,
@@ -404,17 +404,17 @@ impl ViewModel {
         let moved_framework = self.framework.clone();
         let moved_app_config = self.app_config.clone();
         let moved_scale = self.spool_scale_model.clone();
-        ui_app_backend.on_encode_web_app(move || {
-            moved_app_config.borrow_mut().set_redirect_to_encode();
-            let borrowed_framework = moved_framework.borrow();
-            let web_config_ip_url = &borrowed_framework.web_config_ip_url;
-            let web_config_key = &borrowed_framework.web_config_key;
-            let full_web_encode_url = format!("{web_config_ip_url}/encode#sk={web_config_key}");
-            moved_spool_tag.borrow().emulate_tag(&full_web_encode_url);
-            if let Err(err) = moved_scale.borrow().emulate_tag(&full_web_encode_url) {
-                error!("Error sending emulate_tag to scale : {err}");
-            }
-        });
+        // ui_app_backend.on_encode_web_app(move || {
+        //     moved_app_config.borrow_mut().set_redirect_to_encode();
+        //     let borrowed_framework = moved_framework.borrow();
+        //     let web_config_ip_url = &borrowed_framework.web_config_ip_url;
+        //     let web_config_key = &borrowed_framework.web_config_key;
+        //     let full_web_encode_url = format!("{web_config_ip_url}/encode#sk={web_config_key}");
+        //     moved_spool_tag.borrow().emulate_tag(&full_web_encode_url);
+        //     if let Err(err) = moved_scale.borrow().emulate_tag(&full_web_encode_url) {
+        //         error!("Error sending emulate_tag to scale : {err}");
+        //     }
+        // });
 
         // Spool Scale
         let scale_available = if let Some(scale_config) = &self.app_config.borrow().configured_scale {
@@ -461,151 +461,152 @@ impl ViewModel {
 
         // Initialize SpoolScale and weight related stuff
 
-        let moved_view_model = self.view_model.as_ref().unwrap().clone();
-        ui_app_backend.on_get_spools_core_list(move |filter| {
-            let mut view_model_borrow = moved_view_model.borrow_mut();
+        // let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        // ui_app_backend.on_get_spools_core_list(move |filter| {
+        //     let mut view_model_borrow = moved_view_model.borrow_mut();
+        //
+        //     // separated to not borrow twice
+        //     let user_cores_changed = view_model_borrow.app_config.borrow().user_cores_changed_by_web_config;
+        //     let spools_cores_filter = &view_model_borrow.spools_cores_filter;
+        //
+        //     if user_cores_changed || spools_cores_filter != filter.as_str() {
+        //         view_model_borrow.regenerate_cores_weights_list(filter.as_str());
+        //         view_model_borrow.spools_cores_filter = filter.to_string();
+        //         view_model_borrow.app_config.borrow_mut().user_cores_changed_by_web_config = false;
+        //     }
+        //     view_model_borrow.cores_list_vec_rc.clone()
+        // });
 
-            // separated to not borrow twice
-            let user_cores_changed = view_model_borrow.app_config.borrow().user_cores_changed_by_web_config;
-            let spools_cores_filter = &view_model_borrow.spools_cores_filter;
+        // let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        // ui_app_backend.on_get_spool_core_weight(move |id| *moved_view_model.borrow().spools_cores_weights.get(&id).unwrap_or(&0));
 
-            if user_cores_changed || spools_cores_filter != filter.as_str() {
-                view_model_borrow.regenerate_cores_weights_list(filter.as_str());
-                view_model_borrow.spools_cores_filter = filter.to_string();
-                view_model_borrow.app_config.borrow_mut().user_cores_changed_by_web_config = false;
-            }
-            view_model_borrow.cores_list_vec_rc.clone()
-        });
+        // let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        // ui_app_backend.on_erase_previously_used_core_list(move || moved_view_model.borrow_mut().erase_previously_used_cores_list());
 
-        let moved_view_model = self.view_model.as_ref().unwrap().clone();
-        ui_app_backend.on_get_spool_core_weight(move |id| *moved_view_model.borrow().spools_cores_weights.get(&id).unwrap_or(&0));
-
-        let moved_view_model = self.view_model.as_ref().unwrap().clone();
-        ui_app_backend.on_erase_previously_used_core_list(move || moved_view_model.borrow_mut().erase_previously_used_cores_list());
-
-        let spools_core_filter = self.spools_cores_filter.clone();
-        self.regenerate_cores_weights_list(&spools_core_filter);
+        // let spools_core_filter = self.spools_cores_filter.clone();
+        // self.regenerate_cores_weights_list(&spools_core_filter);
     }
 
-    pub fn regenerate_cores_weights_list(&mut self, filter: &str) {
-        // Fill spool cores weights list
+    // pub fn regenerate_cores_weights_list(&mut self, filter: &str) {
+    //     // Fill spool cores weights list
+    //
+    //     self.spools_cores_weights.clear();
+    //
+    //     let cores_list_vec = self
+    //         .cores_list_vec_rc
+    //         .as_any()
+    //         .downcast_ref::<slint::VecModel<crate::app::SelectorOption>>()
+    //         .unwrap();
+    //     cores_list_vec.clear();
+    //
+    //     let mut id = -1;
+    //     let app_config_clone = self.app_config.clone();
+    //
+    //     {
+    //         // Add Clear/Unset/No-Core first
+    //
+    //         id += 1;
+    //         let selector_option = crate::app::SelectorOption {
+    //             id,
+    //             text: "Don't Encode Spool Core Weight".into(),
+    //         };
+    //         cores_list_vec.push(selector_option);
+    //     }
+    //
+    //     if let Some(user_cores) = &app_config_clone.borrow().user_cores {
+    //         id = self.add_core_weights_csv_to_list(id, user_cores.as_str(), "My Spools List", filter);
+    //     }
+    //     if let Some(previously_used_cores) = &app_config_clone.borrow().previously_used_cores {
+    //         id = self.add_core_weights_csv_to_list(id, previously_used_cores.as_str(), "Previously Used", filter);
+    //     }
+    //     let _id = self.add_core_weights_csv_to_list(id, SPOOLS_CATALOG, "SpoolEase Spools Catalog", filter);
+    // }
 
-        self.spools_cores_weights.clear();
+    // pub fn add_to_previously_used_cores(&mut self, core_name: &str, core_weight: i32) {
+    //     if core_name.is_empty() {
+    //         return;
+    //     }
+    //     let line_start = format!("{core_name},"); // the ',' is important, because one name could include another
+    //     let mut app_config_borrow = self.app_config.borrow_mut();
+    //     let mut new_previously_used_cores;
+    //     if let Some(user_cores) = &app_config_borrow.user_cores {
+    //         let line_found = user_cores.lines().find(|line| line.starts_with(&line_start));
+    //         if line_found.is_some() {
+    //             return;
+    //         }
+    //     }
+    //     if let Some(previously_used_cores) = &app_config_borrow.previously_used_cores {
+    //         let line_found = previously_used_cores.lines().enumerate().find(|line| line.1.starts_with(&line_start));
+    //         if let Some((index, line)) = line_found {
+    //             if index == 0 {
+    //                 return;
+    //             } else {
+    //                 let line_to_remove = format!("{line}\r\n");
+    //                 new_previously_used_cores = previously_used_cores.replace(&line_to_remove, "");
+    //                 new_previously_used_cores.insert_str(0, &format!("{core_name},{core_weight}\r\n"));
+    //             }
+    //         } else {
+    //             new_previously_used_cores = format!("{core_name},{core_weight}\r\n{previously_used_cores}");
+    //         }
+    //     } else {
+    //         new_previously_used_cores = format!("{core_name},{core_weight}\r\n");
+    //     }
+    //
+    //     // limit to 9 previously used
+    //     if new_previously_used_cores.lines().count() > 9 {
+    //         if let Some(last_crlf) = new_previously_used_cores.rfind("\r\n") {
+    //             if let Some(last_2nd_crlf) = new_previously_used_cores[..last_crlf].rfind("\r\n") {
+    //                 new_previously_used_cores = new_previously_used_cores[..last_2nd_crlf + 2].to_string();
+    //             }
+    //         }
+    //     }
+    //
+    //     let _ = app_config_borrow.set_previously_used_cores(Some(new_previously_used_cores));
+    //     drop(app_config_borrow);
+    //     let spools_cores_filter = self.spools_cores_filter.clone();
+    //     self.regenerate_cores_weights_list(&spools_cores_filter);
+    // }
 
-        let cores_list_vec = self
-            .cores_list_vec_rc
-            .as_any()
-            .downcast_ref::<slint::VecModel<crate::app::SelectorOption>>()
-            .unwrap();
-        cores_list_vec.clear();
+    // pub fn erase_previously_used_cores_list(&mut self) {
+    //     let _ = self.app_config.borrow_mut().set_previously_used_cores(None);
+    //     let spools_cores_filter = self.spools_cores_filter.clone();
+    //     self.regenerate_cores_weights_list(&spools_cores_filter);
+    // }
 
-        let mut id = -1;
-        let app_config_clone = self.app_config.clone();
-
-        {
-            // Add Clear/Unset/No-Core first
-
-            id += 1;
-            let selector_option = crate::app::SelectorOption {
-                id,
-                text: "Don't Encode Spool Core Weight".into(),
-            };
-            cores_list_vec.push(selector_option);
-        }
-
-        if let Some(user_cores) = &app_config_clone.borrow().user_cores {
-            id = self.add_core_weights_csv_to_list(id, user_cores.as_str(), "My Spools List", filter);
-        }
-        if let Some(previously_used_cores) = &app_config_clone.borrow().previously_used_cores {
-            id = self.add_core_weights_csv_to_list(id, previously_used_cores.as_str(), "Previously Used", filter);
-        }
-        let _id = self.add_core_weights_csv_to_list(id, SPOOLS_CATALOG, "SpoolEase Spools Catalog", filter);
-    }
-
-    pub fn add_to_previously_used_cores(&mut self, core_name: &str, core_weight: i32) {
-        if core_name.is_empty() {
-            return;
-        }
-        let line_start = format!("{core_name},"); // the ',' is important, because one name could include another
-        let mut app_config_borrow = self.app_config.borrow_mut();
-        let mut new_previously_used_cores;
-        if let Some(user_cores) = &app_config_borrow.user_cores {
-            let line_found = user_cores.lines().find(|line| line.starts_with(&line_start));
-            if line_found.is_some() {
-                return;
-            }
-        }
-        if let Some(previously_used_cores) = &app_config_borrow.previously_used_cores {
-            let line_found = previously_used_cores.lines().enumerate().find(|line| line.1.starts_with(&line_start));
-            if let Some((index, line)) = line_found {
-                if index == 0 {
-                    return;
-                } else {
-                    let line_to_remove = format!("{line}\r\n");
-                    new_previously_used_cores = previously_used_cores.replace(&line_to_remove, "");
-                    new_previously_used_cores.insert_str(0, &format!("{core_name},{core_weight}\r\n"));
-                }
-            } else {
-                new_previously_used_cores = format!("{core_name},{core_weight}\r\n{previously_used_cores}");
-            }
-        } else {
-            new_previously_used_cores = format!("{core_name},{core_weight}\r\n");
-        }
-
-        // limit to 9 previously used
-        if new_previously_used_cores.lines().count() > 9 {
-            if let Some(last_crlf) = new_previously_used_cores.rfind("\r\n") {
-                if let Some(last_2nd_crlf) = new_previously_used_cores[..last_crlf].rfind("\r\n") {
-                    new_previously_used_cores = new_previously_used_cores[..last_2nd_crlf + 2].to_string();
-                }
-            }
-        }
-
-        let _ = app_config_borrow.set_previously_used_cores(Some(new_previously_used_cores));
-        drop(app_config_borrow);
-        let spools_cores_filter = self.spools_cores_filter.clone();
-        self.regenerate_cores_weights_list(&spools_cores_filter);
-    }
-    pub fn erase_previously_used_cores_list(&mut self) {
-        let _ = self.app_config.borrow_mut().set_previously_used_cores(None);
-        let spools_cores_filter = self.spools_cores_filter.clone();
-        self.regenerate_cores_weights_list(&spools_cores_filter);
-    }
-
-    pub fn add_core_weights_csv_to_list(&mut self, last_id: i32, csv: &str, title: &str, filter: &str) -> i32 {
-        // returns last-id used
-
-        let cores_list = self
-            .cores_list_vec_rc
-            .as_any()
-            .downcast_ref::<slint::VecModel<crate::app::SelectorOption>>()
-            .unwrap();
-        let mut selector_option = crate::app::SelectorOption::default();
-        let mut id = last_id;
-        selector_option.id = -1;
-        selector_option.text = title.into();
-        cores_list.push(selector_option);
-
-        csv.lines().for_each(|line| {
-            let mut split = line.splitn(4, ',');
-            while let (Some(desc), Some(weight)) = (split.next(), split.next()) {
-                if !desc.is_empty() && !weight.is_empty() && (filter.is_empty() || desc.to_uppercase().contains(filter)) {
-                    id += 1;
-                    let selector_option = crate::app::SelectorOption {
-                        id,
-                        text: desc.trim().into(),
-                    };
-                    cores_list.push(selector_option);
-                    if let Ok(weight) = weight.trim().parse() {
-                        self.spools_cores_weights.insert(id, weight);
-                    } else {
-                        error!("Error in Spool Line: '{line}'");
-                    }
-                }
-            }
-        });
-        id
-    }
+    // pub fn add_core_weights_csv_to_list(&mut self, last_id: i32, csv: &str, title: &str, filter: &str) -> i32 {
+    //     // returns last-id used
+    //
+    //     // let cores_list = self
+    //     //     .cores_list_vec_rc
+    //     //     .as_any()
+    //     //     .downcast_ref::<slint::VecModel<crate::app::SelectorOption>>()
+    //     //     .unwrap();
+    //     // let mut selector_option = crate::app::SelectorOption::default();
+    //     let mut id = last_id;
+    //     // selector_option.id = -1;
+    //     // selector_option.text = title.into();
+    //     // cores_list.push(selector_option);
+    //
+    //     csv.lines().for_each(|line| {
+    //         let mut split = line.splitn(4, ',');
+    //         while let (Some(desc), Some(weight)) = (split.next(), split.next()) {
+    //             if !desc.is_empty() && !weight.is_empty() && (filter.is_empty() || desc.to_uppercase().contains(filter)) {
+    //                 id += 1;
+    //                 // let selector_option = crate::app::SelectorOption {
+    //                 //     id,
+    //                 //     text: desc.trim().into(),
+    //                 // };
+    //                 // cores_list.push(selector_option);
+    //                 if let Ok(weight) = weight.trim().parse() {
+    //                     self.spools_cores_weights.insert(id, weight);
+    //                 } else {
+    //                     error!("Error in Spool Line: '{line}'");
+    //                 }
+    //             }
+    //         }
+    //     });
+    //     id
+    // }
 
     fn perform_select_printer(
         moved_ui: slint::Weak<crate::app::AppWindow>,
@@ -670,62 +671,62 @@ impl ViewModel {
         }
         None
     }
-    pub fn web_app_set_encode_info(&mut self, encode_info: &EncodeInfoDTO) {
-        let ui = self.ui_weak.unwrap();
+    // pub fn web_app_set_encode_info(&mut self, encode_info: &EncodeInfoDTO) {
+    //     let ui = self.ui_weak.unwrap();
+    //
+    //     // Initialize UI FrameworkState with framework information
+    //     let ui_app_state = ui.global::<crate::app::AppState>();
+    //     let mut encode_request = ui_app_state.get_curr_encode_request();
+    //     encode_request.weight_advertised = encode_info.weight_advertised;
+    //     if encode_request.weight_core != encode_info.weight_core {
+    //         encode_request.core_name = "".to_shared_string()
+    //     }
+    //     encode_request.weight_core = encode_info.weight_core;
+    //     encode_request.brand = encode_info.brand.to_shared_string();
+    //     encode_request.filament_subtype = encode_info.filament_subtype.to_shared_string();
+    //     encode_request.color_name = encode_info.color_name.to_shared_string();
+    //     encode_request.note = encode_info.note.to_shared_string();
+    //     if encode_request.tray_id == 998 || encode_request.tray_id == 999 {
+    //         if let Some(encode_editing_area) = self.encode_editing_area.as_mut() {
+    //             let encode_spool_rec = &mut encode_editing_area.spool_rec;
+    //             encode_spool_rec.material_type = encode_info.material.clone();
+    //             encode_spool_rec.color_code = encode_info.color_code.clone();
+    //             encode_spool_rec.slicer_filament = encode_info.slicer_filament.clone();
+    //         }
+    //     }
+    //
+    //     ui_app_state.set_curr_encode_request(encode_request);
+    //     self.calc_encode_request_display(crate::app::FilamentInfoMode::Encode);
+    // }
 
-        // Initialize UI FrameworkState with framework information
-        let ui_app_state = ui.global::<crate::app::AppState>();
-        let mut encode_request = ui_app_state.get_curr_encode_request();
-        encode_request.weight_advertised = encode_info.weight_advertised;
-        if encode_request.weight_core != encode_info.weight_core {
-            encode_request.core_name = "".to_shared_string()
-        }
-        encode_request.weight_core = encode_info.weight_core;
-        encode_request.brand = encode_info.brand.to_shared_string();
-        encode_request.filament_subtype = encode_info.filament_subtype.to_shared_string();
-        encode_request.color_name = encode_info.color_name.to_shared_string();
-        encode_request.note = encode_info.note.to_shared_string();
-        if encode_request.tray_id == 998 || encode_request.tray_id == 999 {
-            if let Some(encode_editing_area) = self.encode_editing_area.as_mut() {
-                let encode_spool_rec = &mut encode_editing_area.spool_rec;
-                encode_spool_rec.material_type = encode_info.material.clone();
-                encode_spool_rec.color_code = encode_info.color_code.clone();
-                encode_spool_rec.slicer_filament = encode_info.slicer_filament.clone();
-            }
-        }
-
-        ui_app_state.set_curr_encode_request(encode_request);
-        self.calc_encode_request_display(crate::app::FilamentInfoMode::Encode);
-    }
-
-    pub fn web_app_get_encode_info(&self) -> EncodeInfoDTO {
-        let ui = self.ui_weak.unwrap();
-
-        // Initialize UI FrameworkState with framework information
-        let ui_app_state = ui.global::<crate::app::AppState>();
-        let encode_request = ui_app_state.get_curr_encode_request();
-        if let Ok(tag_info) = self.tag_info_to_encode(&encode_request) {
-            EncodeInfoDTO {
-                tray_id: encode_request.tray_id,
-                brand: tag_info.brand.unwrap_or_default(),
-                color_name: tag_info.color_name.unwrap_or_default(),
-                filament_subtype: tag_info.filament_subtype.unwrap_or_default(),
-                note: tag_info.note.unwrap_or_default(),
-                id: tag_info.id.unwrap_or_default(),
-                weight_advertised: tag_info.weight_advertised.unwrap_or_default(),
-                weight_core: tag_info.weight_core.unwrap_or_default(),
-                tag_id: hex::encode_upper(tag_info.tag_id.unwrap_or_default()),
-                color_code: tag_info.filament.as_ref().unwrap_or(&FilamentInfo::default()).tray_color.clone(),
-                material: tag_info.filament.as_ref().unwrap_or(&FilamentInfo::default()).tray_type.clone(),
-                slicer_filament: tag_info.filament.unwrap_or_default().tray_info_idx,
-            }
-        } else {
-            EncodeInfoDTO {
-                tray_id: -1,
-                ..Default::default()
-            }
-        }
-    }
+    // pub fn web_app_get_encode_info(&self) -> EncodeInfoDTO {
+    //     let ui = self.ui_weak.unwrap();
+    //
+    //     // Initialize UI FrameworkState with framework information
+    //     let ui_app_state = ui.global::<crate::app::AppState>();
+    //     let encode_request = ui_app_state.get_curr_encode_request();
+    //     if let Ok(tag_info) = self.tag_info_to_encode(&encode_request) {
+    //         EncodeInfoDTO {
+    //             tray_id: encode_request.tray_id,
+    //             brand: tag_info.brand.unwrap_or_default(),
+    //             color_name: tag_info.color_name.unwrap_or_default(),
+    //             filament_subtype: tag_info.filament_subtype.unwrap_or_default(),
+    //             note: tag_info.note.unwrap_or_default(),
+    //             id: tag_info.id.unwrap_or_default(),
+    //             weight_advertised: tag_info.weight_advertised.unwrap_or_default(),
+    //             weight_core: tag_info.weight_core.unwrap_or_default(),
+    //             tag_id: hex::encode_upper(tag_info.tag_id.unwrap_or_default()),
+    //             color_code: tag_info.filament.as_ref().unwrap_or(&FilamentInfo::default()).tray_color.clone(),
+    //             material: tag_info.filament.as_ref().unwrap_or(&FilamentInfo::default()).tray_type.clone(),
+    //             slicer_filament: tag_info.filament.unwrap_or_default().tray_info_idx,
+    //         }
+    //     } else {
+    //         EncodeInfoDTO {
+    //             tray_id: -1,
+    //             ..Default::default()
+    //         }
+    //     }
+    // }
 
     fn set_staging_to_tray_direct(
         &self,
@@ -833,72 +834,72 @@ impl ViewModel {
             });
 
         // handler for request from UI to encode a spool, need to work only on selected printer
-        let moved_bambu_printer = self.bambu_printer_model.clone();
-        let moved_spool_tag = self.spool_tag_model.clone();
-        let moved_ui = self.ui_weak.clone();
-        let moved_view_model = self.view_model.clone().unwrap();
-        let moved_spool_scale = self.spool_scale_model.clone();
-        moved_ui.unwrap().global::<crate::app::AppBackend>().on_encode_tag(move |encode_request| {
-            info!("Request to encode tag with tray {} info", encode_request.tray_id);
-            // Start with adding the core info to the previoysly used list
-            if !encode_request.core_name.is_empty() {
-                moved_view_model
-                    .borrow_mut()
-                    .add_to_previously_used_cores(encode_request.core_name.as_str(), encode_request.weight_core);
-            }
-
-            let tray_id = usize::try_from(encode_request.tray_id).unwrap();
-            // Fill in tag information
-            let mut tag_info_to_encode = match moved_view_model.borrow().tag_info_to_encode(&encode_request) {
-                Ok(tag_info) => tag_info,
-                Err(err) => {
-                    moved_ui
-                        .unwrap()
-                        .global::<crate::app::AppState>()
-                        .invoke_encoding_failed(err.to_shared_string());
-                    return 0;
-                }
-            };
-
-            tag_info_to_encode.encode_time = store_safe_time_now();
-
-            // In case of encode from blank or staging (which is copied to blank), clean the scratch-pad used
-            // If want to allow to return in case of cancel, need to move this to after encode success
-            // Note: Moved there
-            // if tray_id == 998 || tray_id == 999 {
-            //     moved_view_model.borrow_mut().encode_from_blank = None;
-            // }
-
-            // Next encode
-            let bambu_printer_borrow = moved_bambu_printer.borrow();
-            let descriptor_res = if tray_id == 999 || tray_id == 998 {
-                &tag_info_to_encode.to_v1_descriptor(None, None)
-            } else {
-                &tag_info_to_encode.to_v1_descriptor(
-                    Some(bambu_printer_borrow.printer_name()),
-                    Some(&bambu_printer_borrow.printer_uuid_to_encode),
-                )
-            };
-            let set_encoded_as_new = match encode_request.encoded_as_new {
-                crate::app::EncodedAsNew::Yes => Some(true),
-                crate::app::EncodedAsNew::No => Some(false),
-                crate::app::EncodedAsNew::Unknown => None,
-                crate::app::EncodedAsNew::NoChange => None,
-            };
-            if let Some(descriptor) = descriptor_res {
-                let encode_cookie = EncodeCookie {
-                    scale_weight: moved_spool_scale.borrow().weight,
-                    spool_id: encode_request.id.into(),
-                    set_encoded_as_new,
-                };
-                let cookie = serde_json::to_string(&encode_cookie).unwrap_or_default();
-                moved_spool_tag.borrow().write_tag(descriptor, tray_id, cookie.clone());
-                let _ = moved_spool_scale.borrow().write_tag(descriptor, tray_id, cookie);
-            }
-            info!("Sent the write request of tray {}", tray_id);
-            // TODO: Get proper timeout fron config and pass it in the write_tag to spool_tag
-            20
-        });
+        // let moved_bambu_printer = self.bambu_printer_model.clone();
+        // let moved_spool_tag = self.spool_tag_model.clone();
+        // let moved_ui = self.ui_weak.clone();
+        // let moved_view_model = self.view_model.clone().unwrap();
+        // let moved_spool_scale = self.spool_scale_model.clone();
+        // moved_ui.unwrap().global::<crate::app::AppBackend>().on_encode_tag(move |encode_request| {
+        //     info!("Request to encode tag with tray {} info", encode_request.tray_id);
+        //     // Start with adding the core info to the previoysly used list
+        //     if !encode_request.core_name.is_empty() {
+        //         moved_view_model
+        //             .borrow_mut()
+        //             .add_to_previously_used_cores(encode_request.core_name.as_str(), encode_request.weight_core);
+        //     }
+        //
+        //     let tray_id = usize::try_from(encode_request.tray_id).unwrap();
+        //     // Fill in tag information
+        //     let mut tag_info_to_encode = match moved_view_model.borrow().tag_info_to_encode(&encode_request) {
+        //         Ok(tag_info) => tag_info,
+        //         Err(err) => {
+        //             moved_ui
+        //                 .unwrap()
+        //                 .global::<crate::app::AppState>()
+        //                 .invoke_encoding_failed(err.to_shared_string());
+        //             return 0;
+        //         }
+        //     };
+        //
+        //     tag_info_to_encode.encode_time = store_safe_time_now();
+        //
+        //     // In case of encode from blank or staging (which is copied to blank), clean the scratch-pad used
+        //     // If want to allow to return in case of cancel, need to move this to after encode success
+        //     // Note: Moved there
+        //     // if tray_id == 998 || tray_id == 999 {
+        //     //     moved_view_model.borrow_mut().encode_from_blank = None;
+        //     // }
+        //
+        //     // Next encode
+        //     let bambu_printer_borrow = moved_bambu_printer.borrow();
+        //     let descriptor_res = if tray_id == 999 || tray_id == 998 {
+        //         &tag_info_to_encode.to_v1_descriptor(None, None)
+        //     } else {
+        //         &tag_info_to_encode.to_v1_descriptor(
+        //             Some(bambu_printer_borrow.printer_name()),
+        //             Some(&bambu_printer_borrow.printer_uuid_to_encode),
+        //         )
+        //     };
+        //     let set_encoded_as_new = match encode_request.encoded_as_new {
+        //         crate::app::EncodedAsNew::Yes => Some(true),
+        //         crate::app::EncodedAsNew::No => Some(false),
+        //         crate::app::EncodedAsNew::Unknown => None,
+        //         crate::app::EncodedAsNew::NoChange => None,
+        //     };
+        //     if let Some(descriptor) = descriptor_res {
+        //         let encode_cookie = EncodeCookie {
+        //             scale_weight: moved_spool_scale.borrow().weight,
+        //             spool_id: encode_request.id.into(),
+        //             set_encoded_as_new,
+        //         };
+        //         let cookie = serde_json::to_string(&encode_cookie).unwrap_or_default();
+        //         moved_spool_tag.borrow().write_tag(descriptor, tray_id, cookie.clone());
+        //         let _ = moved_spool_scale.borrow().write_tag(descriptor, tray_id, cookie);
+        //     }
+        //     info!("Sent the write request of tray {}", tray_id);
+        //     // TODO: Get proper timeout fron config and pass it in the write_tag to spool_tag
+        //     20
+        // });
 
         // // handler for request from UI to reset printer, should work only on selected printer
         // let moved_bambu_printer = self.bambu_printer_model.clone();
@@ -938,39 +939,39 @@ impl ViewModel {
                 SharedString::new()
             });
 
-        let moved_view_model = self.view_model.as_ref().unwrap().clone();
-        self.ui_weak
-            .unwrap()
-            .global::<crate::app::AppBackend>()
-            .on_clear_encode_scratchpad(move || {
-                moved_view_model.borrow_mut().encode_editing_area = None;
-            });
+        // let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        // self.ui_weak
+        //     .unwrap()
+        //     .global::<crate::app::AppBackend>()
+        //     .on_clear_encode_scratchpad(move || {
+        //         moved_view_model.borrow_mut().encode_editing_area = None;
+        //     });
 
-        let moved_view_model = self.view_model.as_ref().unwrap().clone();
-        let moved_bambu_printer = self.bambu_printer_model.clone();
-        self.ui_weak
-            .unwrap()
-            .global::<crate::app::AppBackend>()
-            .on_notify_start_encode(move |tray_id| {
-                // 998 - From Blank
-                // 999 - From data in Staging (when from staging, duplicate the DATA in staging, not use the same ID)
-                // return true if based on an already existing tag
-                //        false if not
-                if tray_id == 999 && !moved_view_model.borrow().filament_staging.borrow().is_empty() {
-                    moved_view_model.borrow_mut().encode_editing_area = moved_view_model.borrow().filament_staging.borrow().full_spool_rec().clone();
-                }
-                if tray_id == 998 || tray_id == 999 {
-                    // 999 if previous if didn't work out
-                    let blank_tag_info = TagInformation {
-                        filament: Some(FilamentInfo::new()),
-                        ..Default::default()
-                    };
-                    moved_view_model.borrow_mut().encode_editing_area = Some(FullSpoolRecord::default());
-                    false
-                } else {
-                    moved_bambu_printer.borrow().get_any_tray(tray_id as usize).meta_info.spool_id.is_some()
-                }
-            });
+        // let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        // let moved_bambu_printer = self.bambu_printer_model.clone();
+        // self.ui_weak
+        //     .unwrap()
+        //     .global::<crate::app::AppBackend>()
+        //     .on_notify_start_encode(move |tray_id| {
+        //         // 998 - From Blank
+        //         // 999 - From data in Staging (when from staging, duplicate the DATA in staging, not use the same ID)
+        //         // return true if based on an already existing tag
+        //         //        false if not
+        //         if tray_id == 999 && !moved_view_model.borrow().filament_staging.borrow().is_empty() {
+        //             moved_view_model.borrow_mut().encode_editing_area = moved_view_model.borrow().filament_staging.borrow().full_spool_rec().clone();
+        //         }
+        //         if tray_id == 998 || tray_id == 999 {
+        //             // 999 if previous if didn't work out
+        //             let blank_tag_info = TagInformation {
+        //                 filament: Some(FilamentInfo::new()),
+        //                 ..Default::default()
+        //             };
+        //             moved_view_model.borrow_mut().encode_editing_area = Some(FullSpoolRecord::default());
+        //             false
+        //         } else {
+        //             moved_bambu_printer.borrow().get_any_tray(tray_id as usize).meta_info.spool_id.is_some()
+        //         }
+        //     });
         let moved_view_model = self.view_model.as_ref().unwrap().clone();
         self.ui_weak
             .unwrap()
@@ -2289,20 +2290,20 @@ impl SpoolScaleObserver for ViewModel {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-enum StoreRequestOrigin {
-    Scan,
-    Encode,
-    UpdateWeight,
-}
-
-#[derive(Clone, Debug)]
-struct StoreWriteTagCookie {
-    notify_scale: bool,
-    store_request_origin: StoreRequestOrigin,
-}
-
-impl Cookie for StoreWriteTagCookie {}
+// #[derive(Clone, Debug, PartialEq)]
+// enum StoreRequestOrigin {
+//     Scan,
+//     Encode,
+//     UpdateWeight,
+// }
+//
+// #[derive(Clone, Debug)]
+// struct StoreWriteTagCookie {
+//     notify_scale: bool,
+//     store_request_origin: StoreRequestOrigin,
+// }
+//
+// impl Cookie for StoreWriteTagCookie {}
 
 impl StoreObserver for ViewModel {
     fn on_read_spool_record_ext(&mut self, result: Result<SpoolRecordExt, String>) {

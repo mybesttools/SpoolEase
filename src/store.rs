@@ -89,37 +89,38 @@ pub enum StoreOp {
     },
 }
 
-// Cookie - General code
-pub trait AnyClone: Any + core::fmt::Debug {
-    fn clone_box(&self) -> Box<dyn AnyClone>;
-    fn into_any(self: Box<Self>) -> Box<dyn Any>;
-    fn as_any(&self) -> &dyn Any;
-}
-
-pub trait Cookie: Any + Clone + core::fmt::Debug + 'static {}
-
-impl<T> AnyClone for T
-where
-    T: Cookie, // Any + Clone  + core::fmt::Debug + 'static,
-{
-    fn clone_box(&self) -> Box<dyn AnyClone> {
-        Box::new(self.clone())
-    }
-
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl Clone for Box<dyn AnyClone> {
-    fn clone(&self) -> Box<dyn AnyClone> {
-        self.clone_box()
-    }
-}
+// DON'T ERASE - May be useful in the future
+// // Cookie - General code
+// pub trait AnyClone: Any + core::fmt::Debug {
+//     fn clone_box(&self) -> Box<dyn AnyClone>;
+//     fn into_any(self: Box<Self>) -> Box<dyn Any>;
+//     fn as_any(&self) -> &dyn Any;
+// }
+//
+// pub trait Cookie: Any + Clone + core::fmt::Debug + 'static {}
+//
+// impl<T> AnyClone for T
+// where
+//     T: Cookie, // Any + Clone  + core::fmt::Debug + 'static,
+// {
+//     fn clone_box(&self) -> Box<dyn AnyClone> {
+//         Box::new(self.clone())
+//     }
+//
+//     fn into_any(self: Box<Self>) -> Box<dyn Any> {
+//         self
+//     }
+//
+//     fn as_any(&self) -> &dyn Any {
+//         self
+//     }
+// }
+//
+// impl Clone for Box<dyn AnyClone> {
+//     fn clone(&self) -> Box<dyn AnyClone> {
+//         self.clone_box()
+//     }
+// }
 
 //
 

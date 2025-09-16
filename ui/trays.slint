@@ -137,7 +137,7 @@ component Spool inherits Rectangle {
     }
 
     tray-border := Rectangle {
-        border-width: area.pressed || (AppState.highlight-trays && tray-state.external && AppState.control-state == ControlState.StagingSelected) || (AppState.highlight-trays && tray-state.external && AppState.control-state == ControlState.EncodeSelectSource && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-trays && tray-state.spool-state == UiTrayState.Ready && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-tray == tray-state.id && AppState.highlight-tray-flash) ? 4px : 1px;
+        border-width: area.pressed || (AppState.highlight-trays && tray-state.external && AppState.control-state == ControlState.StagingSelected) ||  (AppState.highlight-trays && tray-state.spool-state == UiTrayState.Ready && tray-state.filament.state == UiFilamentState.Known) || (AppState.highlight-tray == tray-state.id && AppState.highlight-tray-flash) ? 4px : 1px;
         border-color: self.border-width == 1px ? black : Utils.contrasting_color(root.background);
     }
 
@@ -244,8 +244,6 @@ export component Trays {
                 clicked() => { // ? TODO: Think if to move into the tray component
                     if AppState.control-state == ControlState.StagingSelected && ((AppState.highlight-trays && self.tray-state.external) || (self.tray-state.spool-state == UiTrayState.Ready)) {
                         AppBackend.set-staging-to-tray(trays-state[index].id);
-                    } else if (AppState.control-state == ControlState.EncodeSelectSource && self.tray-state.filament.state == UiFilamentState.Known) && ((AppState.highlight-trays && self.tray-state.external) || (self.tray-state.spool-state == UiTrayState.Ready)) {
-                        AppState.encode-select-tray(index);
                     } else if (AppState.control-state == ControlState.Ready || AppState.control-state == ControlState.PostAction) && self.tray-state.filament.state == UiFilamentState.Known {
                         AppState.show-filament-information(index);
                     }

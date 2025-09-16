@@ -22,7 +22,7 @@ const PRINTERS_CONFIG_KEY: &str = "_printers_";
 const DEFAULT_PRINTER_CONFIG_KEY: &str = "_default_printer_";
 const SCALE_CONFIG_KEY: &str = "_scale_"; // for backwards compatibility
 
-const PREVIOUSLY_USED_CORES_CONFIG_KEY: &str = "prev_cores";
+// const PREVIOUSLY_USED_CORES_CONFIG_KEY: &str = "prev_cores";
 const USER_CORES_CONFIG_KEY: &str = "user_cores";
 const CUSTOM_FILAMENTS_CONFIG_KEY: &str = "custom_filaments";
 
@@ -188,10 +188,10 @@ impl AppConfig {
         }
         // Load core weights configuration
 
-        let config = self.framework.borrow_mut().fetch(String::from(PREVIOUSLY_USED_CORES_CONFIG_KEY));
-        if let Ok(previously_used_cores) = config {
-            self.previously_used_cores = previously_used_cores;
-        }
+        // let config = self.framework.borrow_mut().fetch(String::from(PREVIOUSLY_USED_CORES_CONFIG_KEY));
+        // if let Ok(previously_used_cores) = config {
+        //     self.previously_used_cores = previously_used_cores;
+        // }
 
         let config = self.framework.borrow_mut().fetch(String::from(USER_CORES_CONFIG_KEY));
         if let Ok(user_cores) = config {
@@ -338,21 +338,21 @@ impl AppConfig {
         self.scale_encryption_key.replace(alloc::vec![]);
     }
 
-    pub fn set_previously_used_cores(
-        &mut self,
-        previously_used_cores: Option<String>,
-    ) -> Result<(), sequential_storage::Error<esp_storage::FlashStorageError>> {
-        if previously_used_cores.is_some() {
-            self.framework.borrow().store(
-                PREVIOUSLY_USED_CORES_CONFIG_KEY.to_string(),
-                previously_used_cores.as_ref().unwrap().clone(),
-            )?;
-        } else {
-            self.framework.borrow().remove(PREVIOUSLY_USED_CORES_CONFIG_KEY.to_string())?;
-        }
-        self.previously_used_cores = previously_used_cores;
-        Ok(())
-    }
+    // pub fn set_previously_used_cores(
+    //     &mut self,
+    //     previously_used_cores: Option<String>,
+    // ) -> Result<(), sequential_storage::Error<esp_storage::FlashStorageError>> {
+    //     if previously_used_cores.is_some() {
+    //         self.framework.borrow().store(
+    //             PREVIOUSLY_USED_CORES_CONFIG_KEY.to_string(),
+    //             previously_used_cores.as_ref().unwrap().clone(),
+    //         )?;
+    //     } else {
+    //         self.framework.borrow().remove(PREVIOUSLY_USED_CORES_CONFIG_KEY.to_string())?;
+    //     }
+    //     self.previously_used_cores = previously_used_cores;
+    //     Ok(())
+    // }
 
     pub fn set_user_cores(&mut self, user_cores: Option<String>) -> Result<(), sequential_storage::Error<esp_storage::FlashStorageError>> {
         if user_cores.is_some() {

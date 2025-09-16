@@ -1,9 +1,9 @@
 import { Title, MyText,MyButton } from "./framework/widgets.slint";
-import { AppBackend, AppState, ControlState, UiTray, EncodedAsNew } from "app.slint";
+import { AppBackend, AppState, ControlState, UiTray } from "app.slint";
 import { Utils } from "utils.slint";
 import { FrameworkState } from "framework/framework.slint";
 import { FilamentInfoMode } from "app.slint";
-import { SelectIfNewSpool } from "core-weight.slint";
+// import { SelectIfNewSpool } from "core-weight.slint";
 
 export component LabeledText inherits Rectangle {
     callback clicked;
@@ -109,20 +109,20 @@ export component FilamentInfo inherits Rectangle {
     VerticalLayout {
         alignment: stretch;
 
-        if mode == FilamentInfoMode.Encode: HorizontalLayout {
-            MyButton {
-                width: 80px;
-                text: AppState.curr-encode-request.id != "" ? AppState.curr-encode-request.id : "Use ID";
-                clicked => {
-                    AppState.encoding-select-spool-id = true;
-                }
-            }
-
-            EncodeTitle {
-                background: filament-color;
-                text-color: Utils.contrasting_color(filament-color);
-            }
-        }
+        // if mode == FilamentInfoMode.Encode: HorizontalLayout {
+        //     MyButton {
+        //         width: 80px;
+        //         text: AppState.curr-encode-request.id != "" ? AppState.curr-encode-request.id : "Use ID";
+        //         clicked => {
+        //             AppState.encoding-select-spool-id = true;
+        //         }
+        //     }
+        //
+        //     EncodeTitle {
+        //         background: filament-color;
+        //         text-color: Utils.contrasting_color(filament-color);
+        //     }
+        // }
 
         if mode == FilamentInfoMode.View || mode == FilamentInfoMode.Wizard : HorizontalLayout {
             Rectangle {
@@ -153,7 +153,7 @@ export component FilamentInfo inherits Rectangle {
                     spacing: 10px;
                     padding-bottom: 5px;
                     property <string> brand: AppState.curr-encode-request.brand == "" ? "[No Brand] " : "\{AppState.curr-encode-request.brand} ";
-                    property <string> filament-subtype: AppState.curr-encode-request.filament-subtype == "" ? (mode == FilamentInfoMode.Encode ? " [No Subtype]" : "") : " \{AppState.curr-encode-request.filament-subtype}";
+                    property <string> filament-subtype: " \{AppState.curr-encode-request.filament-subtype}";
                     property <string> color-name: AppState.curr-encode-request.color-name == "" ? " [No Color]" : " \{AppState.curr-encode-request.color-name}";
                     MyText {
                         horizontal-alignment: center;
@@ -205,50 +205,50 @@ export component FilamentInfo inherits Rectangle {
                     }
 
                     LabeledInfo {
-                        label-button: mode == FilamentInfoMode.Encode;
+                        // label-button: mode == FilamentInfoMode.Encode;
                         property <string> core: AppState.curr-encode-request.weight-core > 0 ? "\{AppState.curr-encode-request.weight-core}g" : "—";
                         property <string> new: AppState.curr-encode-request.weight-new > 0 ? "\{AppState.curr-encode-request.weight-new}g" : "—";
                         property <string> advertised: AppState.curr-encode-request.weight-advertised <= 0 ? "—" : ((AppState.curr-encode-request.weight-advertised > 500) && (Math.mod(AppState.curr-encode-request.weight-advertised,500)) == 0) ? "\{AppState.curr-encode-request.weight-advertised / 1000}kg" : "\{AppState.curr-encode-request.weight-advertised}g";
                         label: "Weights:";
                         text: "\{advertised} (Label) / \{core} (Core) / \{new} (New)";
-                        clicked => {
-                            AppState.encoding-spool-core-visible = true;
-                        }
+                        // clicked => {
+                        //     AppState.encoding-spool-core-visible = true;
+                        // }
                     }
                 }
             }
         }
 
-        if mode == FilamentInfoMode.Encode: EncodeButtons {
-            encode-clicked => {
-                if AppState.curr-encode-request.encoded-as-new == EncodedAsNew.Unknown {
-                    state = FilamentInfoState.SelectIfNewSpool;
-                } else {
-                    AppState.control-state = ControlState.Encoding;
-                    AppState.encode-start();
-                }
-            }
-            cancel-clicked => {
-                AppState.encode-cancel();
-            }
-        }
+        // if mode == FilamentInfoMode.Encode: EncodeButtons {
+        //     encode-clicked => {
+        //         if AppState.curr-encode-request.encoded-as-new == EncodedAsNew.Unknown {
+        //             state = FilamentInfoState.SelectIfNewSpool;
+        //         } else {
+        //             AppState.control-state = ControlState.Encoding;
+        //             AppState.encode-start();
+        //         }
+        //     }
+        //     cancel-clicked => {
+        //         AppState.encode-cancel();
+        //     }
+        // }
         if mode == FilamentInfoMode.View: ViewButtons { }
     }
 
-    if mode == FilamentInfoMode.Encode && root.state == FilamentInfoState.SelectIfNewSpool: SelectIfNewSpool {
-        cancel-clicked => {
-            root.state = FilamentInfoState.DisplayInfo;
-        }
-
-        yes-clicked => {
-            AppState.curr-encode-request.weight-new = AppState.spool-scale-weight;
-            AppState.curr-encode-request.encoded-as-new = EncodedAsNew.Yes;
-            root.state = FilamentInfoState.DisplayInfo;
-        }
-        no-clicked => {
-            AppState.curr-encode-request.weight-new = 0;
-            AppState.curr-encode-request.encoded-as-new = EncodedAsNew.No;
-            root.state = FilamentInfoState.DisplayInfo;
-        }
-    }
+    // if mode == FilamentInfoMode.Encode && root.state == FilamentInfoState.SelectIfNewSpool: SelectIfNewSpool {
+    //     cancel-clicked => {
+    //         root.state = FilamentInfoState.DisplayInfo;
+    //     }
+    //
+    //     yes-clicked => {
+    //         AppState.curr-encode-request.weight-new = AppState.spool-scale-weight;
+    //         AppState.curr-encode-request.encoded-as-new = EncodedAsNew.Yes;
+    //         root.state = FilamentInfoState.DisplayInfo;
+    //     }
+    //     no-clicked => {
+    //         AppState.curr-encode-request.weight-new = 0;
+    //         AppState.curr-encode-request.encoded-as-new = EncodedAsNew.No;
+    //         root.state = FilamentInfoState.DisplayInfo;
+    //     }
+    // }
 }

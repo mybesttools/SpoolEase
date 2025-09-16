@@ -244,23 +244,23 @@ impl AppWithStateBuilder for NestedAppBuilder {
             }),
         );
 
-        let router = router.route(
-            "/api/encode-info",
-            post(
-                move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>, encode_info: EncodeInfoDTO| {
-                    ready({
-                        state.0.view_model.borrow_mut().web_app_set_encode_info(&encode_info);
-                        SetConfigResponseDTO { error_text: None }.encrypt(&key.borrow())
-                    })
-                },
-            )
-            .get(move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>| {
-                ready({
-                    let encode_info = state.0.view_model.borrow().web_app_get_encode_info();
-                    encode_info.encrypt(&key.borrow())
-                })
-            }),
-        );
+        // let router = router.route(
+        //     "/api/encode-info",
+        //     post(
+        //         move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>, encode_info: EncodeInfoDTO| {
+        //             ready({
+        //                 state.0.view_model.borrow_mut().web_app_set_encode_info(&encode_info);
+        //                 SetConfigResponseDTO { error_text: None }.encrypt(&key.borrow())
+        //             })
+        //         },
+        //     )
+        //     .get(move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>| {
+        //         ready({
+        //             let encode_info = state.0.view_model.borrow().web_app_get_encode_info();
+        //             encode_info.encrypt(&key.borrow())
+        //         })
+        //     }),
+        // );
 
         let router = router.route(
             "/api/spools",
@@ -431,23 +431,23 @@ impl AppWithStateBuilder for NestedAppBuilder {
 
         // Web App //
 
-        let router = router.route(
-            "/encode",
-            get_service(picoserve::response::File::with_content_type_and_headers(
-                "text/html",
-                include_bytes!("../../inventory/dist/src/apps/encode/index.html.gz"),
-                &[("Content-Encoding", "gzip")],
-            )),
-        );
-
-        let router = router.route(
-            "/encode.js",
-            get_service(picoserve::response::File::with_content_type_and_headers(
-                "application/javascript; charset=utf-8",
-                include_bytes!("../../inventory/dist/encode.js.gz"),
-                &[("Content-Encoding", "gzip")],
-            )),
-        );
+        // let router = router.route(
+        //     "/encode",
+        //     get_service(picoserve::response::File::with_content_type_and_headers(
+        //         "text/html",
+        //         include_bytes!("../../inventory/dist/src/apps/encode/index.html.gz"),
+        //         &[("Content-Encoding", "gzip")],
+        //     )),
+        // );
+        //
+        // let router = router.route(
+        //     "/encode.js",
+        //     get_service(picoserve::response::File::with_content_type_and_headers(
+        //         "application/javascript; charset=utf-8",
+        //         include_bytes!("../../inventory/dist/encode.js.gz"),
+        //         &[("Content-Encoding", "gzip")],
+        //     )),
+        // );
         let router = router.route(
             "/inventory",
             get_service(picoserve::response::File::with_content_type_and_headers(
@@ -466,14 +466,15 @@ impl AppWithStateBuilder for NestedAppBuilder {
             )),
         );
 
-        let router = router.route(
-            "/shared-libs.js",
-            get_service(picoserve::response::File::with_content_type_and_headers(
-                "application/javascript; charset=utf-8",
-                include_bytes!("../../inventory/dist/shared-libs.js.gz"),
-                &[("Content-Encoding", "gzip")],
-            )),
-        );
+        // Needed only if more than one application and there's shared-libs
+        // let router = router.route(
+        //     "/shared-libs.js",
+        //     get_service(picoserve::response::File::with_content_type_and_headers(
+        //         "application/javascript; charset=utf-8",
+        //         include_bytes!("../../inventory/dist/shared-libs.js.gz"),
+        //         &[("Content-Encoding", "gzip")],
+        //     )),
+        // );
 
         let router = router.route(
             "/api/store-backup",
@@ -729,22 +730,22 @@ impl From<&ScaleConfig> for ScaleConfigDTO {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Default, Debug)]
-pub struct EncodeInfoDTO {
-    pub tray_id: i32,
-    pub id: String,
-    pub tag_id: String,
-    pub color_code: String,
-    pub color_name: String,
-    pub material: String,
-    pub filament_subtype: String,
-    pub slicer_filament: String,
-    pub brand: String,
-    pub weight_advertised: i32,
-    pub weight_core: i32,
-    pub note: String,
-}
-encrypted_input!(EncodeInfoDTO);
+// #[derive(serde::Deserialize, serde::Serialize, Default, Debug)]
+// pub struct EncodeInfoDTO {
+//     pub tray_id: i32,
+//     pub id: String,
+//     pub tag_id: String,
+//     pub color_code: String,
+//     pub color_name: String,
+//     pub material: String,
+//     pub filament_subtype: String,
+//     pub slicer_filament: String,
+//     pub brand: String,
+//     pub weight_advertised: i32,
+//     pub weight_core: i32,
+//     pub note: String,
+// }
+// encrypted_input!(EncodeInfoDTO);
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct DeleteSpoolDTO {

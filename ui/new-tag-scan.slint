@@ -1,5 +1,4 @@
 import { MyText, MyButton, ButtonType, WizardButtons, Title } from "framework/widgets.slint";
-import { SelectInventoryId } from "select-inventory-id.slint";
 import { NumPad } from "numpad.slint";
 import { AppBackend, AppState, ControlState,FilamentInfoMode, NewTagScanPage, NewTagOperation, SpoolScaleState } from "app.slint";
 import { FilamentInfo  } from "filament-info.slint";
@@ -88,7 +87,6 @@ component SpoolSelectStep inherits Rectangle {
                 ok-clicked => {
                     error = AppBackend.fill-encode-request-from-spool-id(num-pad.number);
                     if error == "" {
-                        AppState.encoding-select-spool-id = false;
                         wiz-buttons.next-enabled = true;
                     } else {
                         num-pad.display-error = error;
@@ -264,7 +262,7 @@ export component NewTagScan inherits Rectangle {
             } else {
                 AppState.new-tag-scan-spool-id = AppBackend.recently_added_spool_id_if_untagged();
                 AppBackend.fill-encode-request-from-spool-id(AppBackend.recently_added_spool_id_if_untagged());
-                AppState.encoding-select-spool-id = false;
+                // AppState.encoding-select-spool-id = false;
                 AppState.new-tag-scan-page = NewTagScanPage.LinkSpoolDisplay;
             }
         }

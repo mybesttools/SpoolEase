@@ -12,11 +12,10 @@ import { ControlPanel } from "controlpanel.slint";
 import { SelectPrinter } from "select-printer.slint";
 import { AppSettings } from "app-settings.slint";
 import { NumPad } from "numpad.slint";
-import { SpoolCoreWeight } from "core-weight.slint";
+// import { SpoolCoreWeight } from "core-weight.slint";
 import { FilamentInfo } from "filament-info.slint";
 import { FilamentInfoMode } from "app.slint";
-import { SelectInventoryId } from "select-inventory-id.slint";
-import { SelectInventoryId } from "select-inventory-id.slint";
+// import { SelectInventoryId } from "select-inventory-id.slint";
 import { NewTagScan } from "new-tag-scan.slint";
 
 // reexport to rust
@@ -40,7 +39,7 @@ export component AppWindow inherits Window {
     }
     property <int> current-page-x: 0;
 
-    if AppState.control-state != ControlState.EncodeEditing: sgr := SwipeGestureHandler {
+    sgr := SwipeGestureHandler {
         width: parent.width;
         height: parent.height;
         handle-swipe-up: current-page < 2 && (!AppState.select-printer);
@@ -48,7 +47,7 @@ export component AppWindow inherits Window {
         handle-swipe-left: AppState.select-printer == false;
         handle-swipe-right: AppState.select-printer == true;
         swiped => {
-            if FrameworkState.ota-state == OtaState.NotStarted && AppState.control-state != ControlState.EncodeEditing && AppState.control-state != ControlState.FilamentInformation {
+            if FrameworkState.ota-state == OtaState.NotStarted && AppState.control-state != ControlState.FilamentInformation {
                 if self.handle-swipe-down && self.current-position.y > self.pressed-position.y + (self.height / 8) {
                     // swipe down 
                     current-page -= 1;
@@ -146,17 +145,17 @@ export component AppWindow inherits Window {
         }
     }
 
-    if AppState.control-state == ControlState.EncodeEditing: encode-editing := FilamentInfo {
-        mode: FilamentInfoMode.Encode;
-        height: root.height;
-    }
+    // if AppState.control-state == ControlState.EncodeEditing: encode-editing := FilamentInfo {
+    //     mode: FilamentInfoMode.Encode;
+    //     height: root.height;
+    // }
 
-    if AppState.control-state == ControlState.EncodeEditing: core-weight := SpoolCoreWeight {
-        visible: AppState.encoding-spool-core-visible;
-        height: root.height;
-    }
+    // if AppState.control-state == ControlState.EncodeEditing: core-weight := SpoolCoreWeight {
+    //     visible: AppState.encoding-spool-core-visible;
+    //     height: root.height;
+    // }
 
-    if AppState.control-state == ControlState.EncodeEditing && AppState.encoding-select-spool-id: select-spool-id := SelectInventoryId {}
+    // if AppState.control-state == ControlState.EncodeEditing && AppState.encoding-select-spool-id: select-spool-id := SelectInventoryId {}
 
     if AppState.control-state == ControlState.FilamentInformation: filament-information := FilamentInfo {
         mode: FilamentInfoMode.View;

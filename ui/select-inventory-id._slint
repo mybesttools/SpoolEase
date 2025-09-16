@@ -2,6 +2,8 @@ import { MyButton, Title } from "framework/widgets.slint";
 import { NumPad } from "numpad.slint";
 import { AppBackend, AppState } from "app.slint";
 
+//TODO: remove file
+
 export component SelectInventoryId inherits Rectangle {
     background: black;
     property <string> error: "";
