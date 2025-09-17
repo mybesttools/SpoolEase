@@ -1000,7 +1000,8 @@ impl ViewModel {
                 return;
             }
 
-            997 => { // display spool-record not in any specific spot
+            997 => {
+                // display spool-record not in any specific spot
                 if let Some(spool_rec) = self.store.get_spool_by_id(&ui_app_state.get_curr_encode_request().id) {
                     tray_full_rec.spool_rec = spool_rec;
                     encode_request_display.pa_line1 = format!(
@@ -1147,7 +1148,7 @@ impl ViewModel {
 
         ui_app_state.set_curr_encode_request_display(encode_request_display);
         // if first_request_to_display {
-            ui_app_state.set_curr_encode_request(encode_request);
+        ui_app_state.set_curr_encode_request(encode_request);
         // }
     }
 
@@ -1528,6 +1529,7 @@ impl ViewModel {
         }
     }
 
+    // returns false if not v1, true if v1 whether error or not
     pub fn process_v1_tag_read(&self, tag: &str, scanned_on_scale: bool) -> bool {
         let ui = self.ui_weak.clone();
         // TODO: When moving to no need to encode tag, displaying here in staging should only take place
@@ -1809,7 +1811,9 @@ impl BambuPrinterObserver for ViewModel {
                 if let Some(spool_rec) = self.store.get_spool_by_id(removed_spool.1) {
                     self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Unloaded);
                     self.display_filament_staging_direct(bambu_printer, true);
-                    let _ = self.dispatch_async_task(AppAsyncTaskRequest::SetStagingRecExt { spool_id: removed_spool.1.clone() });
+                    let _ = self.dispatch_async_task(AppAsyncTaskRequest::SetStagingRecExt {
+                        spool_id: removed_spool.1.clone(),
+                    });
                     // let _ = self.store.try_send_op(StoreOp::ReadExtInfo { id: removed_spool.1.clone() });
                 }
             }
@@ -2004,19 +2008,13 @@ impl SpoolTagObserver for ViewModel {
                 }
             }
             Status::ReadSuccess(read_result) => match read_result {
-                spool_tag::ReadResult::NDEF {
-                    uid: _,
-                    text: Some(ndef_text),
-                } => {
-                    if !self.process_v1_tag_read(ndef_text.as_str(), false) {
-                        error!("Error with scanned V1 tag - can't parse informtion");
-                        ui.unwrap()
-                            .global::<crate::app::AppState>()
-                            .invoke_read_tag_failed(SharedString::from("Error parsing V1 tag"));
+                spool_tag::ReadResult::NDEF { uid, text } => {
+                    if let Some(ndef_text) = text {
+                        if self.process_v1_tag_read(ndef_text.as_str(), false) {
+                            return;
+                        }
                     }
-                }
-
-                spool_tag::ReadResult::NDEF { uid, text: None } => {
+                    // not V1 tag
                     let hex_tag = hex::encode_upper(uid);
                     if let Some(spool_rec) = self.store.get_spool_by_hex_tag(&hex_tag) {
                         let spool_rec_id = spool_rec.id.clone();
@@ -2552,11 +2550,27 @@ struct GcodeJob {
 
 #[derive(Debug, Clone)]
 enum AppAsyncTaskRequest {
-    ProcessV1TagRead { tag: String, scanned_on_scale: bool },
-    UpdateSpoolWeight { weight: i32 },
-    LinkTagToSpool { tag_id: String, spool_id: String, final_step: bool },
-    SetStagingRecExt { spool_id: String },
-    SetSpoolWeight { spool_id: String, weight: i32, unused: bool, final_step: bool },
+    ProcessV1TagRead {
+        tag: String,
+        scanned_on_scale: bool,
+    },
+    UpdateSpoolWeight {
+        weight: i32,
+    },
+    LinkTagToSpool {
+        tag_id: String,
+        spool_id: String,
+        final_step: bool,
+    },
+    SetStagingRecExt {
+        spool_id: String,
+    },
+    SetSpoolWeight {
+        spool_id: String,
+        weight: i32,
+        unused: bool,
+        final_step: bool,
+    },
 }
 
 type AppAsyncTasksChannel = Channel<NoopRawMutex, AppAsyncTaskRequest, 5>;
@@ -2578,16 +2592,21 @@ pub async fn app_async_task(view_model: Rc<RefCell<ViewModel>>) {
     loop {
         match requests.receive().await {
             AppAsyncTaskRequest::ProcessV1TagRead { tag, scanned_on_scale } => {
-                        ViewModel::process_v1_tag_read_async(view_model.clone(), tag, scanned_on_scale).await
-                    }
+                ViewModel::process_v1_tag_read_async(view_model.clone(), tag, scanned_on_scale).await
+            }
             AppAsyncTaskRequest::UpdateSpoolWeight { weight } => ViewModel::update_spool_weight_async(view_model.clone(), weight).await,
             AppAsyncTaskRequest::LinkTagToSpool {
-                        tag_id,
-                        spool_id,
-                        final_step,
-                    } => ViewModel::link_tag_to_spool_id_async(view_model.clone(), tag_id, spool_id, final_step).await,
+                tag_id,
+                spool_id,
+                final_step,
+            } => ViewModel::link_tag_to_spool_id_async(view_model.clone(), tag_id, spool_id, final_step).await,
             AppAsyncTaskRequest::SetStagingRecExt { spool_id } => ViewModel::set_staging_rec_ext_async(view_model.clone(), spool_id).await,
-            AppAsyncTaskRequest::SetSpoolWeight { spool_id, weight, unused, final_step } => ViewModel::set_spool_weight_async(view_model.clone(), spool_id, weight, unused, final_step).await,
+            AppAsyncTaskRequest::SetSpoolWeight {
+                spool_id,
+                weight,
+                unused,
+                final_step,
+            } => ViewModel::set_spool_weight_async(view_model.clone(), spool_id, weight, unused, final_step).await,
         }
     }
 }
