@@ -98,10 +98,12 @@ export enum ControlState {
   Reading,
   NewTagScan,
   StagingSelected, // To load
+  FilamentInformation,
+  TraySelect, // for selecting a tray when loading filament from staging
+  TraySelected, // just selecting tray (unrelated to previous)
   // EncodeSelectSource,
   // EncodeEditing,
   Encoding,
-  FilamentInformation,
   PostAction,
 }
 
@@ -186,6 +188,10 @@ export global AppState {
     in-out property <NewTagOperation> new-tag-operation: None;
     in-out property <string> new-tag-scan-spool-id: "";
 
+
+    // Global state for TraySelected
+    in-out property <int> tray-selected-tray-index: -1;
+
     in-out property <SpoolStagingState> spool-staging-state: SpoolStagingState.Empty;
     in-out property <UiSpoolInfo> spool-staging-info;
     in-out property <int> staging-to-tray: -1; // tray that needs to be updated with filament when recognizing on backend tray is reading
@@ -209,19 +215,19 @@ export global AppState {
         AppBackend.calc-encode-request-display(FilamentInfoMode.View);
     }
 
-      in-out property <int> curr-ams-id: 0;
-      in-out property <[int]> ams-exists: [0];
+    in-out property <int> curr-ams-id: 0;
+    in-out property <[int]> ams-exists: [0];
 
-      in-out property <string> curr-printer: "";
-      in-out property <[string]> available-printers: [];
-      in-out property <string> default-printer: "";
-      in-out property <string> pending-curr-printer: "";
-      changed pending-curr-printer => {
-          if pending-curr-printer != "" {
-              AppBackend.select-printer(pending-curr-printer);
-              pending-curr-printer = "";
-          }
-      }
+    in-out property <string> curr-printer: "";
+    in-out property <[string]> available-printers: [];
+    in-out property <string> default-printer: "";
+    in-out property <string> pending-curr-printer: "";
+    changed pending-curr-printer => {
+        if pending-curr-printer != "" {
+            AppBackend.select-printer(pending-curr-printer);
+            pending-curr-printer = "";
+        }
+    }
 
     //   function delayed-encode-web-app() {
     //   self.delayed-encode-web-app-helper = true;
@@ -365,14 +371,14 @@ export global AppState {
         // clear-curr-encoding-request();
     }
 
-    public function tray-update-failed(ams-id: int, tray-id: int, err-txt: string) {
+    public function tray-update-failed(printer: string, ams-id: int, tray-id: int, err-txt: string) {
         self.control-state = ControlState.PostAction;
-        self.user-message = (tray-id == 254 ? "Configuring\nExternal Spool Filament\nFailed" : "Configuring\nAMS \{ams-id + 1}, Slot \{tray-id + 1} Filament\nFailed");
+        self.user-message = ((tray-id == 254 ? "Filed to Configure\nExternal Slot\n" : "Failed to Configure\nAMS \{ams-id + 1}, Slot \{tray-id + 1} Filament\n") + err-txt);
         self.user-message-type = StatusType.Error;
     }
     public function tray-update-succeeded(printer: string, ams-id: int, tray-id: int) {
         self.control-state = ControlState.PostAction;
-        self.user-message = (tray-id == 254 ? "Configuring\nExternal Spool Filament\nSucceeded" : "Configuring\nAMS \{ams-id + 1}, Slot \{tray-id + 1} Filament\nSucceeded");
+        self.user-message = (tray-id == 254 ? "Configured Successfully\nExternal Spool Filament" : "Configured Successfully\nAMS \{ams-id + 1}, Slot \{tray-id + 1} Filament");
         self.user-message-type = StatusType.Success;
         start-highlight-tray((tray-id == 254) ? 254 : get_tray_id(ams-id, tray-id));
         if printer != self.curr-printer {
@@ -380,7 +386,7 @@ export global AppState {
         }
     }
 
-    pure public function get_tray_id(ams-id: int, tray-id:int) -> int {
+    pure public function get_tray_id(ams-id: int, tray-id: int) -> int {
         if ams-id <= 3 {
             return ams-id * 4 + tray-id;
         }
@@ -395,6 +401,22 @@ export global AppState {
         self.curr-encode-request.tray-id = ((tray-index == 999) ? 999 : self.trays-state[tray-index].id);
         self.control-state = ControlState.FilamentInformation;
     }
+
+    public function staging-selected() {
+        self.clear-curr-encoding-request();
+        self.curr-encode-request.tray-index = 999;
+        self.curr-encode-request.tray-id = 999;
+        self.control-state = ControlState.StagingSelected;
+    }
+
+    public function tray-selected(tray-index: int) {
+        self.clear-curr-encoding-request();
+        self.curr-encode-request.tray-index = tray-index;
+        self.curr-encode-request.tray-id = self.trays-state[tray-index].id;
+        self.tray-selected-tray-index = tray-index;
+        self.control-state = ControlState.TraySelected;
+    }
+
     public function end-show-filament-information() {
         clear-curr-encoding-request();
         self.control-state = ControlState.Ready;
@@ -487,6 +509,10 @@ export global AppState {
         }
         // clear-curr-encoding-request();
         // AppBackend.notify-post-encode();
+    }
+
+    pure public function is-scale-usable-now() -> bool {
+        return self.spool-scale-state == SpoolScaleState.Connected || self.spool-scale-state == SpoolScaleState.Empty || self.spool-scale-state == SpoolScaleState.Loaded || self.spool-scale-state == SpoolScaleState.Disconnected;
     }
 
     public function show-spoolscale-dialog(message: string, type: StatusType) {
@@ -594,14 +620,14 @@ export global AppState {
       // string empty ok, content is error message
 
       if self.control-state == ControlState.NewTagScan {
-        if status == "" {
+            if status == "" {
           // this will be effective only if there is a weight (this will be driven by the flow in the screen itself)
           self.new-tag-scan-page = NewTagScanPage.MeasureWeight;
-        } else {
-          self.new-tag-scan-page = NewTagScanPage.StatusDisplay;
-          self.new-tag-scan-status = status;
+            } else {
+                self.new-tag-scan-page = NewTagScanPage.StatusDisplay;
+                self.new-tag-scan-status = status;
+            }
         }
-      }
     }
 
     // public function reset-printer() {

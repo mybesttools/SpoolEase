@@ -1,0 +1,105 @@
+import { MyText, MyButton, ButtonType, WizardButtons, Title } from "framework/widgets.slint";
+import { AppBackend, AppState, ControlState, SpoolStagingState, FilamentInfoMode, SpoolScaleState, UiFilamentState } from "app.slint";
+import { FilamentInfo } from "filament-info.slint";
+
+
+component TrayDisplayStep inherits Rectangle {
+    callback more-clicked();
+    width: 480px;
+    height: 320px;
+    VerticalLayout {
+        FilamentInfo {
+            height: 320px - 56px;
+            mode: FilamentInfoMode.Wizard;
+        }
+
+        HorizontalLayout {
+            MyButton {
+                text: "Reset Tray";
+            }
+
+            MyButton {
+                text: "More...";
+                clicked => {
+                    more-clicked();
+                }
+            }
+
+            MyButton {
+                text: "Close";
+                clicked => {
+                    AppState.control-state = ControlState.Ready;
+                }
+            }
+        }
+    }
+}
+
+component OperationSelectionStep inherits Rectangle {
+    width: 480px;
+    height: 320px;
+    background: white;
+
+    VerticalLayout {
+        Title {
+            text: "Please Select Slot Operation";
+        }
+
+        GridLayout {
+            padding: 5px;
+            spacing: 5px;
+            Row {
+                MyButton {
+                    text: "Untag Slot";
+                }
+
+                MyButton {
+                    enabled: AppState.spool-staging-state != SpoolStagingState.Empty;
+                    text: "Configure from Staging";
+                    clicked => {
+                        AppBackend.set-staging-to-tray(AppState.tray-selected-tray-index);
+                    }
+                }
+
+                MyButton {
+                    text: "Unload Filament";
+                    clicked => {
+                        
+                    }
+                }
+            }
+
+            Row {
+              MyButton { // just to have a second row
+                  visible: false;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            MyButton {
+                height: 56px;
+                text: "Cancel";
+                clicked => {
+                    AppState.control-state = ControlState.Ready;
+                }
+            }
+        }
+    }
+}
+
+enum TrayOperationsPage {
+  SpoolDisplay,
+  OperationSelection,
+}
+
+
+export component TrayOperations {
+    property <TrayOperationsPage> page: AppState.trays-state[AppState.tray-selected-tray-index].filament.state == UiFilamentState.Known ? TrayOperationsPage.SpoolDisplay : TrayOperationsPage.OperationSelection;
+    if page == TrayOperationsPage.SpoolDisplay: TrayDisplayStep {
+        more-clicked => {
+            page = TrayOperationsPage.OperationSelection;
+        }
+    }
+    if page == TrayOperationsPage.OperationSelection: OperationSelectionStep { }
+}

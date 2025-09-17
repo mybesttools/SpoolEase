@@ -32,7 +32,7 @@ use framework::{
 };
 
 use crate::app::EncodeRequest;
-use crate::app_config::{BASE_FILAMENTS, FILAMENT_BRAND_NAMES, SPOOLS_CATALOG};
+use crate::app_config::{BASE_FILAMENTS, FILAMENT_BRAND_NAMES, MATERIALS, SPOOLS_CATALOG};
 use crate::bambu::bambu_print::{GcodeAnalysis, PrintProject};
 use crate::bambu::{Filament, FilamentInfo, KExtruder, KInfo, KNozzleDiameter, KNozzleId, KPrinter, SpoolId, Tray, TrayBits};
 use crate::color_utils::get_color_name;
@@ -647,7 +647,7 @@ impl ViewModel {
         }
     }
 
-    fn get_filament_info(&self, search_code: &str) -> Option<(bool, String, u32, u32)> {
+    fn get_filament_info(&self, search_code: &str, material: &str) -> Option<(bool, String, u32, u32)> {
         let app_config_borrow = self.app_config.borrow();
         let empty_list = String::new();
         let filament_lists = [BASE_FILAMENTS, app_config_borrow.custom_filaments.as_ref().unwrap_or(&empty_list)];
@@ -669,6 +669,47 @@ impl ViewModel {
             }
             base = false;
         }
+        // here it means not found the slicer filament, so resorting to material type
+
+        let mut material_code = "";
+        let mut found = false;
+        for (line_index, material_line) in MATERIALS.lines().enumerate() {
+            if line_index == 0 {
+                continue;
+            } // skip title line
+            let mut split = material_line.split(',');
+            if let Some(list_material) = split.next() {
+                if list_material == material {
+                    if let (Some(filament_id), Some(nozzle_temp_low), Some(nozzle_temp_high)) = (split.next(), split.next(), split.next()) {
+                        if let (Ok(_wrong_nozzle_temp_low), Ok(_wrong_nozzle_temp_high)) =
+                            (nozzle_temp_low.parse::<u32>(), nozzle_temp_high.parse::<u32>())
+                        {
+                            material_code = filament_id;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if found {
+            for line in BASE_FILAMENTS.lines() {
+                let mut split = line.split(',');
+                if let (Some(code), Some(name), Some(nozzle_temp_low), Some(nozzle_temp_high)) =
+                    (split.next(), split.next(), split.next(), split.next())
+                {
+                    if code == material_code {
+                        let name = decode_csv_field(name);
+                        let nozzle_temp_low = nozzle_temp_low.parse::<u32>().unwrap_or_default();
+                        let nozzle_temp_high = nozzle_temp_high.parse::<u32>().unwrap_or_default();
+                        let base = true;
+                        return Some((base, name, nozzle_temp_low, nozzle_temp_high));
+                    }
+                }
+            }
+        }
+
         None
     }
     // pub fn web_app_set_encode_info(&mut self, encode_info: &EncodeInfoDTO) {
@@ -735,23 +776,38 @@ impl ViewModel {
         ui: &slint::Weak<crate::app::AppWindow>,
         tray_id: i32,
     ) {
+        let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
+        let tray_id = tray_id as i32;
+        let ams_id_for_ui = Self::ams_if_for_ui(ams_id);
         let mut filament_staging = filament_staging.borrow_mut();
-        if let Some(full_spool_rec) = filament_staging.full_spool_rec() {
-            let filament_info = self.get_filament_info(&full_spool_rec.spool_rec.slicer_filament);
-            let min_max_temps = filament_info.map(|fi| (fi.2, fi.3));
-            bambu_printer.set_tray_filament(tray_id, full_spool_rec, min_max_temps);
-            filament_staging.clear();
-            ui.unwrap().global::<crate::app::AppState>().invoke_empty_spool_staging();
-            let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
-            let ams_id_for_ui = Self::ams_if_for_ui(ams_id);
-            let tray_id = tray_id as i32;
-            ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_succeeded(
+        if bambu_printer.printer_connectivity_ok != Some(true) {
+            ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_failed(
                 bambu_printer.printer_selector_name.to_shared_string(),
                 ams_id_for_ui,
                 tray_id,
+                "Printer disconnected".to_shared_string(),
             );
+        } else if let Some(full_spool_rec) = filament_staging.full_spool_rec() {
+            if let Some(filament_info) = self.get_filament_info(&full_spool_rec.spool_rec.slicer_filament, &full_spool_rec.spool_rec.material_type) {
+                bambu_printer.set_tray_filament(tray_id, full_spool_rec, filament_info.2, filament_info.3);
+                filament_staging.clear();
+                ui.unwrap().global::<crate::app::AppState>().invoke_empty_spool_staging();
+                ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_succeeded(
+                    bambu_printer.printer_selector_name.to_shared_string(),
+                    ams_id_for_ui,
+                    tray_id,
+                );
+            } else {
+                ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_failed(
+                    bambu_printer.printer_selector_name.to_shared_string(),
+                    ams_id_for_ui,
+                    tray_id,
+                    "Unknown Nozzle Temps".to_shared_string(),
+                );
+            }
         }
     }
+
     fn ams_if_for_ui(ams_id: usize) -> i32 {
         let ams_id_for_ui = if ams_id <= 3 {
             ams_id
@@ -762,6 +818,7 @@ impl ViewModel {
         };
         ams_id_for_ui as i32
     }
+
     fn set_staging_to_tray(
         view_model: &Rc<RefCell<ViewModel>>,
         filament_staging: &Rc<RefCell<FilamentStaging>>,
@@ -785,7 +842,10 @@ impl ViewModel {
             // Encode from blank, manual data only
             //TODO: think if in case somehow slicer_filament is not in the list (can be here?) if to fallback to default slicer filaments based on material type
             if let Some(encode_editing_area) = &self.encode_editing_area {
-                let min_max_temps = if let Some(filament_info) = self.get_filament_info(&encode_editing_area.spool_rec.slicer_filament) {
+                let min_max_temps = if let Some(filament_info) = self.get_filament_info(
+                    &encode_editing_area.spool_rec.slicer_filament,
+                    &encode_editing_area.spool_rec.material_type,
+                ) {
                     (filament_info.2, filament_info.3)
                 } else {
                     (0, 0)
@@ -1018,7 +1078,8 @@ impl ViewModel {
                     return;
                 }
             } // just display w/o any special source what's in encode_request
-
+            // TODO: think if any value in using staging as a special id vs. passing from UI the record-id
+            //       in such case the function parameters should work differently.
             999 => {
                 // Staging
                 if let Some(full_spool_rec) = staging_borrow.full_spool_rec() {
@@ -1088,7 +1149,7 @@ impl ViewModel {
 
         let display_spool_rec = &display_full_spool_rec.spool_rec;
 
-        let filament_info = self.get_filament_info(&display_spool_rec.slicer_filament);
+        let filament_info = self.get_filament_info(&display_spool_rec.slicer_filament, &encode_request_display.filament_type);
 
         encode_request.brand = if display_spool_rec.brand.is_empty() {
             if let Some((_, slicer_name, _, _)) = &filament_info {
@@ -1136,8 +1197,14 @@ impl ViewModel {
         } else {
             "Unknown Filament".into()
         };
-        encode_request_display.temp_min = nozzle_temps.0 as i32;
-        encode_request_display.temp_max = nozzle_temps.1 as i32;
+
+        if (nozzle_temps.0 == 0 || nozzle_temps.1 == 0) && filament_info.is_some() {
+            encode_request_display.temp_min = filament_info.as_ref().unwrap().2 as i32;
+            encode_request_display.temp_max = filament_info.as_ref().unwrap().3 as i32;
+        } else {
+            encode_request_display.temp_min = nozzle_temps.0 as i32;
+            encode_request_display.temp_max = nozzle_temps.1 as i32;
+        }
 
         encode_request_display.title_color = if display_spool_rec.color_code.len() >= 6 {
             let color = u32::from_str_radix(&display_spool_rec.color_code[..6], 16).unwrap() + 0xFF000000; // the plus 0xFF at the end is fo add alpha

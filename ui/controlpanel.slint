@@ -1,7 +1,7 @@
 import { FrameworkBackend, FrameworkState } from "framework/framework.slint";
 import { MyButton } from "framework/widgets.slint";
 import { AppConsts, AppBackend, AppState, StatusType, ControlState, SpoolScaleState, SpoolStagingState } from "app.slint";
-import { Utils } from "Utils.slint";
+import { Utils } from "utils.slint";
 import { SpoolStaging } from "spoolstaging.slint";
 
 
@@ -202,28 +202,28 @@ export component Ready inherits ControlPanelBase {
     }
 }
 
-export component EncodeSelectSource inherits ControlPanelBase {
-    message-text: (AppState.spool-staging-state == SpoolStagingState.Empty) ? "Press Slot to Encode" : "Press\nSlot or Staging\nto Encode";
-    button2-text: "Cancel";
-    button2-timeout: 10;
-    clicked2() => {
-        AppState.control-state = ControlState.Ready;
-        AppBackend.read-tag-mode();
-    }
-}
+// export component EncodeSelectSource inherits ControlPanelBase {
+//     message-text: (AppState.spool-staging-state == SpoolStagingState.Empty) ? "Press Slot to Encode" : "Press\nSlot or Staging\nto Encode";
+//     button2-text: "Cancel";
+//     button2-timeout: 10;
+//     clicked2() => {
+//         AppState.control-state = ControlState.Ready;
+//         AppBackend.read-tag-mode();
+//     }
+// }
 
-export component StagingSelected inherits ControlPanelBase {
-    message-text: "Press Slot to Configure\nor Staging to View Tag";
-    // button1-text: "Clear Staging";
-    button2-text: "Cancel";
-    button2-timeout: 10;
-    // clicked1() => {
-    //     AppBackend.clear-staging();
-    // }
-    clicked2() => {
-        AppState.control-state = ControlState.Ready;
-    }
-}
+// export component StagingSelected inherits ControlPanelBase {
+//     message-text: "Press Slot to Configure\nor Staging to View Tag";
+//     // button1-text: "Clear Staging";
+//     button2-text: "Cancel";
+//     button2-timeout: 10;
+//     // clicked1() => {
+//     //     AppBackend.clear-staging();
+//     // }
+//     clicked2() => {
+//         AppState.control-state = ControlState.Ready;
+//     }
+// }
 
 export component OperationBase inherits ControlPanelBase {
     message-text: AppState.user-message;
@@ -279,6 +279,7 @@ export component ControlPanel inherits HorizontalLayout {
     in property <length> staging-section-width;
     in property <length> button-width;
     padding-top: 5px;
+    spacing: AppConsts.trays-spacing;
     staging := SpoolStaging {
         clicked-ota => {
             root.clicked-ota();
@@ -301,9 +302,9 @@ export component ControlPanel inherits HorizontalLayout {
     // if AppState.control-state == ControlState.EncodeSelectSource: EncodeSelectSource {
     //     button-width: button-width;
     // }
-    if AppState.control-state == ControlState.StagingSelected: StagingSelected {
-        button-width: button-width;
-    }
+    // if AppState.control-state == ControlState.StagingSelected: StagingSelected {
+    //     button-width: button-width;
+    // }
     if AppState.control-state == ControlState.Encoding: Encoding {
         button-width: button-width;
     }
@@ -316,13 +317,13 @@ export component ControlPanel inherits HorizontalLayout {
 
     trays-timer := Timer {
         interval: 0.3s;
-        running: AppState.control-state == ControlState.StagingSelected;
+        running: AppState.control-state == ControlState.TraySelect;
         changed running => {
             AppState.highlight-trays = false;
             AppState.highlight-staging = false;
         }
         triggered() => {
-            if AppState.control-state == ControlState.StagingSelected {
+            if AppState.control-state == ControlState.TraySelect {
                 AppState.highlight-trays = !AppState.highlight-trays;
             }
         }

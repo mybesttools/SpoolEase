@@ -210,7 +210,7 @@ export component FilamentInfo inherits Rectangle {
                         property <string> new: AppState.curr-encode-request.weight-new > 0 ? "\{AppState.curr-encode-request.weight-new}g" : "—";
                         property <string> advertised: AppState.curr-encode-request.weight-advertised <= 0 ? "—" : ((AppState.curr-encode-request.weight-advertised > 500) && (Math.mod(AppState.curr-encode-request.weight-advertised,500)) == 0) ? "\{AppState.curr-encode-request.weight-advertised / 1000}kg" : "\{AppState.curr-encode-request.weight-advertised}g";
                         label: "Weights:";
-                        text: "\{advertised} (Label) / \{core} (Core) / \{new} (New)";
+                        text: "Label: \{advertised} / Core: \{core} / New: \{new}";
                         // clicked => {
                         //     AppState.encoding-spool-core-visible = true;
                         // }

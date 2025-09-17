@@ -1503,7 +1503,7 @@ impl BambuPrinter {
         res
     }
 
-    pub fn set_tray_filament(&mut self, tray_id: i32, full_spool_rec: &FullSpoolRecord, min_max_temps: Option<(u32, u32)>) {
+    pub fn set_tray_filament(&mut self, tray_id: i32, full_spool_rec: &FullSpoolRecord, temp_min: u32, temp_max: u32) {
         let ams_id;
         let ams_tray_id;
         let slot_id;
@@ -1537,8 +1537,8 @@ impl BambuPrinter {
             tray_info_idx: full_spool_rec.spool_rec.slicer_filament.clone(),
             tray_type: full_spool_rec.spool_rec.material_type.clone(),
             tray_color: full_spool_rec.spool_rec.color_code.clone(),
-            nozzle_temp_max: min_max_temps.unwrap_or((0, 0)).1,
-            nozzle_temp_min: min_max_temps.unwrap_or((0, 0)).0,
+            nozzle_temp_min: temp_min,
+            nozzle_temp_max: temp_max,
         };
         let filament_ok_to_send = self.fill_filament_defaults_if_needed(&mut filament);
 

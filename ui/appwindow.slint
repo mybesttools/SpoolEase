@@ -17,6 +17,8 @@ import { FilamentInfo } from "filament-info.slint";
 import { FilamentInfoMode } from "app.slint";
 // import { SelectInventoryId } from "select-inventory-id.slint";
 import { NewTagScan } from "new-tag-scan.slint";
+import { StagingOperations } from "staging-operations.slint";
+import { TrayOperations } from "tray-operations.slint";
 
 // reexport to rust
 
@@ -109,10 +111,7 @@ export component AppWindow inherits Window {
                             AppState.curr-ams-id * 4 + 2,
                             AppState.curr-ams-id * 4 + 3,
                             AppState.curr-ams-id * 4 + 4
-                        ] : 
-                          [ 
-                            15 + AppState.curr-ams-id - 3 + 1
-                        ];
+                        ] : [15 + AppState.curr-ams-id - 3 + 1];
                         trays-state: AppState.trays-state;
                     }
                 }
@@ -163,8 +162,18 @@ export component AppWindow inherits Window {
     }
 
     if AppState.control-state == ControlState.NewTagScan: new-tag-scan := NewTagScan {
-      width: root.width;
-      height: root.height;
+        width: root.width;
+        height: root.height;
+    }
+
+    if AppState.control-state == ControlState.StagingSelected: staging-selected := StagingOperations {
+        width: root.width;
+        height: root.height;
+    }
+
+    if AppState.control-state == ControlState.TraySelected: tray-selected := TrayOperations {
+        width: root.width;
+        height: root.height;
     }
 
     if AppState.spool-inventory-dialog-message != "": Rectangle {

@@ -11,7 +11,7 @@ component OperationSelectionStep inherits Rectangle {
     background: white;
     property <NewTagOperation> selected-operation: None;
     function pressed(operation: NewTagOperation) {
-       selected-operation = selected-operation == operation ? NewTagOperation.None : operation;
+        selected-operation = selected-operation == operation ? NewTagOperation.None : operation;
     }
 
     VerticalLayout {
@@ -260,7 +260,7 @@ export component NewTagScan inherits Rectangle {
     width: 480px;
     height: 320px;
 
-    oper-select := OperationSelectionStep {
+    if AppState.new-tag-scan-page == NewTagScanPage.OperationSelect: oper-select := OperationSelectionStep {
         visible: AppState.new-tag-scan-page == NewTagScanPage.OperationSelect;
         next-clicked => {
             if AppState.new-tag-operation == NewTagOperation.LinkTagToSpoolId {
@@ -277,7 +277,7 @@ export component NewTagScan inherits Rectangle {
         }
     }
 
-    spool-select := SpoolSelectStep {
+    if AppState.new-tag-scan-page == NewTagScanPage.SpoolSelect: spool-select := SpoolSelectStep {
         visible: AppState.new-tag-scan-page == NewTagScanPage.SpoolSelect;
         back-clicked => {
             AppState.new-tag-scan-page = NewTagScanPage.OperationSelect;
@@ -293,7 +293,7 @@ export component NewTagScan inherits Rectangle {
 
     if AppState.new-tag-scan-page == NewTagScanPage.LinkSpoolDisplay: spool-display := SpoolDisplayStep {
         visible: AppState.new-tag-scan-page == NewTagScanPage.LinkSpoolDisplay;
-        property <bool> last-step:AppState.spool-scale-state == SpoolScaleState.NotAvailable ? true : false;
+        property <bool> last-step: !AppState.is-scale-usable-now();
         next-text: "✓ Link Tag" + (last-step ? "" : " ▶");
         back-clicked => {
             AppState.new-tag-scan-page = NewTagScanPage.SpoolSelect;

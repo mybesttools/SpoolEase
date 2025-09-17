@@ -1,0 +1,142 @@
+import { MyText, MyButton, ButtonType, WizardButtons, Title } from "framework/widgets.slint";
+import { AppBackend, AppState, ControlState, SpoolStagingState, FilamentInfoMode, SpoolScaleState } from "app.slint";
+import { FilamentInfo } from "filament-info.slint";
+
+
+enum StagingOperation {
+  None,
+  Encode,
+  Unlink,
+}
+
+component SpoolDisplayStep inherits Rectangle {
+    callback more-clicked();
+    width: 480px;
+    height: 320px;
+    VerticalLayout {
+        FilamentInfo {
+            height: 320px - 56px;
+            mode: FilamentInfoMode.Wizard;
+        }
+
+        HorizontalLayout {
+            if AppState.spool-scale-state != SpoolScaleState.NotAvailable: MyButton {
+                enabled: AppState.spool-staging-state != SpoolStagingState.Empty && AppState.is-scale-usable-now();
+                text: "Update Weight";
+                clicked => {
+                }
+            }
+
+            if AppState.spool-scale-state == SpoolScaleState.NotAvailable: MyButton {
+                enabled: AppState.spool-staging-state != SpoolStagingState.Empty;
+                text: "Configure Slot";
+                clicked => {
+                    AppState.control-state = ControlState.TraySelect;
+                }
+            }
+
+            MyButton {
+                text: "More...";
+                clicked => {
+                    more-clicked();
+                }
+            }
+
+            MyButton {
+                text: "Close";
+                clicked => {
+                    AppState.control-state = ControlState.Ready;
+                }
+            }
+        }
+    }
+}
+
+component OperationSelectionStep inherits Rectangle {
+    width: 480px;
+    height: 320px;
+    background: white;
+    property <StagingOperation> selected-operation: None;
+    VerticalLayout {
+        Title {
+            text: "Please Select Staging Operation";
+        }
+
+        GridLayout {
+            padding: 5px;
+            spacing: 5px;
+            Row {
+                MyButton {
+                    enabled: AppState.spool-staging-state != SpoolStagingState.Empty && AppState.is-scale-usable-now();
+                    text: "Update Weight";
+                }
+
+                MyButton {
+                    enabled: AppState.spool-staging-state != SpoolStagingState.Empty;
+                    text: "Configure Slot Manually";
+                    clicked => {
+                        AppState.control-state = ControlState.TraySelect;
+                    }
+                }
+
+                MyButton {
+                    enabled: AppState.spool-staging-state != SpoolStagingState.Empty;
+                    text: "Clear Staging";
+                    clicked => {
+                        AppBackend.clear-staging();
+                    }
+                }
+            }
+
+            Row {
+                // MyButton {
+                //     enabled: AppState.spool-staging-state != SpoolStagingState.Empty;
+                //     text: "View Info";
+                //     clicked => {
+                //         AppState.show-filament-information(999);
+                //     }
+                // }
+
+                MyButton {
+                    enabled: AppState.spool-staging-state != SpoolStagingState.Empty;
+                    text: "Encode Tag";
+                }
+
+                MyButton {
+                    enabled: AppState.spool-staging-state != SpoolStagingState.Empty;
+                    text: "Unlink Tag";
+                }
+
+                MyButton {
+                    enabled: AppState.spool-staging-state != SpoolStagingState.Empty;
+                    text: "Mark as Dried";
+                }
+            }
+        }
+
+        HorizontalLayout {
+            MyButton {
+                height: 56px;
+                text: "Cancel";
+                clicked => {
+                    AppState.control-state = ControlState.Ready;
+                }
+            }
+        }
+    }
+}
+
+enum StagingOperationsPage {
+  SpoolDisplay,
+  OperationSelection,
+}
+
+export component StagingOperations {
+    property <StagingOperationsPage> page: SpoolDisplay;
+    if page == StagingOperationsPage.SpoolDisplay: SpoolDisplayStep {
+        more-clicked => {
+            page = StagingOperationsPage.OperationSelection;
+        }
+    }
+    if page == StagingOperationsPage.OperationSelection: OperationSelectionStep { }
+}
