@@ -1,4 +1,4 @@
-import { Title, MyText,MyButton } from "./framework/widgets.slint";
+import { Title, MyText, MyButton } from "./framework/widgets.slint";
 import { AppBackend, AppState, ControlState, UiTray } from "app.slint";
 import { Utils } from "utils.slint";
 import { FrameworkState } from "framework/framework.slint";
@@ -42,44 +42,44 @@ export component LabeledInfo inherits LabeledText {
     label-width: 90px;
 }
 
-export component EncodeTitle inherits Title {
-    horizontal-alignment: right;
-    text: "To Edit, Scan NFC With Phone   ▶ ▶ ▶\u{00A0}";
-    text2: "\{FrameworkState.web-config-url}";
-}
+// export component EncodeTitle inherits Title {
+//     horizontal-alignment: right;
+//     text: "To Edit, Scan NFC With Phone   ▶ ▶ ▶\u{00A0}";
+//     text2: "\{FrameworkState.web-config-url}";
+// }
 
 export component ViewTitle inherits Title {
     horizontal-alignment: center;
     text: "Filament Information";
 }
 
-export component EncodeButtons inherits HorizontalLayout {
-    callback encode-clicked;
-    callback cancel-clicked;
-
-    Window {
-        horizontal-stretch: 1;
-    }
-
-    MyButton {
-        enabled: AppState.curr-encode-request-display.filament-type != "" && AppState.curr-encode-request-display.color-code != "";
-        horizontal-stretch: 1;
-        height: 56px;
-        text: "Encode";
-        clicked => {
-            encode-clicked()
-        }
-    }
-
-    MyButton {
-        horizontal-stretch: 1;
-        height: 56px;
-        text: "Cancel";
-        clicked => {
-            cancel-clicked()
-        }
-    }
-}
+// export component EncodeButtons inherits HorizontalLayout {
+//     callback encode-clicked;
+//     callback cancel-clicked;
+//
+//     Window {
+//         horizontal-stretch: 1;
+//     }
+//
+//     MyButton {
+//         enabled: AppState.curr-encode-request-display.filament-type != "" && AppState.curr-encode-request-display.color-code != "";
+//         horizontal-stretch: 1;
+//         height: 56px;
+//         text: "Encode";
+//         clicked => {
+//             encode-clicked()
+//         }
+//     }
+//
+//     MyButton {
+//         horizontal-stretch: 1;
+//         height: 56px;
+//         text: "Cancel";
+//         clicked => {
+//             cancel-clicked()
+//         }
+//     }
+// }
 
 export component ViewButtons inherits HorizontalLayout {
     MyButton {
@@ -103,28 +103,12 @@ export component FilamentInfo inherits Rectangle {
     width: 480px;
     height: 320px;
     background: white;
-    // property <color> filament-color: mode == FilamentInfoMode.View ? (AppState.curr-encode-request.tray-index == 999 ? AppState.spool-staging-info.color : AppState.trays-state[AppState.curr-encode-request.tray-index].filament.color) :
     property <color> filament-color: AppState.curr-encode-request-display.title-color;
 
     VerticalLayout {
         alignment: stretch;
 
-        // if mode == FilamentInfoMode.Encode: HorizontalLayout {
-        //     MyButton {
-        //         width: 80px;
-        //         text: AppState.curr-encode-request.id != "" ? AppState.curr-encode-request.id : "Use ID";
-        //         clicked => {
-        //             AppState.encoding-select-spool-id = true;
-        //         }
-        //     }
-        //
-        //     EncodeTitle {
-        //         background: filament-color;
-        //         text-color: Utils.contrasting_color(filament-color);
-        //     }
-        // }
-
-        if mode == FilamentInfoMode.View || mode == FilamentInfoMode.Wizard : HorizontalLayout {
+        if mode == FilamentInfoMode.View || mode == FilamentInfoMode.Wizard: HorizontalLayout {
             Rectangle {
                 width: 80px;
                 background: filament-color;
@@ -205,50 +189,16 @@ export component FilamentInfo inherits Rectangle {
                     }
 
                     LabeledInfo {
-                        // label-button: mode == FilamentInfoMode.Encode;
                         property <string> core: AppState.curr-encode-request.weight-core > 0 ? "\{AppState.curr-encode-request.weight-core}g" : "—";
                         property <string> new: AppState.curr-encode-request.weight-new > 0 ? "\{AppState.curr-encode-request.weight-new}g" : "—";
                         property <string> advertised: AppState.curr-encode-request.weight-advertised <= 0 ? "—" : ((AppState.curr-encode-request.weight-advertised > 500) && (Math.mod(AppState.curr-encode-request.weight-advertised,500)) == 0) ? "\{AppState.curr-encode-request.weight-advertised / 1000}kg" : "\{AppState.curr-encode-request.weight-advertised}g";
                         label: "Weights:";
                         text: "Label: \{advertised} / Core: \{core} / New: \{new}";
-                        // clicked => {
-                        //     AppState.encoding-spool-core-visible = true;
-                        // }
                     }
                 }
             }
         }
 
-        // if mode == FilamentInfoMode.Encode: EncodeButtons {
-        //     encode-clicked => {
-        //         if AppState.curr-encode-request.encoded-as-new == EncodedAsNew.Unknown {
-        //             state = FilamentInfoState.SelectIfNewSpool;
-        //         } else {
-        //             AppState.control-state = ControlState.Encoding;
-        //             AppState.encode-start();
-        //         }
-        //     }
-        //     cancel-clicked => {
-        //         AppState.encode-cancel();
-        //     }
-        // }
         if mode == FilamentInfoMode.View: ViewButtons { }
     }
-
-    // if mode == FilamentInfoMode.Encode && root.state == FilamentInfoState.SelectIfNewSpool: SelectIfNewSpool {
-    //     cancel-clicked => {
-    //         root.state = FilamentInfoState.DisplayInfo;
-    //     }
-    //
-    //     yes-clicked => {
-    //         AppState.curr-encode-request.weight-new = AppState.spool-scale-weight;
-    //         AppState.curr-encode-request.encoded-as-new = EncodedAsNew.Yes;
-    //         root.state = FilamentInfoState.DisplayInfo;
-    //     }
-    //     no-clicked => {
-    //         AppState.curr-encode-request.weight-new = 0;
-    //         AppState.curr-encode-request.encoded-as-new = EncodedAsNew.No;
-    //         root.state = FilamentInfoState.DisplayInfo;
-    //     }
-    // }
 }

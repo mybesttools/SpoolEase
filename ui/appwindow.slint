@@ -12,10 +12,8 @@ import { ControlPanel } from "controlpanel.slint";
 import { SelectPrinter } from "select-printer.slint";
 import { AppSettings } from "app-settings.slint";
 import { NumPad } from "numpad.slint";
-// import { SpoolCoreWeight } from "core-weight.slint";
 import { FilamentInfo } from "filament-info.slint";
 import { FilamentInfoMode } from "app.slint";
-// import { SelectInventoryId } from "select-inventory-id.slint";
 import { NewTagScan } from "new-tag-scan.slint";
 import { StagingOperations } from "staging-operations.slint";
 import { TrayOperations } from "tray-operations.slint";
@@ -144,18 +142,6 @@ export component AppWindow inherits Window {
             x: left-pages.x + 480px;
         }
     }
-
-    // if AppState.control-state == ControlState.EncodeEditing: encode-editing := FilamentInfo {
-    //     mode: FilamentInfoMode.Encode;
-    //     height: root.height;
-    // }
-
-    // if AppState.control-state == ControlState.EncodeEditing: core-weight := SpoolCoreWeight {
-    //     visible: AppState.encoding-spool-core-visible;
-    //     height: root.height;
-    // }
-
-    // if AppState.control-state == ControlState.EncodeEditing && AppState.encoding-select-spool-id: select-spool-id := SelectInventoryId {}
 
     if AppState.control-state == ControlState.FilamentInformation: filament-information := FilamentInfo {
         mode: FilamentInfoMode.View;

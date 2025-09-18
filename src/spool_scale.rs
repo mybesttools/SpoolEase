@@ -109,7 +109,7 @@ impl SpoolScale {
             Ok(())
         }
     }
-
+    #[allow(dead_code)]
     pub fn emulate_tag(&self, url: &str) -> Result<(), String> {
         if let Err(err) = self
             .console_to_scale

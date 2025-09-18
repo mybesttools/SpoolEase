@@ -184,16 +184,9 @@ export component Ready inherits ControlPanelBase {
                   (AppState.available-printers.length >= 1 && AppState.some-printer-connected ? "" : "\n\n- Connecting to Printer(s) -");
     button1-text: (AppState.spool-staging-state != SpoolStagingState.Empty) ? "Clear Staging" : "";
     button1-timeout: (AppState.spool-staging-state != SpoolStagingState.Empty) ? 60 : 0;
-    // button2-text: "Encode Tag";
     clicked1() => {
         AppBackend.clear-staging();
     }
-    // clicked2() => {
-    //     AppBackend.clear-encode-scratchpad();
-    //     AppState.clear-curr-encoding-request();
-    //     AppState.control-state = ControlState.EncodeSelectSource;
-    //     AppBackend.encode-web-app();
-    // }
     property <bool> reset-staging-countdown: AppState.reset-staging-countdown;
     changed reset-staging-countdown => {
         if reset-staging-countdown {
@@ -201,16 +194,6 @@ export component Ready inherits ControlPanelBase {
         }
     }
 }
-
-// export component EncodeSelectSource inherits ControlPanelBase {
-//     message-text: (AppState.spool-staging-state == SpoolStagingState.Empty) ? "Press Slot to Encode" : "Press\nSlot or Staging\nto Encode";
-//     button2-text: "Cancel";
-//     button2-timeout: 10;
-//     clicked2() => {
-//         AppState.control-state = ControlState.Ready;
-//         AppBackend.read-tag-mode();
-//     }
-// }
 
 export component TraySelect inherits ControlPanelBase {
     message-text: "Press Slot to Configure";
@@ -291,18 +274,14 @@ export component ControlPanel inherits HorizontalLayout {
     if AppState.control-state == ControlState.Booting: Booting {
         button-width: button-width;
     }
-    // if AppState.control-state == ControlState.ConnectingToPrinter: ConnectingToPrinter {
-    //     button-width: button-width;
-    // }
+
     if AppState.control-state == ControlState.BootFailed: BootFailed {
         button-width: button-width;
     }
+
     if AppState.control-state == ControlState.Ready: Ready {
         button-width: button-width;
     }
-    // if AppState.control-state == ControlState.EncodeSelectSource: EncodeSelectSource {
-    //     button-width: button-width;
-    // }
 
     if AppState.control-state == ControlState.TraySelect: TraySelect {
         button-width: button-width;

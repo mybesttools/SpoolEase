@@ -196,19 +196,6 @@ where
 
         Ok(())
     }
-    pub async fn backup_with_ext(&self, ext: &str) -> Result<(), CsvDbError> {
-        let mut sdcard = self.sdcard.lock().await;
-        let db_filename = self.inner.borrow().db_file_name.clone();
-        let file_content = sdcard.read_file_str(&db_filename).await.context(StoreSnafu)?;
-        let db_filename_prefix = db_filename.strip_suffix(".db").ok_or_else(|| CsvDbError::Internal {
-            details: "DB filename doesn't end with '.db.'".to_string(),
-        })?;
-        sdcard
-            .create_write_file_str(&format!("{db_filename_prefix}.{ext}"), &file_content)
-            .await
-            .context(StoreSnafu)?;
-        Ok(())
-    }
 
     pub async fn save_all_records_only_before_use(&self) -> Result<(), CsvDbError> {
         let mut record_buffer = alloc::vec![0u8;self.inner.borrow().max_record_width];

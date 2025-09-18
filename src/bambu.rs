@@ -41,7 +41,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use shared::{gcode_analysis_task::Fetch3mf, spool_tag::TAG_PLACEHOLDER};
-use crate::spool_record::{SpoolRecord, SpoolRecordExt, FullSpoolRecord};
+use crate::spool_record::{SpoolRecord, FullSpoolRecord};
 
 use framework::prelude::*;
 
@@ -1775,39 +1775,6 @@ impl BambuPrinter {
 
         None
     }
-
-    pub fn get_tag_info_to_encode(&self, tray_id: usize) -> Result<TagInformationV1, String> {
-        let tray = if tray_id == 254 {
-            self.virt_tray()
-        } else if (0..self.ams_trays().len()).contains(&tray_id) {
-            &self.ams_trays()[tray_id]
-        } else {
-            return Err("Unexpected Software Error (1)".to_string());
-        };
-        // This is NOT good without full multi-printer tag support, so when tag is only a single printer
-        //  because we could mix info from different printers
-        //  later we'll add that
-        // if there's a tag in that tray, lets start with that to include any info it has inside
-        // let mut tag_info = tray.tag_info.as_ref().unwrap_or(&TagInformation::default()).clone();
-
-        let mut tag_info = TagInformationV1::default();
-        // Take the color and other filament information from what the use actually sees, potentially different from what is in the tag in that tray
-        // Could also be the tag doesn't even contain that information if it was generated using inventory only
-        if let Filament::Known(filament_info) = &tray.filament {
-            tag_info.filament = Some(filament_info.clone());
-        } else {
-            return Err("Unknown Filament in Slot".to_string());
-        }
-        // Now take the calibration of current nozzle from the tray as well
-        // This is not encoded to the tag, but rather saved to store, but returned from here as part of the tag
-        if let (Some(curr_nozzle_diameter), Some(tray_cali_idx)) = (&self.nozzle_diameter(), tray.cali_idx) {
-            if let Some(calibration) = self.calibrations.iter().find(|cal| cal.cali_idx == tray_cali_idx) {
-                tag_info.calibrations.insert(curr_nozzle_diameter.clone(), calibration.into());
-            }
-        }
-
-        Ok(tag_info)
-    }
 }
 
 pub type SpoolId = String;
@@ -2141,20 +2108,6 @@ fn formatted_k_value(k: &str) -> String {
     formatted_k_value
 }
 
-// impl From<&bambu_api::Filament> for Calibration {
-//     fn from(v: &bambu_api::Filament) -> Self {
-//         // this "Filament" in bambu_api is really calibrations, bambulab naming ...
-//         Self {
-//             filament_id: v.filament_id.clone(),
-//             name: v.name.clone(),
-//             k_value: formatted_k_value(&v.k_value),
-//             // n_coef: f32::from_str(&v.n_coef).unwrap_or(-1.0),
-//             setting_id: v.setting_id.clone(),
-//             cali_idx: v.cali_idx,
-//         }
-//     }
-// }
-
 impl Calibration {
     pub fn from(v: &bambu_api::Filament, diameter: &str) -> Self {
         // this "Filament" in bambu_api is really calibrations, bambulab naming ...
@@ -2165,7 +2118,6 @@ impl Calibration {
             filament_id: v.filament_id.clone(),
             name: v.name.clone(),
             k_value: formatted_k_value(&v.k_value),
-            // n_coef: f32::from_str(&v.n_coef).unwrap_or(-1.0),
             setting_id: v.setting_id.clone(),
             cali_idx: v.cali_idx,
         }
@@ -2573,7 +2525,7 @@ pub struct TagInformationV1 {
 }
 
 impl TagInformationV1 {
-    pub fn from(v: &SpoolRecord, min_max_temp: (u32, u32)) -> Self {
+    pub fn _from(v: &SpoolRecord, min_max_temp: (u32, u32)) -> Self {
         // TODO: need to deal with case of no data or partial data for filament_info?
         let filament_info = {
             FilamentInfo {
@@ -2683,50 +2635,7 @@ pub struct KNozzleId {
 // k_info.printers["01P..."][0]["0.4"]["HH00"].name / .k
 
 impl TagInformationV1 {
-    pub fn to_v1_descriptor(&self, _printer_name: Option<&str>, _printer_uuid: Option<&str>) -> Option<String> {
-        // let mut inner_calibrations_part = String::new();
-        //
-        // // if printer_name not supplied, it means a reuest to encode using printer information in tag (e.g. encoding from staging)
-        // let (encoded_printer_name, encoded_printer_uuid) = match printer_name {
-        //     Some(printer_name) => {
-        //         if !printer_name.is_empty() {
-        //             (&my_encode_to_url_part(printer_name), printer_uuid.unwrap_or_default())
-        //         } else {
-        //             (&"".to_string(), "")
-        //         }
-        //     }
-        //     None => {
-        //         // use tag_name printer_name if available
-        //         (&self.calibrations_printer_name, self.calibrations_printer_uuid.as_str())
-        //     }
-        // };
-        //
-        // let already_encoded_k_prefix = &format!("{}~{}", encoded_printer_name, encoded_printer_uuid);
-        // let k_prefix = if !already_encoded_k_prefix.is_empty() {
-        //     format!("&{}(", already_encoded_k_prefix)
-        // } else {
-        //     "&".to_string()
-        // };
-        // let k_postfix = if !k_prefix.is_empty() { ")" } else { "" };
-        //
-        // for calibration_kv in self.calibrations.iter() {
-        //     if let Some(cal_nozzle_diameter_char) = calibration_kv.0.chars().nth(2) {
-        //         let calibration = calibration_kv.1;
-        //         inner_calibrations_part += &format!(
-        //             "K{}={}~{}~{}",
-        //             cal_nozzle_diameter_char,
-        //             calibration.k_value.trim_end_matches('0'),
-        //             calibration.setting_id.as_deref().unwrap_or(""),
-        //             &my_encode_to_url_part(&calibration.name)
-        //         );
-        //     }
-        // }
-        // let calibrations_part = if inner_calibrations_part.is_empty() {
-        //     inner_calibrations_part
-        // } else {
-        //     format!("{k_prefix}{inner_calibrations_part}{k_postfix}")
-        // };
-
+    pub fn _to_v1_descriptor(&self, _printer_name: Option<&str>, _printer_uuid: Option<&str>) -> Option<String> {
         let brand_part = self
             .brand
             .as_ref()
@@ -2783,18 +2692,6 @@ impl TagInformationV1 {
         let encode_time_part = self.encode_time.map(|v| format!("&DE={}", v)).unwrap_or_default();
 
         Some(format!("{FILAMENT_URL_PREFIX}V1?ID={TAG_PLACEHOLDER}{encode_time_part}{material_part}{filament_subtype_part}{color_part}{color_name_part}{brand_part}{advertised_weight_part}{weight_core_part}{weight_new_part}{nozzle_temp_min_part}{nozzle_temp_max_part}{note_part}{tray_info_idx_part}"))
-
-        // self.filament.as_ref().map(|filament| format!(
-        //         "{FILAMENT_URL_PREFIX}V1?ID={TAG_PLACEHOLDER}{}{}{}{material_part}&C={}&NN={}&NX={}{brand_part}{filament_subtype_part}{color_name_part}{note_part}&FI={}{calibrations_part}",
-        //         self.weight_advertised.map(|v| format!("&WA={}", v)).unwrap_or_default(),
-        //         self.weight_core.map(|v| format!("&WC={}", v)).unwrap_or_default(),
-        //         self.weight_new.map(|v| format!("&WN={}", v)).unwrap_or_default(),
-        //         material_part,
-        //         filament.tray_color,
-        //         filament.nozzle_temp_min,
-        //         filament.nozzle_temp_max,
-        //         filament.tray_info_idx,
-        //     ))
     }
 
     // TODO: remove all the printer parts, should only parse, the rest of the matching thould go elsewhere

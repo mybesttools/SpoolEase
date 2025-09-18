@@ -109,7 +109,7 @@ pub struct AppConfig {
     pn532_ok: Option<bool>,
     pub user_cores: Option<String>,
     pub user_cores_changed_by_web_config: bool,
-    pub previously_used_cores: Option<String>,
+    // pub previously_used_cores: Option<String>,
     pub custom_filaments: Option<String>,
     pub root_redirect: String,
 }
@@ -150,7 +150,7 @@ impl AppConfig {
             pn532_ok: None,
             user_cores: None,
             user_cores_changed_by_web_config: false,
-            previously_used_cores: None,
+            // previously_used_cores: None,
             custom_filaments: None,
             root_redirect: "/config".to_string(),
         }
@@ -391,9 +391,6 @@ impl AppConfig {
         self.root_redirect = "/config".to_string();
     }
 
-    pub fn set_redirect_to_encode(&mut self) {
-        self.root_redirect = "/encode".to_string();
-    }
     pub fn is_scale_available(&self) -> bool {
         let mut available = false;
         if let Some(scale_config) = &self.configured_scale {
