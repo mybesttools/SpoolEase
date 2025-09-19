@@ -37,10 +37,10 @@ use crate::bambu::bambu_print::{GcodeAnalysis, PrintProject};
 use crate::bambu::{Filament, KExtruder, KInfo, KNozzleDiameter, KNozzleId, KPrinter, SpoolId, Tray, TrayBits};
 use crate::color_utils::get_color_name;
 use crate::filament_staging::StagingOrigin;
-use crate::spool_record::{FullSpoolRecord, SpoolRecordExt};
+use crate::spool_record::{FullSpoolRecord, SpoolRecord, SpoolRecordExt};
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
-use crate::store::{Store, StoreObserver};
+use crate::store::{store_safe_time_now, Store, StoreObserver};
 
 // use crate::web_app::EncodeInfoDTO;
 use crate::{
@@ -85,9 +85,8 @@ pub struct ViewModel {
 
 #[derive(Serialize, Deserialize, Clone)]
 struct EncodeCookie {
-    scale_weight: ScaleWeight,
-    spool_id: String,
-    set_encoded_as_new: Option<bool>,
+    id: String,
+    encode_time: Option<i32>,
 }
 
 impl ViewModel {
@@ -303,19 +302,26 @@ impl ViewModel {
             match filament_staging_borrow.spool_rec() {
                 Some(spool_rec) => {
                     let store = view_model_borrow.store.clone();
-                    let spool_rec = if let Some(spool_rec) = store.get_spool_by_id(&spool_rec.id) {
+                    // getting most updated spool_rec from store (not from staging in case changed)
+                    let mut spool_rec = if let Some(spool_rec) = store.get_spool_by_id(&spool_rec.id) {
                         spool_rec
                     } else {
                         ui.invoke_encoding_failure(slint::format!("Spool {} not Found", spool_rec.id));
                         return false;
                     };
+                    spool_rec.encode_time = store_safe_time_now();
                     match spool_rec.to_tag_descriptor_v2() {
                         Some(descriptor) => {
                             let spool_tag_borrow = view_model_borrow.spool_tag_model.borrow();
                             let spool_scale_borrow = view_model_borrow.spool_scale_model.borrow();
+                            let encode_cookie = EncodeCookie {
+                                id: spool_rec.id,
+                                encode_time: spool_rec.encode_time,
+                            };
+                            let encode_cookie_str = serde_json::to_string(&encode_cookie).unwrap();
                             if let Ok(uid) = hex::decode(spool_rec.tag_id) {
-                                spool_tag_borrow.write_tag(&descriptor, Some(uid.clone()), String::new());
-                                let _ = spool_scale_borrow.write_tag(&descriptor, Some(uid), String::new());
+                                spool_tag_borrow.write_tag(&descriptor, Some(uid.clone()), encode_cookie_str.clone());
+                                let _ = spool_scale_borrow.write_tag(&descriptor, Some(uid), encode_cookie_str);
                                 true
                             } else {
                                 ui.invoke_encoding_failure("Spool Tag Id isn't valid".to_shared_string());
@@ -1444,6 +1450,33 @@ impl ViewModel {
             }
         }
     }
+
+    async fn update_spool_rec_async(view_model: Rc<RefCell<ViewModel>>, spool_rec: SpoolRecord) {
+        let store = view_model.borrow().store.clone();
+        match store.update_spool(spool_rec.clone(), None).await {
+            Ok(_) => {
+                let view_model_borrow = view_model.borrow();
+                let need_replace_staging = if let Some(staging_spool_rec) = view_model_borrow.filament_staging.borrow().spool_rec() {
+                    staging_spool_rec.id == spool_rec.id
+                } else {
+                    false
+                };
+                if need_replace_staging {
+                    {
+                        view_model_borrow.filament_staging.borrow_mut().update_spool_rec_keep_rest(spool_rec);
+                    }
+                    view_model_borrow.display_filament_staging(false);
+                }
+            }
+            Err(_) => {
+                let view_model_borrow = view_model.borrow();
+                let ui = view_model_borrow.ui_weak.unwrap();
+                let ui_app_state = ui.global::<crate::app::AppState>();
+                info!("Error updating spool in store");
+                ui_app_state.invoke_show_spoolscale_dialog("Error Updating Spool in Store".to_shared_string(), crate::app::StatusType::Error);
+            }
+        }
+    }
 }
 
 impl From<&TrayState> for crate::app::UiTrayState {
@@ -1671,10 +1704,16 @@ impl SpoolTagObserver for ViewModel {
             Status::FoundTagNowWriting => {
                 ui.unwrap().global::<crate::app::AppState>().invoke_encode_tag_found();
             }
-            Status::WriteSuccess(_encoded_descriptor, _cookie) => {
+            Status::WriteSuccess(_encoded_descriptor, cookie) => {
                 // This call is triggered by a call from either spool_tag or spool_scale, so they are already borrowed.
                 // They internally handle the switch from write to read for themselves, but not for the other.
                 // So here we use the try_borrow to check who needs extra notification to stop writing
+                if let Ok(encode_cookie) = serde_json::from_str::<EncodeCookie>(cookie) {
+                    if let Some(mut spool_rec) = self.store.get_spool_by_id(&encode_cookie.id) {
+                        spool_rec.encode_time = encode_cookie.encode_time;
+                        let _ = self.dispatch_async_task(AppAsyncTaskRequest::UpdateSpoolRec { spool_rec });
+                    }
+                }
                 if let Ok(spool_tag_borrow) = self.spool_tag_model.try_borrow() {
                     spool_tag_borrow.read_tag();
                 }
@@ -2247,6 +2286,9 @@ enum AppAsyncTaskRequest {
         unused: bool,
         final_step: bool,
     },
+    UpdateSpoolRec {
+        spool_rec: SpoolRecord,
+    },
 }
 
 type AppAsyncTasksChannel = Channel<NoopRawMutex, AppAsyncTaskRequest, 5>;
@@ -2283,6 +2325,7 @@ pub async fn app_async_task(view_model: Rc<RefCell<ViewModel>>) {
                 unused,
                 final_step,
             } => ViewModel::set_spool_weight_async(view_model.clone(), spool_id, weight, unused, final_step).await,
+            AppAsyncTaskRequest::UpdateSpoolRec { spool_rec } => ViewModel::update_spool_rec_async(view_model.clone(), spool_rec).await,
         }
     }
 }
