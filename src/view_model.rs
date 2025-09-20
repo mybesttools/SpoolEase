@@ -718,6 +718,22 @@ impl ViewModel {
             .unwrap()
             .global::<crate::app::AppBackend>()
             .on_add_v1_tag_to_inventory(move |tag| moved_view_model.borrow().ui_add_v1_tag_to_inventory(tag.as_str()));
+
+        let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        self.ui_weak
+            .unwrap()
+            .global::<crate::app::AppBackend>()
+            .on_erase_tag(move |tag_id| moved_view_model.borrow().ui_erase_tag(tag_id.as_str()));
+    }
+
+    fn ui_erase_tag(&self, tag_id: &str) {
+        if let Ok(uid) = hex::decode(tag_id) {
+            let spool_tag_borrow = self.spool_tag_model.borrow();
+            spool_tag_borrow.erase_tag(Some(uid.clone()), String::new());
+            let _ = self.spool_scale_model.borrow().erase_tag(Some(uid), String::new());
+        } else {
+        //     ui.invoke_encoding_failure("Spool Tag Id isn't valid".to_shared_string());
+        }
     }
 
     fn ui_add_v1_tag_to_inventory(&self, tag: &str) {
@@ -1250,7 +1266,7 @@ impl ViewModel {
     }
 
     // returns false if not v1, true if v1 whether error or not
-    pub fn process_v1_tag_read(&self, tag: &str, _scanned_on_scale: bool) -> bool {
+    pub fn process_v1_tag_read(&self, tag_uid: &[u8], tag: &str, _scanned_on_scale: bool) -> bool {
         let ui = self.ui_weak.clone();
         // TODO: When moving to no need to encode tag, displaying here in staging should only take place
         // if there is data from store. All processing here will be only to import old tags not in store
@@ -1265,13 +1281,8 @@ impl ViewModel {
                     self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Scanned);
                     self.display_filament_staging(true);
                 } else {
-                    ui.unwrap().global::<crate::app::AppState>().invoke_new_v1_tag_scanned(tag.into());
+                    ui.unwrap().global::<crate::app::AppState>().invoke_new_v1_tag_scanned(hex::encode_upper(tag_uid).into(), tag.into());
                 }
-
-                // let _ = self.dispatch_async_task(AppAsyncTaskRequest::ProcessV1TagRead {
-                //     tag: tag.to_string(),
-                //     scanned_on_scale,
-                // });
             } else {
                 error!("Error with scanned V1 tag - old tag read with no tag_id");
                 ui.unwrap()
@@ -1684,6 +1695,9 @@ impl SpoolTagObserver for ViewModel {
             Status::FoundTagNowWriting => {
                 ui.unwrap().global::<crate::app::AppState>().invoke_encode_tag_found();
             }
+            Status::FoundTagNowErasing => {
+                ui.unwrap().global::<crate::app::AppState>().invoke_erase_tag_found();
+            }
             Status::WriteSuccess(_encoded_descriptor, cookie) => {
                 // This call is triggered by a call from either spool_tag or spool_scale, so they are already borrowed.
                 // They internally handle the switch from write to read for themselves, but not for the other.
@@ -1702,10 +1716,19 @@ impl SpoolTagObserver for ViewModel {
                 }
                 ui.unwrap().global::<crate::app::AppState>().invoke_encoding_succeeded();
             }
+            Status::EraseSuccess => {
+                if let Ok(spool_tag_borrow) = self.spool_tag_model.try_borrow() {
+                    spool_tag_borrow.read_tag();
+                }
+                if let Ok(spool_scale_borrow) = self.spool_scale_model.try_borrow() {
+                    let _ = spool_scale_borrow.read_tag();
+                }
+                ui.unwrap().global::<crate::app::AppState>().invoke_erasing_succeeded();
+            }
             Status::ReadSuccess(read_result) => match read_result {
                 spool_tag::ReadResult::NDEF { uid, text } => {
                     if let Some(ndef_text) = text {
-                        if self.process_v1_tag_read(ndef_text.as_str(), false) {
+                        if self.process_v1_tag_read(uid, ndef_text.as_str(), false) {
                             return;
                         }
                     }
@@ -1725,6 +1748,9 @@ impl SpoolTagObserver for ViewModel {
             },
             Status::Failure(spool_tag::Failure::TagWriteFailure(text_str)) => {
                 ui.unwrap().global::<crate::app::AppState>().invoke_encoding_failure(text_str.into());
+            }
+            Status::Failure(spool_tag::Failure::TagEraseFailure(text_str)) => {
+                ui.unwrap().global::<crate::app::AppState>().invoke_erasing_failure(text_str.into());
             }
             Status::Failure(spool_tag::Failure::TagReadFailure) => {
                 ui.unwrap()

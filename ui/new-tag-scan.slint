@@ -166,7 +166,7 @@ component V1TagPromptStep inherits Rectangle {
 
         WizardButtons {
             back-enabled: false;
-            next-enabled: selected-operation == NewTagOperation.AddV1TagToInventory; // != NewTagOperation.None;
+            next-enabled: selected-operation != NewTagOperation.None;
             cancel-enabled: true;
             cancel-clicked => {
                 AppState.control-state = ControlState.Ready;
@@ -176,7 +176,8 @@ component V1TagPromptStep inherits Rectangle {
                     AppBackend.add-v1-tag-to-inventory(AppState.new-tag-scan-v1-tag);
                     AppState.control-state = ControlState.Ready;
                 } else {
-                    // TODO: redirect to erase tag operation
+                    AppBackend.erase-tag(AppState.new-tag-scan-tag-id);
+                    AppState.control-state = ControlState.Ready;
                 }
             }
         }

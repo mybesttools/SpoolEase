@@ -214,7 +214,36 @@ export component OperationBase inherits ControlPanelBase {
 }
 // TODO: No need for OperationBase and Reading sharing with Encoding the Operation Base
 // Need just Encoding and Reading, share maybe only the user-message, or maybe some alternative to that in form of state
+// Can combing Erasing and Encoding - exactly the same
 export component Encoding inherits OperationBase {
+    message-type: AppState.user-message-type;
+    text-border-timer := Timer {
+        property <length> text-border-width: 1px;
+        interval: 0.3s;
+        running: true;
+        triggered() => {
+            if text-border-width == 1px {
+                text-border-width = 4px;
+            } else {
+                text-border-width = 1px;
+            }
+        }
+    }
+
+    text-border-width: text-border-timer.text-border-width;
+    button2-timeout: AppState.encode-timeout;
+    timeout-clicked2 => {
+        AppState.encoding-timeout();
+    }
+    manual-clicked2 => {
+        AppState.encode-cancel();
+    }
+    clicked2 => {
+      // called in both cases - manual and timeout
+    }
+}
+
+export component Erasing inherits OperationBase {
     message-type: AppState.user-message-type;
     text-border-timer := Timer {
         property <length> text-border-width: 1px;
@@ -290,6 +319,11 @@ export component ControlPanel inherits HorizontalLayout {
     if AppState.control-state == ControlState.Encoding: Encoding {
         button-width: button-width;
     }
+
+    if AppState.control-state == ControlState.Erasing: Erasing {
+        button-width: button-width;
+    }
+
     if AppState.control-state == ControlState.Reading: Reading {
         button-width: button-width;
     }

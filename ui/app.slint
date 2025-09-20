@@ -102,6 +102,7 @@ export enum ControlState {
   TraySelect, // for selecting a tray when loading filament from staging
   TraySelected, // just selecting tray (unrelated to previous)
   Encoding, // can probably be collapsed
+  Erasing, // can probably be collapsed
   PostAction, // can probably be collapsed
 }
 
@@ -147,6 +148,7 @@ export global AppBackend {
     pure callback get-slot-display(tray-id: int) -> UiSlotDisplay;
     callback can-link-spool-to-tag(id: string) -> string; // empty if untagged, error text if not
     callback add-v1-tag-to-inventory(string);
+    callback erase-tag(tag_id: string);
 }
 
 export enum NewTagScanPage {
@@ -336,15 +338,33 @@ export global AppState {
         self.user-message-type = StatusType.Normal;
     }
 
+    public function erase-tag-found() {
+        self.control-state = ControlState.Erasing;
+        self.user-message = "Tag Found, Erasing ...";
+        self.user-message-type = StatusType.Normal;
+    }
+
     public function encoding-failure(err-txt: string) {
         // this is just a termporary failure, not final, can still try placing tag to encode, so NOT PostAction
         self.user-message = "Encoding Tag Error\n\{err-txt}";
         self.user-message-type = StatusType.Error;
     }
 
+    public function erasing-failure(err-txt: string) {
+        // this is just a termporary failure, not final, can still try placing tag to encode, so NOT PostAction
+        self.user-message = "Erasing Tag Error\n\{err-txt}";
+        self.user-message-type = StatusType.Error;
+    }
+
     public function encoding-succeeded() {
         self.control-state = ControlState.PostAction;
         self.user-message = "Encoding Succeeded";
+        self.user-message-type = StatusType.Success;
+    }
+
+    public function erasing-succeeded() {
+        self.control-state = ControlState.PostAction;
+        self.user-message = "Erasing Succeeded";
         self.user-message-type = StatusType.Success;
     }
 
@@ -492,12 +512,12 @@ export global AppState {
         self.new-tag-scan-tag-id = tag-id;
         self.control-state = ControlState.NewTagScan;
     }
-    public function new-v1-tag-scanned(v1-tag: string) {
+    public function new-v1-tag-scanned(tag-id: string, v1-tag: string) {
         self.new-tag-scan-page = NewTagScanPage.V1TagPrompt;
         self.new-tag-operation = NewTagOperation.None;
         self.new-tag-scan-status = "";
         self.new-tag-scan-spool-id = "";
-        self.new-tag-scan-tag-id = "";
+        self.new-tag-scan-tag-id = tag-id;
         self.new-tag-scan-v1-tag = v1-tag;
         self.control-state = ControlState.NewTagScan;
     }
