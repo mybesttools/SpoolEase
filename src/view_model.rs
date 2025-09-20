@@ -42,6 +42,7 @@ use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
 use crate::store::{store_safe_time_now, Store, StoreObserver};
 
+use crate::types::FilamentSupInfo;
 // use crate::web_app::EncodeInfoDTO;
 use crate::{
     app_config::AppConfig,
@@ -530,7 +531,7 @@ impl ViewModel {
         }
     }
 
-    fn get_filament_info(&self, search_code: &str, material: Option<&str>) -> Option<(bool, String, u32, u32)> {
+    fn get_filament_info(&self, search_code: &str, material: Option<&str>) -> Option<FilamentSupInfo> {
         let app_config_borrow = self.app_config.borrow();
         let empty_list = String::new();
         let filament_lists = [BASE_FILAMENTS, app_config_borrow.custom_filaments.as_ref().unwrap_or(&empty_list)];
@@ -544,9 +545,16 @@ impl ViewModel {
                 {
                     if code == search_code {
                         let name = decode_csv_field(name);
-                        let nozzle_temp_low = nozzle_temp_low.parse::<u32>().unwrap_or_default();
-                        let nozzle_temp_high = nozzle_temp_high.parse::<u32>().unwrap_or_default();
-                        return Some((base, name, nozzle_temp_low, nozzle_temp_high));
+                        let nozzle_temp_low = nozzle_temp_low.parse::<i32>().unwrap_or_default();
+                        let nozzle_temp_high = nozzle_temp_high.parse::<i32>().unwrap_or_default();
+                        return Some(FilamentSupInfo {
+                            origin_is_material: false,
+                            base_filament: base,
+                            slicer_name: name,
+                            slicer_code: code.to_string(),
+                            nozzle_temp_low,
+                            nozzle_temp_high,
+                        });
                     }
                 }
             }
@@ -585,10 +593,16 @@ impl ViewModel {
                     {
                         if code == material_code {
                             let name = decode_csv_field(name);
-                            let nozzle_temp_low = nozzle_temp_low.parse::<u32>().unwrap_or_default();
-                            let nozzle_temp_high = nozzle_temp_high.parse::<u32>().unwrap_or_default();
-                            let base = true;
-                            return Some((base, name, nozzle_temp_low, nozzle_temp_high));
+                            let nozzle_temp_low = nozzle_temp_low.parse::<i32>().unwrap_or_default();
+                            let nozzle_temp_high = nozzle_temp_high.parse::<i32>().unwrap_or_default();
+                            return Some(FilamentSupInfo {
+                                origin_is_material: true,
+                                base_filament: true,
+                                slicer_name: name,
+                                slicer_code: code.to_string(),
+                                nozzle_temp_low,
+                                nozzle_temp_high,
+                            });
                         }
                     }
                 }
@@ -620,7 +634,12 @@ impl ViewModel {
             if let Some(filament_info) =
                 self.get_filament_info(&full_spool_rec.spool_rec.slicer_filament, Some(&full_spool_rec.spool_rec.material_type))
             {
-                bambu_printer.set_tray_filament(tray_id, full_spool_rec, filament_info.2, filament_info.3);
+                bambu_printer.set_tray_filament(
+                    tray_id,
+                    full_spool_rec,
+                    filament_info.nozzle_temp_low as u32,
+                    filament_info.nozzle_temp_high as u32,
+                );
                 filament_staging.clear();
                 ui.unwrap().global::<crate::app::AppState>().invoke_empty_spool_staging();
                 ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_succeeded(
@@ -718,9 +737,9 @@ impl ViewModel {
         let (slicer_name, temp_min, temp_max, material) = if let Filament::Known(filament) = &tray.filament {
             if let Some(filament_info) = self.get_filament_info(&filament.tray_info_idx, Some(&filament.tray_type)) {
                 (
-                    filament_info.1.into(),
-                    filament_info.2 as i32,
-                    filament_info.3 as i32,
+                    slint::format!("{}{}", filament_info.slicer_name, if filament_info.base_filament {" (base)"} else {""}),
+                    filament_info.nozzle_temp_low,
+                    filament_info.nozzle_temp_high,
                     filament.tray_type.as_str(),
                 )
             } else {
@@ -746,13 +765,17 @@ impl ViewModel {
         };
         let filament_title = format!("{brand} {material} {color_name}").trim().to_shared_string();
         let available_in_spool = self.weight_left(tray).unwrap_or_default();
-        
+
         let pa = match tray.cali_idx {
             Some(-1) | None => {
-                slint::format!("({})",tray.k_from_tray.unwrap_or(0.2))
+                slint::format!("({})", tray.k_from_tray.unwrap_or(0.2))
             }
             Some(cali_idx) => {
-                let (k_value, profile_name) = printer_borrow.calibrations.iter().find(|c| c.cali_idx == cali_idx).map_or(("0.2", ""), |c| (c.k_value.as_str(), c.name.as_str()));
+                let (k_value, profile_name) = printer_borrow
+                    .calibrations
+                    .iter()
+                    .find(|c| c.cali_idx == cali_idx)
+                    .map_or(("0.2", ""), |c| (c.k_value.as_str(), c.name.as_str()));
                 slint::format!("{k_value}, {profile_name}")
             }
         };
@@ -798,10 +821,19 @@ impl ViewModel {
         };
 
         // for now, on purpose, not filling in fields that aren't in the tag, to show the real tag information
-        let filament_info = self.get_filament_info(&record.slicer_filament, None);
-        let slicer_filament_name = filament_info.as_ref().map_or(SharedString::new(), |fi| fi.1.to_shared_string());
-        let temp_min = filament_info.as_ref().map_or_else(|| 0, |fi| fi.2) as i32;
-        let temp_max = filament_info.as_ref().map_or_else(|| 0, |fi| fi.3) as i32;
+        let (slicer_filament_name, temp_min, temp_max) = if let Some(filament_info) = &self.get_filament_info(&record.slicer_filament, None) {
+            (
+                slint::format!(
+                    "{}{}",
+                    filament_info.slicer_name,
+                    if filament_info.base_filament { " (base)" } else { "" }
+                ),
+                filament_info.nozzle_temp_low,
+                filament_info.nozzle_temp_high,
+            )
+        } else {
+            Default::default()
+        };
 
         let color = if record.color_code.len() >= 6 {
             let color = u32::from_str_radix(&record.color_code[..6], 16).unwrap() + 0xFF000000; // the plus 0xFF at the end is fo add alpha
@@ -1946,9 +1978,7 @@ impl SpoolScaleObserver for ViewModel {
     }
 }
 
-
-impl StoreObserver for ViewModel {
-}
+impl StoreObserver for ViewModel {}
 
 fn get_brand_from_text(text: &str) -> Option<&'static str> {
     let text = text.to_lowercase();

@@ -23,6 +23,7 @@ mod store;
 mod view_model;
 mod web_app;
 mod spool_record;
+mod types;
 
 use alloc::{boxed::Box, format, rc::Rc, string::ToString};
 use core::{cell::RefCell, marker::PhantomData, net::Ipv4Addr};
