@@ -31,7 +31,7 @@ use framework::{
     terminal::{self, term_mut, TerminalObserver},
 };
 
-use crate::app::{EncodeRequest, UiSlotDisplay, UiSpoolRecord, UiSpoolRecordDisplay};
+use crate::app::{UiSlotDisplay, UiSpoolRecord, UiSpoolRecordDisplay};
 use crate::app_config::{BASE_FILAMENTS, FILAMENT_BRAND_NAMES, MATERIALS};
 use crate::bambu::bambu_print::{GcodeAnalysis, PrintProject};
 use crate::bambu::{Filament, KExtruder, KInfo, KNozzleDiameter, KNozzleId, KPrinter, SpoolId, Tray, TrayBits};
@@ -678,40 +678,40 @@ impl ViewModel {
         // handle encoding related listener(s) - this depends on current printer
 
         let moved_ui = self.ui_weak.clone();
-        let moved_view_model = self.view_model.as_ref().unwrap().clone();
-        self.ui_weak
-            .unwrap()
-            .global::<crate::app::AppBackend>()
-            // TODO: simplify and rename structure and fields and everything
-            .on_fill_encode_request_from_spool_id(move |spool_id| {
-                if let Some(spool_rec) = moved_view_model.borrow().store.get_spool_by_id(spool_id.as_str()) {
-                    if !spool_rec.tag_id.is_empty() {
-                        return "Already Tagged".to_shared_string();
-                    }
-                } else {
-                    return "ID Not Found".to_shared_string();
-                }
-                let moved_ui = moved_ui.unwrap();
-                let ui_app_state = moved_ui.global::<crate::app::AppState>();
-                let encode_request = EncodeRequest {
-                    id: spool_id,
-                    tray_id: 997,
-                    ..Default::default()
-                };
-                ui_app_state.set_curr_encode_request(encode_request);
-                moved_view_model
-                    .borrow()
-                    .calc_encode_request_display(crate::app::FilamentInfoMode::Wizard);
-                SharedString::new()
-            });
+        // let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        // self.ui_weak
+        //     .unwrap()
+        //     .global::<crate::app::AppBackend>()
+        //     // TODO: simplify and rename structure and fields and everything
+        //     .on_fill_encode_request_from_spool_id(move |spool_id| {
+        //         if let Some(spool_rec) = moved_view_model.borrow().store.get_spool_by_id(spool_id.as_str()) {
+        //             if !spool_rec.tag_id.is_empty() {
+        //                 return "Already Tagged".to_shared_string();
+        //             }
+        //         } else {
+        //             return "ID Not Found".to_shared_string();
+        //         }
+        //         let moved_ui = moved_ui.unwrap();
+        //         let ui_app_state = moved_ui.global::<crate::app::AppState>();
+        //         let encode_request = EncodeRequest {
+        //             id: spool_id,
+        //             tray_id: 997,
+        //             ..Default::default()
+        //         };
+        //         ui_app_state.set_curr_encode_request(encode_request);
+        //         moved_view_model
+        //             .borrow()
+        //             .calc_encode_request_display(crate::app::FilamentInfoMode::Wizard);
+        //         SharedString::new()
+        //     });
 
-        let moved_view_model = self.view_model.as_ref().unwrap().clone();
-        self.ui_weak
-            .unwrap()
-            .global::<crate::app::AppBackend>()
-            .on_calc_encode_request_display(move |mode| {
-                moved_view_model.borrow().calc_encode_request_display(mode);
-            });
+        // let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        // self.ui_weak
+        //     .unwrap()
+        //     .global::<crate::app::AppBackend>()
+        //     .on_calc_encode_request_display(move |mode| {
+        //         moved_view_model.borrow().calc_encode_request_display(mode);
+        //     });
 
         let moved_view_model = self.view_model.as_ref().unwrap().clone();
         self.ui_weak
@@ -889,180 +889,180 @@ impl ViewModel {
         }
     }
 
-    fn calc_encode_request_display(&self, mode: crate::app::FilamentInfoMode) {
-        let moved_ui = self.ui_weak.unwrap();
-        let ui_app_state = moved_ui.global::<crate::app::AppState>();
-
-        let mut encode_request = ui_app_state.get_curr_encode_request();
-        let mut encode_request_display = ui_app_state.get_curr_encode_request_display();
-
-        let tray_id = encode_request.tray_id;
-        let staging_borrow = self.filament_staging.borrow();
-        let bambu_borrow = self.bambu_printer_model.borrow();
-        let mut tray_full_rec = FullSpoolRecord::default();
-
-        let (display_full_spool_rec, nozzle_temps) = match tray_id {
-            -1 => {
-                // Special case to avoid a call after encode_request is cleared
-                return;
-            }
-
-            997 => {
-                // display spool-record not in any specific spot
-                if let Some(spool_rec) = self.store.get_spool_by_id(&ui_app_state.get_curr_encode_request().id) {
-                    tray_full_rec.spool_rec = spool_rec;
-                    encode_request_display.pa_line1 = format!(
-                        "Tag: {}",
-                        if tray_full_rec.spool_rec.ext_has_k {
-                            "Configured"
-                        } else {
-                            "Not configured"
-                        }
-                    )
-                    .into();
-                    (&tray_full_rec, (0, 0))
-                } else {
-                    return;
-                }
-            } // just display w/o any special source what's in encode_request
-            // TODO: think if any value in using staging as a special id vs. passing from UI the record-id
-            //       in such case the function parameters should work differently.
-            999 => {
-                // Staging
-                if let Some(full_spool_rec) = staging_borrow.full_spool_rec() {
-                    encode_request_display.pa_line1 = format!(
-                        "Tag: {}",
-                        if full_spool_rec.spool_rec.ext_has_k {
-                            "Configured"
-                        } else {
-                            "Not configured"
-                        }
-                    )
-                    .into();
-                    (full_spool_rec, (0, 0))
-                } else {
-                    return;
-                }
-            }
-
-            0..23 | 254 => {
-                let tray = bambu_borrow.get_any_tray(tray_id as usize);
-                let tray_spool_rec = &mut tray_full_rec.spool_rec;
-                // first get info from spool_rec as a starting point if exist
-                if let Some(spool_id) = &tray.meta_info.spool_id {
-                    if let Some(spool_rec) = self.store.get_spool_by_id(spool_id) {
-                        *tray_spool_rec = spool_rec.clone();
-                    }
-                }
-                let mut nozzle_temps = (0, 0);
-                if let Filament::Known(filament) = &tray.filament {
-                    let slicer_filament_changed = tray_spool_rec.slicer_filament != filament.tray_info_idx;
-                    let material_type_changed = tray_spool_rec.material_type != filament.tray_type;
-                    let color_code_changed = tray_spool_rec.color_code != filament.tray_color;
-
-                    tray_spool_rec.slicer_filament = filament.tray_info_idx.clone();
-                    tray_spool_rec.material_type = filament.tray_type.clone();
-                    tray_spool_rec.color_code = filament.tray_color.clone();
-
-                    if color_code_changed {
-                        tray_spool_rec.color_name = String::new(); // will later fill from code
-                    }
-                    if slicer_filament_changed || material_type_changed {
-                        tray_spool_rec.brand = String::new(); // will later fill from slicer filament
-                        tray_spool_rec.material_subtype = String::new();
-                    }
-
-                    nozzle_temps = (filament.nozzle_temp_min, filament.nozzle_temp_max);
-
-                    if let Some(tray_calibration) = bambu_borrow.get_tray_calibration(tray) {
-                        encode_request_display.pa_line1 = format!("Tray: {}, {}", tray_calibration.k_value, tray_calibration.name).into();
-                    }
-                    if tray.meta_info.spool_id.is_some() {
-                        encode_request_display.pa_line2 =
-                            format!("Tag: {}", if tray_spool_rec.ext_has_k { "Configured" } else { "Not configured" }).into();
-                    }
-                    tray_spool_rec.id = tray.meta_info.spool_id.as_ref().map_or_else(String::new, |v| v.clone());
-                }
-
-                // deal with case things changed from tag
-
-                (&tray_full_rec, nozzle_temps)
-            }
-            _ => {
-                error!("UI request to update display for tray out of range, software error or printer issue");
-                return;
-            }
-        };
-
-        let display_spool_rec = &display_full_spool_rec.spool_rec;
-
-        let filament_info = self.get_filament_info(&display_spool_rec.slicer_filament, Some(&encode_request_display.filament_type));
-
-        encode_request.brand = if display_spool_rec.brand.is_empty() {
-            if let Some((_, slicer_name, _, _)) = &filament_info {
-                if let Some(brand_name) = get_brand_from_text(slicer_name) {
-                    brand_name.into()
-                } else {
-                    "".into()
-                }
-            } else {
-                "".into()
-            }
-        } else {
-            display_spool_rec.brand.to_shared_string()
-        };
-
-        encode_request.color_name = if display_spool_rec.color_name.is_empty() {
-            if display_spool_rec.color_code.len() >= 6 {
-                let color = u32::from_str_radix(&display_spool_rec.color_code[..6], 16).unwrap() + 0xFF000000; // the plus 0xFF at the end is fo add alpha
-                let color = slint::Color::from_argb_encoded(color);
-                let color_name_info = get_color_name(color.red(), color.green(), color.blue());
-                let color_name = color_name_info.0.to_shared_string();
-                format!("({})", color_name).into()
-            } else {
-                "".into()
-            }
-        } else {
-            display_spool_rec.color_name.to_shared_string()
-        };
-
-        encode_request.filament_subtype = display_spool_rec.material_subtype.to_shared_string();
-
-        encode_request.id = display_spool_rec.id.to_shared_string();
-
-        encode_request.note = display_spool_rec.note.to_shared_string();
-
-        encode_request.weight_advertised = *display_spool_rec.weight_advertised.as_ref().unwrap_or(&0);
-        encode_request.weight_core = *display_spool_rec.weight_core.as_ref().unwrap_or(&0);
-        encode_request.weight_new = *display_spool_rec.weight_new.as_ref().unwrap_or(&0);
-
-        encode_request_display.color_code = display_spool_rec.color_code.to_shared_string();
-        encode_request_display.filament_type = display_spool_rec.material_type.to_shared_string();
-
-        encode_request_display.slicer_name = if let Some((base, slicer_name, _, _)) = &filament_info {
-            format!("{slicer_name} ({})", if *base { "Base" } else { "Custom" }).into()
-        } else {
-            "Unknown Filament".into()
-        };
-
-        if (nozzle_temps.0 == 0 || nozzle_temps.1 == 0) && filament_info.is_some() {
-            encode_request_display.temp_min = filament_info.as_ref().unwrap().2 as i32;
-            encode_request_display.temp_max = filament_info.as_ref().unwrap().3 as i32;
-        } else {
-            encode_request_display.temp_min = nozzle_temps.0 as i32;
-            encode_request_display.temp_max = nozzle_temps.1 as i32;
-        }
-
-        encode_request_display.title_color = if display_spool_rec.color_code.len() >= 6 {
-            let color = u32::from_str_radix(&display_spool_rec.color_code[..6], 16).unwrap() + 0xFF000000; // the plus 0xFF at the end is fo add alpha
-            slint::Color::from_argb_encoded(color)
-        } else {
-            encode_request_display.title_color
-        };
-
-        ui_app_state.set_curr_encode_request_display(encode_request_display);
-        ui_app_state.set_curr_encode_request(encode_request);
-    }
+    // fn calc_encode_request_display(&self, mode: crate::app::FilamentInfoMode) {
+    //     let moved_ui = self.ui_weak.unwrap();
+    //     let ui_app_state = moved_ui.global::<crate::app::AppState>();
+    //
+    //     let mut encode_request = ui_app_state.get_curr_encode_request();
+    //     let mut encode_request_display = ui_app_state.get_curr_encode_request_display();
+    //
+    //     let tray_id = encode_request.tray_id;
+    //     let staging_borrow = self.filament_staging.borrow();
+    //     let bambu_borrow = self.bambu_printer_model.borrow();
+    //     let mut tray_full_rec = FullSpoolRecord::default();
+    //
+    //     let (display_full_spool_rec, nozzle_temps) = match tray_id {
+    //         -1 => {
+    //             // Special case to avoid a call after encode_request is cleared
+    //             return;
+    //         }
+    //
+    //         997 => {
+    //             // display spool-record not in any specific spot
+    //             if let Some(spool_rec) = self.store.get_spool_by_id(&ui_app_state.get_curr_encode_request().id) {
+    //                 tray_full_rec.spool_rec = spool_rec;
+    //                 encode_request_display.pa_line1 = format!(
+    //                     "Tag: {}",
+    //                     if tray_full_rec.spool_rec.ext_has_k {
+    //                         "Configured"
+    //                     } else {
+    //                         "Not configured"
+    //                     }
+    //                 )
+    //                 .into();
+    //                 (&tray_full_rec, (0, 0))
+    //             } else {
+    //                 return;
+    //             }
+    //         } // just display w/o any special source what's in encode_request
+    //         // TODO: think if any value in using staging as a special id vs. passing from UI the record-id
+    //         //       in such case the function parameters should work differently.
+    //         999 => {
+    //             // Staging
+    //             if let Some(full_spool_rec) = staging_borrow.full_spool_rec() {
+    //                 encode_request_display.pa_line1 = format!(
+    //                     "Tag: {}",
+    //                     if full_spool_rec.spool_rec.ext_has_k {
+    //                         "Configured"
+    //                     } else {
+    //                         "Not configured"
+    //                     }
+    //                 )
+    //                 .into();
+    //                 (full_spool_rec, (0, 0))
+    //             } else {
+    //                 return;
+    //             }
+    //         }
+    //
+    //         0..23 | 254 => {
+    //             let tray = bambu_borrow.get_any_tray(tray_id as usize);
+    //             let tray_spool_rec = &mut tray_full_rec.spool_rec;
+    //             // first get info from spool_rec as a starting point if exist
+    //             if let Some(spool_id) = &tray.meta_info.spool_id {
+    //                 if let Some(spool_rec) = self.store.get_spool_by_id(spool_id) {
+    //                     *tray_spool_rec = spool_rec.clone();
+    //                 }
+    //             }
+    //             let mut nozzle_temps = (0, 0);
+    //             if let Filament::Known(filament) = &tray.filament {
+    //                 let slicer_filament_changed = tray_spool_rec.slicer_filament != filament.tray_info_idx;
+    //                 let material_type_changed = tray_spool_rec.material_type != filament.tray_type;
+    //                 let color_code_changed = tray_spool_rec.color_code != filament.tray_color;
+    //
+    //                 tray_spool_rec.slicer_filament = filament.tray_info_idx.clone();
+    //                 tray_spool_rec.material_type = filament.tray_type.clone();
+    //                 tray_spool_rec.color_code = filament.tray_color.clone();
+    //
+    //                 if color_code_changed {
+    //                     tray_spool_rec.color_name = String::new(); // will later fill from code
+    //                 }
+    //                 if slicer_filament_changed || material_type_changed {
+    //                     tray_spool_rec.brand = String::new(); // will later fill from slicer filament
+    //                     tray_spool_rec.material_subtype = String::new();
+    //                 }
+    //
+    //                 nozzle_temps = (filament.nozzle_temp_min, filament.nozzle_temp_max);
+    //
+    //                 if let Some(tray_calibration) = bambu_borrow.get_tray_calibration(tray) {
+    //                     encode_request_display.pa_line1 = format!("Tray: {}, {}", tray_calibration.k_value, tray_calibration.name).into();
+    //                 }
+    //                 if tray.meta_info.spool_id.is_some() {
+    //                     encode_request_display.pa_line2 =
+    //                         format!("Tag: {}", if tray_spool_rec.ext_has_k { "Configured" } else { "Not configured" }).into();
+    //                 }
+    //                 tray_spool_rec.id = tray.meta_info.spool_id.as_ref().map_or_else(String::new, |v| v.clone());
+    //             }
+    //
+    //             // deal with case things changed from tag
+    //
+    //             (&tray_full_rec, nozzle_temps)
+    //         }
+    //         _ => {
+    //             error!("UI request to update display for tray out of range, software error or printer issue");
+    //             return;
+    //         }
+    //     };
+    //
+    //     let display_spool_rec = &display_full_spool_rec.spool_rec;
+    //
+    //     let filament_info = self.get_filament_info(&display_spool_rec.slicer_filament, Some(&encode_request_display.filament_type));
+    //
+    //     encode_request.brand = if display_spool_rec.brand.is_empty() {
+    //         if let Some((_, slicer_name, _, _)) = &filament_info {
+    //             if let Some(brand_name) = get_brand_from_text(slicer_name) {
+    //                 brand_name.into()
+    //             } else {
+    //                 "".into()
+    //             }
+    //         } else {
+    //             "".into()
+    //         }
+    //     } else {
+    //         display_spool_rec.brand.to_shared_string()
+    //     };
+    //
+    //     encode_request.color_name = if display_spool_rec.color_name.is_empty() {
+    //         if display_spool_rec.color_code.len() >= 6 {
+    //             let color = u32::from_str_radix(&display_spool_rec.color_code[..6], 16).unwrap() + 0xFF000000; // the plus 0xFF at the end is fo add alpha
+    //             let color = slint::Color::from_argb_encoded(color);
+    //             let color_name_info = get_color_name(color.red(), color.green(), color.blue());
+    //             let color_name = color_name_info.0.to_shared_string();
+    //             format!("({})", color_name).into()
+    //         } else {
+    //             "".into()
+    //         }
+    //     } else {
+    //         display_spool_rec.color_name.to_shared_string()
+    //     };
+    //
+    //     encode_request.filament_subtype = display_spool_rec.material_subtype.to_shared_string();
+    //
+    //     encode_request.id = display_spool_rec.id.to_shared_string();
+    //
+    //     encode_request.note = display_spool_rec.note.to_shared_string();
+    //
+    //     encode_request.weight_advertised = *display_spool_rec.weight_advertised.as_ref().unwrap_or(&0);
+    //     encode_request.weight_core = *display_spool_rec.weight_core.as_ref().unwrap_or(&0);
+    //     encode_request.weight_new = *display_spool_rec.weight_new.as_ref().unwrap_or(&0);
+    //
+    //     encode_request_display.color_code = display_spool_rec.color_code.to_shared_string();
+    //     encode_request_display.filament_type = display_spool_rec.material_type.to_shared_string();
+    //
+    //     encode_request_display.slicer_name = if let Some((base, slicer_name, _, _)) = &filament_info {
+    //         format!("{slicer_name} ({})", if *base { "Base" } else { "Custom" }).into()
+    //     } else {
+    //         "Unknown Filament".into()
+    //     };
+    //
+    //     if (nozzle_temps.0 == 0 || nozzle_temps.1 == 0) && filament_info.is_some() {
+    //         encode_request_display.temp_min = filament_info.as_ref().unwrap().2 as i32;
+    //         encode_request_display.temp_max = filament_info.as_ref().unwrap().3 as i32;
+    //     } else {
+    //         encode_request_display.temp_min = nozzle_temps.0 as i32;
+    //         encode_request_display.temp_max = nozzle_temps.1 as i32;
+    //     }
+    //
+    //     encode_request_display.title_color = if display_spool_rec.color_code.len() >= 6 {
+    //         let color = u32::from_str_radix(&display_spool_rec.color_code[..6], 16).unwrap() + 0xFF000000; // the plus 0xFF at the end is fo add alpha
+    //         slint::Color::from_argb_encoded(color)
+    //     } else {
+    //         encode_request_display.title_color
+    //     };
+    //
+    //     ui_app_state.set_curr_encode_request_display(encode_request_display);
+    //     ui_app_state.set_curr_encode_request(encode_request);
+    // }
 
     fn tag_info_to_ui_spool_info_direct(
         &self,

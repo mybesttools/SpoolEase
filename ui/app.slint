@@ -80,39 +80,39 @@ export struct UiSlotDisplay {
   available-in-spool: float,
 }
 
-export struct EncodeRequest { // EncodeRequest is actually used for FilamentInfo - for Encode as well as View
-  // autofilled
-  id: string,
-  tray-index: int,
-  tray-id: int, // from index
-  weight-advertised: int, 
-  weight-core: int,
-  // encoded-as-new: EncodedAsNew,
-  weight-new: int, 
-  core-name: string, // used to add to list of previously used spools, not encoded to tag
-  // manually filled
-  brand: string,
-  filament-subtype: string,
-  color-name: string,
-  note: string,
-}
-
-// Assistance from rust for more info or formatter info
-export struct EncodeRequestDisplay {  // EncodeRequestDisplay is actually used for FilamentInfo - for Encode as well as View
-  filament-type: string, // could also get in UI, but easier this way if we have the mechanism
-  slicer-name: string,
-  color-code: string,
-  title-color: color,
-  temp-min: int,
-  temp-max: int,
-  pa-line1: string,
-  pa-line2: string,
-}
-
-export enum FilamentInfoMode { 
-  View,
-  Wizard
-}
+// export struct EncodeRequest { // EncodeRequest is actually used for FilamentInfo - for Encode as well as View
+//   // autofilled
+//   id: string,
+//   tray-index: int,
+//   tray-id: int, // from index
+//   weight-advertised: int, 
+//   weight-core: int,
+//   // encoded-as-new: EncodedAsNew,
+//   weight-new: int, 
+//   core-name: string, // used to add to list of previously used spools, not encoded to tag
+//   // manually filled
+//   brand: string,
+//   filament-subtype: string,
+//   color-name: string,
+//   note: string,
+// }
+//
+// // Assistance from rust for more info or formatter info
+// export struct EncodeRequestDisplay {  // EncodeRequestDisplay is actually used for FilamentInfo - for Encode as well as View
+//   filament-type: string, // could also get in UI, but easier this way if we have the mechanism
+//   slicer-name: string,
+//   color-code: string,
+//   title-color: color,
+//   temp-min: int,
+//   temp-max: int,
+//   pa-line1: string,
+//   pa-line2: string,
+// }
+//
+// export enum FilamentInfoMode { 
+//   View,
+//   Wizard
+// }
 
 // Consts
 
@@ -129,14 +129,14 @@ export enum ControlState {
   Booting,
   BootFailed,
   Ready,
-  Reading,
+  Reading, // can probably be colapsed into Ready as a note
   NewTagScan,
   StagingSelected, // To load
-  FilamentInformation,
+  // FilamentInformation,
   TraySelect, // for selecting a tray when loading filament from staging
   TraySelected, // just selecting tray (unrelated to previous)
-  Encoding,
-  PostAction,
+  Encoding, // can probably be collapsed
+  PostAction, // can probably be collapsed
 }
 
 export enum SpoolScaleState {
@@ -174,8 +174,8 @@ export global AppBackend {
     callback calibrate-scale(weight: int);
     pure callback get-connected-scale-info() -> string;
     pure callback get-available-scales-info() -> [string];
-    callback calc-encode-request-display(mode: FilamentInfoMode);
-    callback fill-encode-request-from-spool-id(spool-id: string) -> string;
+    // callback calc-encode-request-display(mode: FilamentInfoMode);
+    // callback fill-encode-request-from-spool-id(spool-id: string) -> string;
     callback link_tag_to_spool_id(tag_id: string, spool-id: string, final-step: bool);
     callback set-spool-weight(spool-id: string, weight: int, unused: bool, final-step: bool);
     pure callback recently_added_spool_id_if_untagged() -> string;
@@ -230,17 +230,17 @@ export global AppState {
     in-out property <StatusType> spool-inventory-dialog-type: StatusType.Normal;
 
     // This is no longer EncodeRequest but rather SpoolDisplay or soemthing, need to combine also and change filament-info to display new structure
-    in-out property <EncodeRequest> curr-encode-request:  { tray_id: -1 }; // -1 is important so when pressing slot 0, it will still appear as change (for the changed that comes next)
-    in-out property <EncodeRequestDisplay> curr-encode-request-display; // updated by rust for formatting needs
+    // in-out property <EncodeRequest> curr-encode-request:  { tray_id: -1 }; // -1 is important so when pressing slot 0, it will still appear as change (for the changed that comes next)
+    // in-out property <EncodeRequestDisplay> curr-encode-request-display; // updated by rust for formatting needs
     in-out property <int> encode-timeout: 999;
 
     // TODO: change how this work, could infinite updating (change cause update which cause change etc.)
-    changed curr-encode-request => {
-       // TODO: This is a bit tricky, call backend to update display (and it also updates the request itself so cometimes drive an extra update)
-       // If code is not consistent it could lead to infinite recursion. 
-       // So maybe better to change how it works in the future ...
-        AppBackend.calc-encode-request-display(FilamentInfoMode.View);
-    }
+    // changed curr-encode-request => {
+    //    // TODO: This is a bit tricky, call backend to update display (and it also updates the request itself so cometimes drive an extra update)
+    //    // If code is not consistent it could lead to infinite recursion. 
+    //    // So maybe better to change how it works in the future ...
+    //     AppBackend.calc-encode-request-display(FilamentInfoMode.View);
+    // }
 
     in-out property <int> curr-ams-id: 0;
     in-out property <[int]> ams-exists: [0];
@@ -415,59 +415,59 @@ export global AppState {
         return 254;
     }
 
-    public function show-filament-information(tray-index: int) {
-        self.curr-encode-request.tray-index = tray-index;
-        self.curr-encode-request.tray-id = ((tray-index == 999) ? 999 : self.trays-state[tray-index].id);
-        self.control-state = ControlState.FilamentInformation;
-    }
+    // public function show-filament-information(tray-index: int) {
+    //     self.curr-encode-request.tray-index = tray-index;
+    //     self.curr-encode-request.tray-id = ((tray-index == 999) ? 999 : self.trays-state[tray-index].id);
+    //     self.control-state = ControlState.FilamentInformation;
+    // }
 
     public function staging-selected() {
-        self.clear-curr-encoding-request();
-        self.curr-encode-request.tray-index = 999;
-        self.curr-encode-request.tray-id = 999;
+        // self.clear-curr-encoding-request();
+        // self.curr-encode-request.tray-index = 999;
+        // self.curr-encode-request.tray-id = 999;
         self.control-state = ControlState.StagingSelected;
     }
 
     public function tray-selected(tray-index: int) {
-        self.clear-curr-encoding-request();
-        self.curr-encode-request.tray-index = tray-index;
-        self.curr-encode-request.tray-id = self.trays-state[tray-index].id;
+        // self.clear-curr-encoding-request();
+        // self.curr-encode-request.tray-index = tray-index;
+        // self.curr-encode-request.tray-id = self.trays-state[tray-index].id;
         self.tray-selected-tray-index = tray-index;
         self.control-state = ControlState.TraySelected;
     }
 
-    public function end-show-filament-information() {
-        clear-curr-encoding-request();
-        self.control-state = ControlState.Ready;
-    }
+    // public function end-show-filament-information() {
+    //     clear-curr-encoding-request();
+    //     self.control-state = ControlState.Ready;
+    // }
 
     public function prompt-select-tray() {
         self.tray-selected-tray-index = -1;
         AppState.control-state = ControlState.Ready;
     }
 
-    public function clear-curr-encoding-request() {
-        self.curr-encode-request.id = "";
-        self.curr-encode-request.weight-advertised = 0;
-        self.curr-encode-request.weight-core = 0;
-        self.curr-encode-request.weight-new = 0;
-        self.curr-encode-request.core-name = 0;
-        self.curr-encode-request.brand = "";
-        self.curr-encode-request.filament-subtype = "";
-        self.curr-encode-request.color-name = "";
-        self.curr-encode-request.note = "";
-        self.curr-encode-request.tray-index = 0;
-        self.curr-encode-request.tray-id = -1; // Important, see view_model check of -1
-
-        self.curr-encode-request-display.filament-type = "";
-        self.curr-encode-request-display.slicer-name = "";
-        self.curr-encode-request-display.color-code = "";
-        self.curr-encode-request-display.title-color = #fff;
-        self.curr-encode-request-display.temp-min = 0;
-        self.curr-encode-request-display.temp-max = 0;
-        self.curr-encode-request-display.pa-line1 = "";
-        self.curr-encode-request-display.pa-line2 = "";
-    }
+    // public function clear-curr-encoding-request() {
+    //     self.curr-encode-request.id = "";
+    //     self.curr-encode-request.weight-advertised = 0;
+    //     self.curr-encode-request.weight-core = 0;
+    //     self.curr-encode-request.weight-new = 0;
+    //     self.curr-encode-request.core-name = 0;
+    //     self.curr-encode-request.brand = "";
+    //     self.curr-encode-request.filament-subtype = "";
+    //     self.curr-encode-request.color-name = "";
+    //     self.curr-encode-request.note = "";
+    //     self.curr-encode-request.tray-index = 0;
+    //     self.curr-encode-request.tray-id = -1; // Important, see view_model check of -1
+    //
+    //     self.curr-encode-request-display.filament-type = "";
+    //     self.curr-encode-request-display.slicer-name = "";
+    //     self.curr-encode-request-display.color-code = "";
+    //     self.curr-encode-request-display.title-color = #fff;
+    //     self.curr-encode-request-display.temp-min = 0;
+    //     self.curr-encode-request-display.temp-max = 0;
+    //     self.curr-encode-request-display.pa-line1 = "";
+    //     self.curr-encode-request-display.pa-line2 = "";
+    // }
 
     // Called from UI in case of UI timeout, can also be called from backend for timeout case
     public function encoding-timeout() {

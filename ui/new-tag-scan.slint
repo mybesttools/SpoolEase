@@ -1,6 +1,6 @@
 import { MyText, MyButton, ButtonType, WizardButtons, Title } from "framework/widgets.slint";
 import { NumPad } from "numpad.slint";
-import { AppBackend, AppState, ControlState,FilamentInfoMode, NewTagScanPage, NewTagOperation, SpoolScaleState } from "app.slint";
+import { AppBackend, AppState, ControlState, NewTagScanPage, NewTagOperation, SpoolScaleState } from "app.slint";
 import { Utils } from "utils.slint";
 import { ScaleWeightDisplay } from "app-widgets.slint";
 import { SpoolDisplay } from "spool-display.slint";
@@ -267,7 +267,7 @@ export component NewTagScan inherits Rectangle {
                 AppState.new-tag-scan-page = NewTagScanPage.SpoolSelect;
             } else {
                 AppState.new-tag-scan-spool-id = AppBackend.recently_added_spool_id_if_untagged();
-                AppBackend.fill-encode-request-from-spool-id(AppBackend.recently_added_spool_id_if_untagged());
+                // AppBackend.fill-encode-request-from-spool-id(AppBackend.recently_added_spool_id_if_untagged());
                 // AppState.encoding-select-spool-id = false;
                 AppState.new-tag-scan-page = NewTagScanPage.LinkSpoolDisplay;
             }

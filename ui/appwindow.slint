@@ -12,8 +12,8 @@ import { ControlPanel } from "controlpanel.slint";
 import { SelectPrinter } from "select-printer.slint";
 import { AppSettings } from "app-settings.slint";
 import { NumPad } from "numpad.slint";
-import { FilamentInfo } from "filament-info.slint";
-import { FilamentInfoMode } from "app.slint";
+// import { FilamentInfo } from "filament-info.slint";
+// import { FilamentInfoMode } from "app.slint";
 import { NewTagScan } from "new-tag-scan.slint";
 import { StagingOperations } from "staging-operations.slint";
 import { TrayOperations } from "tray-operations.slint";
@@ -47,7 +47,7 @@ export component AppWindow inherits Window {
         handle-swipe-left: AppState.select-printer == false;
         handle-swipe-right: AppState.select-printer == true;
         swiped => {
-            if FrameworkState.ota-state == OtaState.NotStarted && AppState.control-state != ControlState.FilamentInformation {
+            if FrameworkState.ota-state == OtaState.NotStarted {
                 if self.handle-swipe-down && self.current-position.y > self.pressed-position.y + (self.height / 8) {
                     // swipe down 
                     current-page -= 1;
@@ -143,10 +143,10 @@ export component AppWindow inherits Window {
         }
     }
 
-    if AppState.control-state == ControlState.FilamentInformation: filament-information := FilamentInfo {
-        mode: FilamentInfoMode.View;
-        height: root.height;
-    }
+    // if AppState.control-state == ControlState.FilamentInformation: filament-information := FilamentInfo {
+    //     mode: FilamentInfoMode.View;
+    //     height: root.height;
+    // }
 
     if AppState.control-state == ControlState.NewTagScan: new-tag-scan := NewTagScan {
         width: root.width;
