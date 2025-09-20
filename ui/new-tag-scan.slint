@@ -117,6 +117,72 @@ component SpoolSelectStep inherits Rectangle {
     }
 }
 
+component V1TagPromptStep inherits Rectangle {
+    width: 480px;
+    height: 320px;
+    property <NewTagOperation> selected-operation: None;
+    function pressed(operation: NewTagOperation) {
+        selected-operation = selected-operation == operation ? NewTagOperation.None : operation;
+    }
+    background: white;
+    VerticalLayout {
+        Title {
+            text: "Unrecognized Previous Version Tag";
+        }
+
+        VerticalLayout {
+            alignment: start;
+            padding: 5px;
+            spacing: 5px;
+            MyText {
+                text: "The scanned tag is from an older version and isn’t in your inventory.";
+                wrap: word-wrap;
+            }
+
+            MyText {
+                text: "Please choose an action:";
+            }
+
+            b1 := MyButton {
+                type: ButtonType.RadioButton;
+                pushed: selected-operation == NewTagOperation.AddV1TagToInventory;
+                height: 56px;
+                text: "Add Spool to Inventory";
+                pressed => {
+                    pressed(NewTagOperation.AddV1TagToInventory);
+                }
+            }
+
+            b2 := MyButton {
+                pushed: selected-operation == NewTagOperation.EraseV1Tag;
+                type: ButtonType.RadioButton;
+                height: 56px;
+                text: "Erase Tag for Future Use";
+                pressed => {
+                    pressed(NewTagOperation.EraseV1Tag);
+                }
+            }
+        }
+
+        WizardButtons {
+            back-enabled: false;
+            next-enabled: selected-operation == NewTagOperation.AddV1TagToInventory; // != NewTagOperation.None;
+            cancel-enabled: true;
+            cancel-clicked => {
+                AppState.control-state = ControlState.Ready;
+            }
+            next-clicked => {
+                if selected-operation == NewTagOperation.AddV1TagToInventory {
+                    AppBackend.add-v1-tag-to-inventory(AppState.new-tag-scan-v1-tag);
+                    AppState.control-state = ControlState.Ready;
+                } else {
+                    // TODO: redirect to erase tag operation
+                }
+            }
+        }
+    }
+}
+
 component SpoolDisplayStep inherits Rectangle {
     callback next-clicked;
     callback back-clicked;
@@ -128,8 +194,8 @@ component SpoolDisplayStep inherits Rectangle {
     in-out property <string> next-text: "";
     VerticalLayout {
         SpoolDisplay {
-           show-title: true;
-           spool-display: AppBackend.get-spool-record-display(AppState.new-tag-scan-spool-id);
+            show-title: true;
+            spool-display: AppBackend.get-spool-record-display(AppState.new-tag-scan-spool-id);
         }
 
         WizardButtons {
@@ -320,7 +386,6 @@ export component NewTagScan inherits Rectangle {
     }
 
     if AppState.new-tag-scan-page == NewTagScanPage.StatusDisplay: status-display := StatusDisplayPage {
-        visible: AppState.new-tag-scan-page == NewTagScanPage.StatusDisplay;
         cancel-clicked => {
             AppState.new-tag-scan-page = NewTagScanPage.OperationSelect;
             AppState.new-tag-scan-status = "";
@@ -329,4 +394,6 @@ export component NewTagScan inherits Rectangle {
         success: AppState.new-tag-scan-status == "";
         message: self.success ? "Tag Linked to Spool Successfuly" : AppState.new-tag-scan-status;
     }
+
+    if AppState.new-tag-scan-page == NewTagScanPage.V1TagPrompt: v1-prompt := V1TagPromptStep { }
 }

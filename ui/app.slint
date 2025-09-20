@@ -140,14 +140,13 @@ export global AppBackend {
     callback calibrate-scale(weight: int);
     pure callback get-connected-scale-info() -> string;
     pure callback get-available-scales-info() -> [string];
-    // callback calc-encode-request-display(mode: FilamentInfoMode);
-    // callback fill-encode-request-from-spool-id(spool-id: string) -> string;
     callback link_tag_to_spool_id(tag_id: string, spool-id: string, final-step: bool);
     callback set-spool-weight(spool-id: string, weight: int, unused: bool, final-step: bool);
     pure callback recently_added_spool_id_if_untagged() -> string;
     pure callback get-spool-record-display(spool-id: string) -> UiSpoolRecordDisplay;
     pure callback get-slot-display(tray-id: int) -> UiSlotDisplay;
     callback can-link-spool-to-tag(id: string) -> string; // empty if untagged, error text if not
+    callback add-v1-tag-to-inventory(string);
 }
 
 export enum NewTagScanPage {
@@ -156,12 +155,15 @@ export enum NewTagScanPage {
     LinkSpoolDisplay,
     MeasureWeight,
     StatusDisplay,
+    V1TagPrompt,
 }
 
 export enum NewTagOperation {
   None,
   LinkTagToSpoolId,
   LinkTagToRecentlyAddedSpool,
+  AddV1TagToInventory, // V1
+  EraseV1Tag, // V1
 }
 
 export global AppState {
@@ -179,6 +181,7 @@ export global AppState {
     in-out property <string> new-tag-scan-status: ""; // text means error, empty mean ok
     in-out property <NewTagOperation> new-tag-operation: None;
     in-out property <string> new-tag-scan-spool-id: "";
+    in-out property <string> new-tag-scan-v1-tag: "";
 
     // Global state for TraySelected Control-State
     in-out property <int> tray-selected-tray-index: -1;
@@ -489,6 +492,16 @@ export global AppState {
         self.new-tag-scan-tag-id = tag-id;
         self.control-state = ControlState.NewTagScan;
     }
+    public function new-v1-tag-scanned(v1-tag: string) {
+        self.new-tag-scan-page = NewTagScanPage.V1TagPrompt;
+        self.new-tag-operation = NewTagOperation.None;
+        self.new-tag-scan-status = "";
+        self.new-tag-scan-spool-id = "";
+        self.new-tag-scan-tag-id = "";
+        self.new-tag-scan-v1-tag = v1-tag;
+        self.control-state = ControlState.NewTagScan;
+    }
+
     public function link-tag-to-spool-id-status(status: string) {
       // string empty ok, content is error message
 

@@ -712,6 +712,19 @@ impl ViewModel {
             .unwrap()
             .global::<crate::app::AppBackend>()
             .on_can_link_spool_to_tag(move |spool_id| moved_view_model.borrow().ui_can_link_spool_to_tag(spool_id.as_str()));
+
+        let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        self.ui_weak
+            .unwrap()
+            .global::<crate::app::AppBackend>()
+            .on_add_v1_tag_to_inventory(move |tag| moved_view_model.borrow().ui_add_v1_tag_to_inventory(tag.as_str()));
+    }
+
+    fn ui_add_v1_tag_to_inventory(&self, tag: &str) {
+        
+        let _ = self.dispatch_async_task(AppAsyncTaskRequest::ProcessV1TagRead {
+            tag: tag.to_string(),
+        });
     }
 
     fn ui_can_link_spool_to_tag(&self, id: &str) -> SharedString {
@@ -1237,7 +1250,7 @@ impl ViewModel {
     }
 
     // returns false if not v1, true if v1 whether error or not
-    pub fn process_v1_tag_read(&self, tag: &str, scanned_on_scale: bool) -> bool {
+    pub fn process_v1_tag_read(&self, tag: &str, _scanned_on_scale: bool) -> bool {
         let ui = self.ui_weak.clone();
         // TODO: When moving to no need to encode tag, displaying here in staging should only take place
         // if there is data from store. All processing here will be only to import old tags not in store
@@ -1248,19 +1261,22 @@ impl ViewModel {
             // if let Some(mut tag_info) = tag_info_clone {
             if let Some(tag_id) = &tag_info.tag_id {
                 if let Some(spool_rec) = self.store.get_spool_by_tag_id(tag_id) {
+                    // tag is already in store
                     self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Scanned);
                     self.display_filament_staging(true);
+                } else {
+                    ui.unwrap().global::<crate::app::AppState>().invoke_new_v1_tag_scanned(tag.into());
                 }
 
-                let _ = self.dispatch_async_task(AppAsyncTaskRequest::ProcessV1TagRead {
-                    tag: tag.to_string(),
-                    scanned_on_scale,
-                });
+                // let _ = self.dispatch_async_task(AppAsyncTaskRequest::ProcessV1TagRead {
+                //     tag: tag.to_string(),
+                //     scanned_on_scale,
+                // });
             } else {
                 error!("Error with scanned V1 tag - old tag read with no tag_id");
                 ui.unwrap()
                     .global::<crate::app::AppState>()
-                    .invoke_read_tag_failed(SharedString::from("Tag missing tag id"));
+                    .invoke_read_tag_failed(SharedString::from("V1 Tag Missing Tag-ID"));
             }
             true
         } else {
@@ -1268,7 +1284,7 @@ impl ViewModel {
         }
     }
 
-    pub async fn process_v1_tag_read_async(view_model: Rc<RefCell<ViewModel>>, tag: String, scanned_on_scale: bool) {
+    pub async fn process_v1_tag_read_async(view_model: Rc<RefCell<ViewModel>>, tag: String) {
         debug!("Received to process async read tag {tag}");
 
         if let Ok(tag_info) = TagInformationV1::from_v1_descriptor(&tag) {
@@ -1294,16 +1310,17 @@ impl ViewModel {
 
                 let store = view_model.borrow().store.clone();
                 if need_to_store {
-                    let (res, spool_rec, spool_rec_ext) = if let Some(mut spool_rec) = spool_rec {
+                    let (res, spool_rec_id, spool_rec_ext) = if let Some(mut spool_rec) = spool_rec {
                         // spool_rec already availble, need to only deal with storing K if exists
                         // we know there's k_info here, because otherwise need_to_store wouldn't be true (wouldn't be a reason to store anything)
                         spool_rec.ext_has_k = true;
+                        let spool_rec_id = spool_rec.id.clone();
                         match store
-                            .update_spool(spool_rec.clone(), Some(Box::new(move |ext| ext.k_info = tag_k_info)))
+                            .update_spool(spool_rec, Some(Box::new(move |ext| ext.k_info = tag_k_info)))
                             .await
                         {
-                            Ok(spool_rec_ext) => (Ok(()), spool_rec, spool_rec_ext),
-                            Err(e) => (Err(e), spool_rec, None),
+                            Ok(spool_rec_ext) => (Ok(()), spool_rec_id, spool_rec_ext),
+                            Err(e) => (Err(e), spool_rec_id, None),
                         }
                     } else {
                         // spool_rec not available, meaning a new record to add
@@ -1314,8 +1331,8 @@ impl ViewModel {
                             k_info: tag_k_info,
                         };
                         match store.add_spool(new_spool_rec.clone(), new_spool_rec_ext.clone()).await {
-                            Ok(_) => (Ok(()), new_spool_rec, Some(new_spool_rec_ext)),
-                            Err(e) => (Err(e), new_spool_rec, Some(new_spool_rec_ext)),
+                            Ok(new_spool_rec_id) => (Ok(()), new_spool_rec_id, Some(new_spool_rec_ext)),
+                            Err(e) => (Err(e), String::new(), Some(new_spool_rec_ext)),
                         }
                     };
 
@@ -1324,53 +1341,42 @@ impl ViewModel {
                     let view_model_borrow = view_model.borrow();
                     match res {
                         Ok(_) => {
-                            view_model
-                                .borrow()
-                                .filament_staging
-                                .borrow_mut()
-                                .set_spool_record(spool_rec, StagingOrigin::Scanned);
-                            if let Some(spool_rec_ext) = spool_rec_ext {
-                                view_model_borrow.filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
-                            }
-                            view_model.borrow().display_filament_staging(true);
-                            if scanned_on_scale {
-                                // TODO: notify scale to show on led succeess
+                            if let Some(spool_rec) = view_model_borrow.store.get_spool_by_id(&spool_rec_id) {
+                                view_model_borrow
+                                    .filament_staging
+                                    .borrow_mut()
+                                    .set_spool_record(spool_rec, StagingOrigin::Scanned);
+                                if let Some(spool_rec_ext) = spool_rec_ext {
+                                    view_model_borrow.filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
+                                }
+                                view_model.borrow().display_filament_staging(true);
+                            } else {
+                                ui_app_state.invoke_show_spoolscale_dialog(
+                                    "Failed to get spool after storing it".to_shared_string(),
+                                    crate::app::StatusType::Error,
+                                );
                             }
                         }
                         Err(err) => {
-                            if scanned_on_scale {
-                                // TODO: notify scale to show on led error
-                            }
                             ui_app_state.invoke_show_spoolscale_dialog(
                                 format!("Failed to store information from tag\n{err:?}").to_shared_string(),
                                 crate::app::StatusType::Error,
                             );
                         }
                     }
-                } else {
-                    if let Ok(spool_rec_ext) = store.get_spool_ext_by_id(&spool_rec.unwrap().id).await {
-                        view_model.borrow().filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
-                        view_model.borrow().display_filament_staging(true);
-                    }
-                    if scanned_on_scale {
-                        // TODO: notify scale to show on led success
-                    }
+                } else if let Ok(spool_rec_ext) = store.get_spool_ext_by_id(&spool_rec.unwrap().id).await {
+                    view_model.borrow().filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
+                    view_model.borrow().display_filament_staging(true);
                 }
             } else {
                 let ui = view_model.borrow().ui_weak.unwrap();
                 let ui_app_state = ui.global::<crate::app::AppState>();
-                if scanned_on_scale {
-                    // TODO: notify scale to show on led failure
-                }
                 error!("Tag is missing tag id : {tag}");
                 ui_app_state.invoke_show_spoolscale_dialog("Tag is missing tag id".to_shared_string(), crate::app::StatusType::Error);
             }
         } else {
             let ui = view_model.borrow().ui_weak.unwrap();
             let ui_app_state = ui.global::<crate::app::AppState>();
-            if scanned_on_scale {
-                // TODO: notify scale to show on led failure
-            }
             error!("Cant parse tag descriptor {tag}");
             ui_app_state.invoke_show_spoolscale_dialog("Cant parse tag descriptor".to_shared_string(), crate::app::StatusType::Error);
         }
@@ -2219,7 +2225,6 @@ struct GcodeJob {
 enum AppAsyncTaskRequest {
     ProcessV1TagRead {
         tag: String,
-        scanned_on_scale: bool,
     },
     UpdateSpoolWeight {
         weight: i32,
@@ -2261,8 +2266,8 @@ pub async fn app_async_task(view_model: Rc<RefCell<ViewModel>>) {
 
     loop {
         match requests.receive().await {
-            AppAsyncTaskRequest::ProcessV1TagRead { tag, scanned_on_scale } => {
-                ViewModel::process_v1_tag_read_async(view_model.clone(), tag, scanned_on_scale).await
+            AppAsyncTaskRequest::ProcessV1TagRead { tag } => {
+                ViewModel::process_v1_tag_read_async(view_model.clone(), tag).await
             }
             AppAsyncTaskRequest::UpdateSpoolWeight { weight } => ViewModel::update_spool_weight_async(view_model.clone(), weight).await,
             AppAsyncTaskRequest::LinkTagToSpool {
