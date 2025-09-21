@@ -30,6 +30,12 @@ export component AppWindow inherits Window {
 
     property <int> current-page: (FrameworkState.web-config-state == WebConfigState.Started-AP || FrameworkState.web-config-state == WebConfigState.Started-STA-Displayed) ? 2 : (AppState.control-state == ControlState.Booting || /*AppState.control-state == ControlState.ConnectingToPrinter ||*/ AppState.control-state == ControlState.BootFailed) ? 0 : 1;
     changed current-page => {
+        if current-page != 0 && terminal.is-scrolled() { // if maybe moved away from terminal 
+          reset-terminal-scroll.running = true;
+        }
+        if current-page == 0 {
+            reset-terminal-scroll.running = false;
+        }
         if FrameworkState.web-config-state == WebConfigState.Starting || FrameworkState.web-config-state == WebConfigState.Started-STA || FrameworkState.web-config-state == WebConfigState.Started-AP {
             if current-page != 2 {
                 AppBackend.read-tag-mode();
@@ -39,6 +45,16 @@ export component AppWindow inherits Window {
         }
     }
     property <int> current-page-x: 0;
+
+    reset-terminal-scroll := Timer {
+        interval: 60s;
+        triggered => {
+        // for some reason calling a function in terminal panics slint, so I need to set internal properties instead
+        terminal.scroll-offset-from-end = 0;
+            terminal.locked-offset = 0;
+            self.running = false;
+        }
+    }
 
     sgr := SwipeGestureHandler {
         width: parent.width;
@@ -78,7 +94,8 @@ export component AppWindow inherits Window {
             }
 
             // Page 0 - Terminal
-            page0 := Terminal {
+            terminal := Terminal {
+                text: FrameworkState.term-text;
                 height: root.height;
                 width: root.width;
                 background: #16161e;
@@ -168,7 +185,7 @@ export component AppWindow inherits Window {
         dialog-text: AppState.message-box-text;
         dialog-text2: AppState.message-box-text2;
         dialog-background: AppState.message-box-type == StatusType.Success ? green.brighter(1.0) : AppState.message-box-type == StatusType.Error ? red : skyblue;
-        dialog-button-text: "Ok" + (AppState.message-box-timeout != 0 ? " (\{AppState.message-box-timeout})": "");
+        dialog-button-text: "Ok" + (AppState.message-box-timeout != 0 ? " (\{AppState.message-box-timeout})" : "");
         clicked => {
             AppState.hide-message-box();
         }

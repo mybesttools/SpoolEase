@@ -104,7 +104,7 @@ impl ViewModel {
     ) -> Rc<RefCell<ViewModel>> {
         let spawner = framework.borrow().spawner;
         // Setup Terminal
-        let terminal_view_model = Rc::new(RefCell::new(TerminalViewModel { ui_weak: ui_weak.clone() }));
+        let terminal_view_model = Rc::new(RefCell::new(TerminalViewModel { ui_weak: ui_weak.clone(), term_text:String::with_capacity(8192)}));
         let trait_for_terminal_rc: Rc<RefCell<dyn terminal::TerminalObserver>> = terminal_view_model.clone();
         let trait_for_terminal_weak: Weak<RefCell<dyn terminal::TerminalObserver>> = Rc::downgrade(&trait_for_terminal_rc);
         term_mut().subscribe(trait_for_terminal_weak);
@@ -526,6 +526,24 @@ impl ViewModel {
             .unwrap()
             .global::<crate::app::AppBackend>()
             .on_erase_tag_by_spool_id(move |spool_id| moved_view_model.borrow().ui_erase_tag_by_spool_id(spool_id.as_str()));
+
+        let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        self.ui_weak
+            .unwrap()
+            .global::<crate::app::FrameworkBackend>()
+            .on_term_info(move |text| moved_view_model.borrow().ui_term_info(text.as_str()));
+
+        let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        self.ui_weak
+            .unwrap()
+            .global::<crate::app::FrameworkBackend>()
+            .on_info(move |text| moved_view_model.borrow().ui_info(text.as_str()));
+
+        let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        self.ui_weak
+            .unwrap()
+            .global::<crate::app::FrameworkBackend>()
+            .on_debug(move |text| moved_view_model.borrow().ui_debug(text.as_str()));
     }
 
     fn perform_select_printer(
@@ -731,6 +749,16 @@ impl ViewModel {
             .on_set_staging_to_tray(move |tray_id: i32| {
                 Self::set_staging_to_tray(&moved_view_model, &moved_filament_staging, &moved_bambu_printer, &moved_ui, tray_id);
             });
+    }
+
+    fn ui_term_info(&self, text: &str) {
+        self._terminal_view_model.borrow_mut().on_add_text(text);
+    }
+    fn ui_info(&self, text: &str) {
+        info!("{}", text);
+    }
+    fn ui_debug(&self, text: &str) {
+        debug!("{}", text);
     }
 
     fn ui_erase_tag_by_spool_id(&self, spool_id: &str) {
@@ -1676,9 +1704,9 @@ impl BambuPrinterObserver for ViewModel {
             //       Or switch to a message loop notifications (which is a major change to the code, but more correct for these types of apps)
             //       So here I know it arrives here only if boot is successful, but in other applications this might not be enough
             // if self.app_config.borrow().boot_completed() {
-            term_info!(&"-".repeat(67));
+            term_info!(&"-".repeat(62));
             term_info!("Printer [{}] connected successfully", bambu_printer.printer_number);
-            term_info!(&"-".repeat(67));
+            term_info!(&"-".repeat(62));
             self.ui_weak
                 .unwrap()
                 .global::<crate::app::AppState>()
@@ -1948,9 +1976,9 @@ impl FrameworkObserver for ViewModel {
 
     fn on_initialization_completed(&self, status: bool) {
         if status {
-            term_info!(&"-".repeat(66));
+            term_info!(&"-".repeat(62));
             term_info!("Initialization completed successfully");
-            term_info!(&"-".repeat(66));
+            term_info!(&"-".repeat(62));
             self.ui_weak.unwrap().global::<crate::app::AppState>().invoke_initialization_completed();
         } else {
             // TODO: This event here goes to the AppState and not to Framework, think about that.
@@ -1967,14 +1995,26 @@ impl FrameworkObserver for ViewModel {
 
 struct TerminalViewModel {
     ui_weak: slint::Weak<crate::app::AppWindow>,
+    term_text: String,
 }
 
 impl TerminalObserver for TerminalViewModel {
-    fn on_add_text(&self, text: &str) {
-        self.ui_weak
-            .unwrap()
-            .global::<crate::app::FrameworkState>()
-            .invoke_add_term_text(text.to_shared_string());
+    fn on_add_text(&mut self, text: &str) {
+        self.term_text.push_str(text);
+        let keep_from = self.term_text.match_indices('\n')
+            .nth_back(100) // nth newline from the end
+            .map(|(i, _)| i + 1) // start after it
+            .unwrap_or(0);
+        self.term_text.drain(..keep_from);
+
+        self.ui_weak.unwrap()
+            .global::<crate::app::FrameworkState>().set_term_text(self.term_text.to_shared_string());
+        self.ui_weak.unwrap()
+            .global::<crate::app::FrameworkState>().set_term_text_added(text.to_shared_string());
+        // self.ui_weak
+        //     .unwrap()
+        //     .global::<crate::app::FrameworkState>()
+        //     .invoke_add_term_text(text.to_shared_string());
     }
 }
 
@@ -2063,10 +2103,11 @@ impl SpoolScaleObserver for ViewModel {
 
     fn on_term_text(&mut self, text: &str) {
         let text = format!("\n[S] {text}");
-        self.ui_weak
-            .unwrap()
-            .global::<crate::app::FrameworkState>()
-            .invoke_add_term_text(text.into());
+        self._terminal_view_model.borrow_mut().on_add_text(&text);
+        // self.ui_weak
+        //     .unwrap()
+        //     .global::<crate::app::FrameworkState>()
+        //     .invoke_add_term_text(text.into());
     }
 
     fn on_tag_status(&mut self, status: &shared::spool_tag::Status) {

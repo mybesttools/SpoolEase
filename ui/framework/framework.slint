@@ -38,6 +38,22 @@ export global FrameworkBackend {
     callback stop-web-config();
     callback reset-device();
     callback update-firmware-ota();
+    callback term-info(string);
+    callback info(string);
+    callback debug(string);
+}
+
+export global Log {
+    public function term-info(text: string) {
+        FrameworkBackend.info(text);
+        FrameworkBackend.term-info("\n\{text}");
+    }
+    public function info(text: string) {
+        FrameworkBackend.info(text);
+    }
+    public function debug(text: string) {
+        FrameworkBackend.debug(text);
+    }
 }
 
 struct AppInfo {
@@ -52,7 +68,9 @@ struct OtaInfo {
 
 export global FrameworkState {
     in-out property <AppInfo> app-info: { name: "AppName", version: "?.?.?" };
-    in-out property <string> term-text: "Initializing...";
+    // in-out property <string> term-text: "Initializing...";
+    in-out property <string> term-text;
+    in-out property <string> term-text-added;
 
     in-out property <WebConfigState> web-config-state: WebConfigState.Stopped;
     in-out property <string> web-config-url: "Initializing ...";
@@ -70,9 +88,9 @@ export global FrameworkState {
 
     // Terminal 
 
-    public function add-term-text(line: string) {
-        term-text = term-text + line;
-    }
+    // public function add-term-text(line: string) {
+    //     term-text = term-text + line;
+    // }
 
     // Ota
 
