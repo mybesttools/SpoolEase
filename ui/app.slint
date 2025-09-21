@@ -147,7 +147,7 @@ export global AppBackend {
     pure callback get-spool-record-display(spool-id: string) -> UiSpoolRecordDisplay;
     pure callback get-slot-display(tray-id: int) -> UiSlotDisplay;
     callback can-link-spool-to-tag(id: string) -> string; // empty if untagged, error text if not
-    callback add-v1-tag-to-inventory(string);
+    callback add-v1-tag-to-inventory(tag_id: string, tag_descriptor: string);
     callback erase-tag(tag_id: string);
 }
 

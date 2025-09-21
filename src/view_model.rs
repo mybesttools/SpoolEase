@@ -513,7 +513,7 @@ impl ViewModel {
         self.ui_weak
             .unwrap()
             .global::<crate::app::AppBackend>()
-            .on_add_v1_tag_to_inventory(move |tag| moved_view_model.borrow().ui_add_v1_tag_to_inventory(tag.as_str()));
+            .on_add_v1_tag_to_inventory(move |tag_id, tag| moved_view_model.borrow().ui_add_v1_tag_to_inventory(tag_id.as_str(), tag.as_str()));
 
         let moved_view_model = self.view_model.as_ref().unwrap().clone();
         self.ui_weak
@@ -737,8 +737,11 @@ impl ViewModel {
         }
     }
 
-    fn ui_add_v1_tag_to_inventory(&self, tag: &str) {
-        let _ = self.dispatch_async_task(AppAsyncTaskRequest::ProcessV1TagRead { tag: tag.to_string() });
+    fn ui_add_v1_tag_to_inventory(&self, tag_id: &str, tag: &str) {
+        let _ = self.dispatch_async_task(AppAsyncTaskRequest::ProcessV1TagRead {
+            tag_id: tag_id.to_string(),
+            tag: tag.to_string(),
+        });
     }
 
     fn ui_can_link_spool_to_tag(&self, id: &str) -> SharedString {
@@ -1191,7 +1194,13 @@ impl ViewModel {
                 ScaleWeight::Stable(weight) => {
                     if weight == 0 {
                         info!("User Error: Reqeust to store tag with no weight on scale");
-                        ui_app_state.invoke_show_message_box("Scale Notice".into(), "No Weight on Scale".into(), "Can't Update Spool Weight".into(), crate::app::StatusType::Error, -1);
+                        ui_app_state.invoke_show_message_box(
+                            "Scale Notice".into(),
+                            "No Weight on Scale".into(),
+                            "Can't Update Spool Weight".into(),
+                            crate::app::StatusType::Error,
+                            -1,
+                        );
                         Some(false)
                     } else {
                         match self.dispatch_async_task(AppAsyncTaskRequest::UpdateSpoolWeight { weight }) {
@@ -1203,20 +1212,38 @@ impl ViewModel {
                 ScaleWeight::Unstable(_) => {
                     info!("User Error: Reqeust to store tag with weight but scale weight is not stable");
 
-                    ui_app_state.invoke_show_message_box("Scale Notice".into(), "Weight on Scale Not Stable".into(), "Can't Update Spool Weight".into(), crate::app::StatusType::Error, -1);
+                    ui_app_state.invoke_show_message_box(
+                        "Scale Notice".into(),
+                        "Weight on Scale Not Stable".into(),
+                        "Can't Update Spool Weight".into(),
+                        crate::app::StatusType::Error,
+                        -1,
+                    );
                     Some(false)
                     // TODO: notify on GUI and on Scale Led
                 }
                 ScaleWeight::Unknown => {
                     info!("Software Error: scale weight unknown after connect?");
-                    ui_app_state.invoke_show_message_box("Software Notice".into(), "Internal Software Error".into(), "Can't Update Spool Weight".into(), crate::app::StatusType::Error, -1);
+                    ui_app_state.invoke_show_message_box(
+                        "Software Notice".into(),
+                        "Internal Software Error".into(),
+                        "Can't Update Spool Weight".into(),
+                        crate::app::StatusType::Error,
+                        -1,
+                    );
                     Some(false)
                 }
             }
         } else {
             info!("User Error: Reqeust to store tag with weight but no tag information in staging");
 
-            ui_app_state.invoke_show_message_box("Staging Notice".into(), "No Spool Tag in Staging".into(), "Can't Update Spool Weight".into(), crate::app::StatusType::Error, -1);
+            ui_app_state.invoke_show_message_box(
+                "Staging Notice".into(),
+                "No Spool Tag in Staging".into(),
+                "Can't Update Spool Weight".into(),
+                crate::app::StatusType::Error,
+                -1,
+            );
             Some(false)
             // TODO:  notify on GUI and on Scale Led
         }
@@ -1239,19 +1266,31 @@ impl ViewModel {
             let ui_app_state = ui.global::<crate::app::AppState>();
             match update_res {
                 Ok(_) => {
-                    ui_app_state.invoke_show_message_box("Inventory Notice".into(),  slint::format!("Updated Filament Weight for Spool {}", spool_rec_id), SharedString::new(), crate::app::StatusType::Success, -1);
+                    ui_app_state.invoke_show_message_box(
+                        "Inventory Notice".into(),
+                        slint::format!("Updated Filament Weight for Spool {}", spool_rec_id),
+                        SharedString::new(),
+                        crate::app::StatusType::Success,
+                        -1,
+                    );
                     view_model.borrow().spool_scale_model.borrow().button_response(true);
                 }
                 Err(err) => {
                     error!("Error updating spool weight in store : {err:?}");
-                    ui_app_state.invoke_show_message_box("Inventory Notice".into(),  "Failed to Update Filament Weight/Tag".into(), err.to_shared_string(), crate::app::StatusType::Error, -1);
+                    ui_app_state.invoke_show_message_box(
+                        "Inventory Notice".into(),
+                        "Failed to Update Filament Weight/Tag".into(),
+                        err.to_shared_string(),
+                        crate::app::StatusType::Error,
+                        -1,
+                    );
                     view_model.borrow().spool_scale_model.borrow().button_response(false);
                 }
             }
         }
     }
 
-    // returns false if not v1, true if v1 whether error or not
+    // returns false if needs to be processed as a standard tag, true if v1 whether error or not
     pub fn process_v1_tag_read(&self, tag_uid: &[u8], tag: &str, _scanned_on_scale: bool) -> bool {
         let ui = self.ui_weak.clone();
         // TODO: When moving to no need to encode tag, displaying here in staging should only take place
@@ -1261,9 +1300,21 @@ impl ViewModel {
             // Tag with this tag_id is not in store  - for upgrading from non inventory release to inventory release
             // Tag with this tag_id is in store, but w/o K there, and the tag has K - for upgrading from old tags with K to new K approach
             // if let Some(mut tag_info) = tag_info_clone {
+            if self.store.exists_tag_id(tag_uid) {
+                return false;
+            }
             if let Some(tag_id) = &tag_info.tag_id {
                 if let Some(spool_rec) = self.store.get_spool_by_tag_id(tag_id) {
-                    // tag is already in store
+                    // tag-id is already in store
+                    // Note: this is a special case where the tag_id on the spool is different than the tag_uid,
+                    // should only happen in case of old bugs in uid or in case of copy of tags content
+                    ui.unwrap().global::<crate::app::AppState>().invoke_show_message_box(
+                        slint::format!("Tag {} Read Notice", spool_rec.id),
+                        "A Previous Version Tag Conflicting Tag-Id's".into(),
+                        "It May Require Re-Configuring".into(),
+                        crate::app::StatusType::Normal,
+                        0,
+                    );
                     self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Scanned);
                     self.display_filament_staging(true);
                 } else {
@@ -1283,93 +1334,134 @@ impl ViewModel {
         }
     }
 
-    pub async fn process_v1_tag_read_async(view_model: Rc<RefCell<ViewModel>>, tag: String) {
+    pub async fn process_v1_tag_read_async(view_model: Rc<RefCell<ViewModel>>, tag_id: String, tag: String) {
         debug!("Received to process async read tag {tag}");
 
+        // Using the real tag uid to store and not the content of the tag in this case
         if let Ok(tag_info) = TagInformationV1::from_v1_descriptor(&tag) {
-            if let Some(tag_id) = &tag_info.tag_id {
-                // we need to store tag on read in two cases:
-                // Tag with this tag_id is not in store  - for upgrading from non inventory release to inventory release
-                // Tag with this tag_id is in store, but w/o K there, and the tag has K - for upgrading from old tags with K to new K approach
-                // if let Some(mut tag_info) = tag_info_clone {
-                let (spool_rec, need_to_store, tag_k_info) = {
-                    let spool_rec = view_model.borrow().store.get_spool_by_tag_id(tag_id);
-                    let mut need_to_store = spool_rec.is_none();
-
-                    let mut k_info = None;
-                    if !tag_info.calibrations.is_empty() {
-                        let need_to_store_k = if let Some(spool_rec) = &spool_rec { !spool_rec.ext_has_k } else { true };
-                        need_to_store |= need_to_store_k;
-                        if need_to_store_k {
-                            k_info = view_model.borrow().get_k_info_from_old_tag(&tag_info);
-                        }
-                    }
-                    (spool_rec, need_to_store, k_info)
-                };
-
-                let store = view_model.borrow().store.clone();
-                if need_to_store {
-                    let (res, spool_rec_id, spool_rec_ext) = if let Some(mut spool_rec) = spool_rec {
-                        // spool_rec already availble, need to only deal with storing K if exists
-                        // we know there's k_info here, because otherwise need_to_store wouldn't be true (wouldn't be a reason to store anything)
-                        spool_rec.ext_has_k = true;
-                        let spool_rec_id = spool_rec.id.clone();
-                        match store.update_spool(spool_rec, Some(Box::new(move |ext| ext.k_info = tag_k_info))).await {
-                            Ok(spool_rec_ext) => (Ok(()), spool_rec_id, spool_rec_ext),
-                            Err(e) => (Err(e), spool_rec_id, None),
-                        }
-                    } else {
-                        // spool_rec not available, meaning a new record to add
-                        let mut new_spool_rec = tag_info.to_spool_rec();
-                        new_spool_rec.ext_has_k = tag_k_info.is_some();
-                        let new_spool_rec_ext = SpoolRecordExt {
-                            tag: Some(tag),
-                            k_info: tag_k_info,
-                        };
-                        match store.add_spool(new_spool_rec.clone(), new_spool_rec_ext.clone()).await {
-                            Ok(new_spool_rec_id) => (Ok(()), new_spool_rec_id, Some(new_spool_rec_ext)),
-                            Err(e) => (Err(e), String::new(), Some(new_spool_rec_ext)),
-                        }
-                    };
-
+            // if let Some(_tag_info_tag_id) = &tag_info.tag_id {
+            // we need to store tag on read in two cases:
+            // Tag with this tag_id is not in store  - for upgrading from non inventory release to inventory release
+            // Tag with this tag_id is in store, but w/o K there, and the tag has K - for upgrading from old tags with K to new K approach
+            // if let Some(mut tag_info) = tag_info_clone {
+            let tag_id = match hex::decode(&tag_id) {
+                Ok(tag_id) => tag_id,
+                Err(err) => {
                     let ui = view_model.borrow().ui_weak.unwrap();
                     let ui_app_state = ui.global::<crate::app::AppState>();
-                    let view_model_borrow = view_model.borrow();
-                    match res {
-                        Ok(_) => {
-                            if let Some(spool_rec) = view_model_borrow.store.get_spool_by_id(&spool_rec_id) {
-                                view_model_borrow
-                                    .filament_staging
-                                    .borrow_mut()
-                                    .set_spool_record(spool_rec, StagingOrigin::Scanned);
-                                if let Some(spool_rec_ext) = spool_rec_ext {
-                                    view_model_borrow.filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
-                                }
-                                view_model.borrow().display_filament_staging(true);
-                            } else {
-
-                                ui_app_state.invoke_show_message_box("Critical Store Notice".into(), "Unexpected Error".into(), "Failed to Get Spool After Storing It".into(), crate::app::StatusType::Error, -1);
-                            }
-                        }
-                        Err(err) => {
-                            ui_app_state.invoke_show_message_box("Critical Store Notice".into(), "Failed to store information from tag".into(), err.to_shared_string(), crate::app::StatusType::Error, -1);
-                        }
-                    }
-                } else if let Ok(spool_rec_ext) = store.get_spool_ext_by_id(&spool_rec.unwrap().id).await {
-                    view_model.borrow().filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
-                    view_model.borrow().display_filament_staging(true);
+                    error!("Error in v1 tag import flow converting tag uid (not in tag content) from hex : {err}");
+                    ui_app_state.invoke_show_message_box(
+                        "Tag Import Notice".into(),
+                        "Unexpected Internal Error".into(),
+                        "Bad Tag-Id to Store".into(),
+                        crate::app::StatusType::Error,
+                        0,
+                    );
+                    return;
                 }
-            } else {
+            };
+            let (spool_rec, need_to_store, tag_k_info) = {
+                let spool_rec = view_model.borrow().store.get_spool_by_tag_id(&tag_id);
+                let mut need_to_store = spool_rec.is_none();
+
+                let mut k_info = None;
+                if !tag_info.calibrations.is_empty() {
+                    let need_to_store_k = if let Some(spool_rec) = &spool_rec { !spool_rec.ext_has_k } else { true };
+                    need_to_store |= need_to_store_k;
+                    if need_to_store_k {
+                        k_info = view_model.borrow().get_k_info_from_old_tag(&tag_info);
+                    }
+                }
+                (spool_rec, need_to_store, k_info)
+            };
+
+            let store = view_model.borrow().store.clone();
+            if need_to_store {
+                let (res, spool_rec_id, spool_rec_ext) = if let Some(mut spool_rec) = spool_rec {
+                    // spool_rec already availble, need to only deal with storing K if exists
+                    // we know there's k_info here, because otherwise need_to_store wouldn't be true (wouldn't be a reason to store anything)
+                    spool_rec.ext_has_k = true;
+                    let spool_rec_id = spool_rec.id.clone();
+                    match store.update_spool(spool_rec, Some(Box::new(move |ext| ext.k_info = tag_k_info))).await {
+                        Ok(spool_rec_ext) => (Ok(()), spool_rec_id, spool_rec_ext),
+                        Err(e) => (Err(e), spool_rec_id, None),
+                    }
+                } else {
+                    // spool_rec not available, meaning a new record to add
+                    let mut new_spool_rec = tag_info.to_spool_rec();
+                    new_spool_rec.tag_id = hex::encode_upper(tag_id);  // replace the tag_id with the real tag uid
+                    new_spool_rec.ext_has_k = tag_k_info.is_some();
+                    let new_spool_rec_ext = SpoolRecordExt {
+                        tag: Some(tag),
+                        k_info: tag_k_info,
+                    };
+                    match store.add_spool(new_spool_rec.clone(), new_spool_rec_ext.clone()).await {
+                        Ok(new_spool_rec_id) => (Ok(()), new_spool_rec_id, Some(new_spool_rec_ext)),
+                        Err(e) => (Err(e), String::new(), Some(new_spool_rec_ext)),
+                    }
+                };
+
                 let ui = view_model.borrow().ui_weak.unwrap();
                 let ui_app_state = ui.global::<crate::app::AppState>();
-                error!("Tag is missing tag id : {tag}");
-                ui_app_state.invoke_show_message_box("Old Tag Notice".into(), "Tag is Missing Tag-Id".into(), SharedString::new(), crate::app::StatusType::Error, -1);
+                let view_model_borrow = view_model.borrow();
+                match res {
+                    Ok(_) => {
+                        if let Some(spool_rec) = view_model_borrow.store.get_spool_by_id(&spool_rec_id) {
+                            view_model_borrow
+                                .filament_staging
+                                .borrow_mut()
+                                .set_spool_record(spool_rec, StagingOrigin::Scanned);
+                            if let Some(spool_rec_ext) = spool_rec_ext {
+                                view_model_borrow.filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
+                            }
+                            view_model.borrow().display_filament_staging(true);
+                        } else {
+                            ui_app_state.invoke_show_message_box(
+                                "Critical Store Notice".into(),
+                                "Unexpected Error".into(),
+                                "Failed to Get Spool After Storing It".into(),
+                                crate::app::StatusType::Error,
+                                -1,
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        ui_app_state.invoke_show_message_box(
+                            "Critical Store Notice".into(),
+                            "Failed to store information from tag".into(),
+                            err.to_shared_string(),
+                            crate::app::StatusType::Error,
+                            -1,
+                        );
+                    }
+                }
+            } else if let Ok(spool_rec_ext) = store.get_spool_ext_by_id(&spool_rec.unwrap().id).await {
+                view_model.borrow().filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
+                view_model.borrow().display_filament_staging(true);
             }
+            // } else {
+            //     let ui = view_model.borrow().ui_weak.unwrap();
+            //     let ui_app_state = ui.global::<crate::app::AppState>();
+            //     error!("Tag is missing tag id : {tag}");
+            //     ui_app_state.invoke_show_message_box(
+            //         "Old Tag Notice".into(),
+            //         "Tag is Missing Tag-Id".into(),
+            //         SharedString::new(),
+            //         crate::app::StatusType::Error,
+            //         -1,
+            //     );
+            // }
         } else {
             let ui = view_model.borrow().ui_weak.unwrap();
             let ui_app_state = ui.global::<crate::app::AppState>();
             error!("Cant parse tag descriptor {tag}");
-            ui_app_state.invoke_show_message_box("Old Tag Notice".into(), "Cant Parse Tag Descriptor".into(), SharedString::new(), crate::app::StatusType::Error, -1);
+            ui_app_state.invoke_show_message_box(
+                "Old Tag Notice".into(),
+                "Cant Parse Tag Descriptor".into(),
+                SharedString::new(),
+                crate::app::StatusType::Error,
+                -1,
+            );
         }
     }
 
@@ -1445,7 +1537,13 @@ impl ViewModel {
                 let ui_app_state = ui.global::<crate::app::AppState>();
                 info!("Error updating spool in store");
 
-                ui_app_state.invoke_show_message_box("Critical Store Notice".into(), "Error Updating Spool in Store".into(), SharedString::new(), crate::app::StatusType::Error, -1);
+                ui_app_state.invoke_show_message_box(
+                    "Critical Store Notice".into(),
+                    "Error Updating Spool in Store".into(),
+                    SharedString::new(),
+                    crate::app::StatusType::Error,
+                    -1,
+                );
             }
         }
     }
@@ -2231,6 +2329,7 @@ struct GcodeJob {
 #[derive(Debug, Clone)]
 enum AppAsyncTaskRequest {
     ProcessV1TagRead {
+        tag_id: String,
         tag: String,
     },
     UpdateSpoolWeight {
@@ -2273,7 +2372,7 @@ pub async fn app_async_task(view_model: Rc<RefCell<ViewModel>>) {
 
     loop {
         match requests.receive().await {
-            AppAsyncTaskRequest::ProcessV1TagRead { tag } => ViewModel::process_v1_tag_read_async(view_model.clone(), tag).await,
+            AppAsyncTaskRequest::ProcessV1TagRead { tag_id, tag } => ViewModel::process_v1_tag_read_async(view_model.clone(), tag_id, tag).await,
             AppAsyncTaskRequest::UpdateSpoolWeight { weight } => ViewModel::update_spool_weight_async(view_model.clone(), weight).await,
             AppAsyncTaskRequest::LinkTagToSpool {
                 tag_id,

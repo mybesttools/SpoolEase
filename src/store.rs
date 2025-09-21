@@ -305,6 +305,15 @@ impl Store {
         self.get_spool_by_hex_tag(&tag_id_hex(tag_id))
     }
 
+    #[allow(dead_code)]
+    pub fn exists_hex_tag_id(&self, tag_id_hex: &str) -> bool {
+        self.tag_id_index.borrow().contains_key(tag_id_hex)
+    }
+    #[allow(dead_code)]
+    pub fn exists_tag_id(&self, tag_id: &[u8]) -> bool {
+        self.exists_hex_tag_id(&hex::encode_upper(tag_id))
+    }
+
     pub fn get_spool_by_id(&self, id: &str) -> Option<SpoolRecord> {
         if let Some(spools_db) = self.spools_db.get() {
             if let Some(current_rec) = spools_db.records.borrow().get(id) {
