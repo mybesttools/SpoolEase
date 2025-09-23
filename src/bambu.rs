@@ -4,6 +4,7 @@
 
 pub mod bambu_print;
 
+use crate::spool_record::{FullSpoolRecord, SpoolRecord};
 use crate::{
     app_config::{PrinterConfig, MATERIALS},
     bambu_api::GcodeState,
@@ -41,7 +42,6 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use shared::{gcode_analysis_task::Fetch3mf, spool_tag::TAG_PLACEHOLDER};
-use crate::spool_record::{SpoolRecord, FullSpoolRecord};
 
 use framework::prelude::*;
 
@@ -111,6 +111,7 @@ pub struct BambuPrinter {
     tray_pre: i32,
     gcode_state: GcodeState,
     layer_num: i32,
+    pub locked_mode: Option<bool>, // None, unknown, treat as unlocked, false - dev mode, true - locked
 }
 
 pub trait BambuPrinterObserver {
@@ -128,6 +129,10 @@ pub trait BambuPrinterObserver {
 
 // Special access to trays fields for dirty tracking
 impl BambuPrinter {
+    pub fn is_locked(&self) -> bool {
+        self.locked_mode.unwrap_or_default()
+    }
+
     pub fn printer_name(&self) -> &String {
         &self.inner_printer_name
     }
@@ -262,10 +267,10 @@ impl BambuPrinter {
         self.calibrations = core::mem::take(state.calibrations.to_mut());
         self.inner_printer_name = state.printer_name.clone();
 
-        // this is for upgrading tray from using the old tag_info to the id. 
+        // this is for upgrading tray from using the old tag_info to the id.
         // It happens only until the first state store takes place again, because then the old tag_info is not serialized and the id will be there
         for tray_id in (0..self.ams_trays().len() - 1).chain(core::iter::once(254)) {
-            let old_id = self.get_any_tray(tray_id).meta_info.old_tag_info.as_ref().and_then(|v|v.id.clone());
+            let old_id = self.get_any_tray(tray_id).meta_info.old_tag_info.as_ref().and_then(|v| v.id.clone());
             if let Some(old_id) = old_id {
                 self.update_any_tray(tray_id, |v| v.meta_info.spool_id = Some(old_id));
                 self.force_store_state = true;
@@ -536,6 +541,7 @@ impl BambuPrinter {
             tray_pre: 255,
             gcode_state: GcodeState::Unknown,
             layer_num: -1,
+            locked_mode: None,
         }
     }
 
@@ -1079,7 +1085,15 @@ impl BambuPrinter {
     pub fn process_print_message__common(&mut self, print: &bambu_api::PrintData) -> (bool, HashMap<usize, SpoolId>) {
         let mut removed_tags = HashMap::<usize, String>::new();
         // let command = print.command.unwrap_or_default();
-
+        if let Some(fun) = &print.fun {
+            if let Ok(fun) = u64::from_str_radix(fun, 16) {
+                if fun & 0x20000000 != 0 {
+                    // locked mode
+                } else {
+                    // dev mode
+                }
+            }
+        }
         // Get a snapshot of current trays and diameter before any later change, to later be able to update cali_idx if removed
         // leave this section here because later changes will affect it (like self.nozzle_diameter)
         let full_push_status = print.ams.is_some() && print.vt_tray.is_some();
@@ -1280,7 +1294,7 @@ impl BambuPrinter {
             } else {
                 None
             };
-            
+
             let old_tray = &self.ams_trays()[tray_id];
             let new_tray = self.get_updated_tray(old_tray, source_tray, Some(tray_id));
             if let Some(mut new_tray) = new_tray {
@@ -1505,6 +1519,9 @@ impl BambuPrinter {
     }
 
     pub fn set_tray_filament(&mut self, tray_id: i32, full_spool_rec: &FullSpoolRecord, temp_min: u32, temp_max: u32) {
+        if self.is_locked() {
+            return;
+        }
         let ams_id;
         let ams_tray_id;
         let slot_id;
@@ -2564,9 +2581,11 @@ impl TagInformationV1 {
     pub fn to_spool_rec(&self) -> SpoolRecord {
         let empty = &String::new();
         // let empty_filament = &FilamentInfo::default(),
-        let calibration_filament_id = if let Some(key)  = self.calibrations.keys().next() {
+        let calibration_filament_id = if let Some(key) = self.calibrations.keys().next() {
             self.calibrations.get(key).map(|c| c.filament_id.clone())
-        } else {None};
+        } else {
+            None
+        };
         SpoolRecord {
             id: self.id.as_ref().unwrap_or(empty).clone(),
             tag_id: self.tag_id.as_ref().map(hex::encode_upper).unwrap_or_default(),
@@ -2709,7 +2728,8 @@ impl TagInformationV1 {
         let mut tag_id = None;
         let mut encode_time = None;
 
-        if !(descriptor.starts_with(FILAMENT_URL_PREFIX_V1_TAG)) { // below the code should still use the base FILAMENT_URL_PREFIX
+        if !(descriptor.starts_with(FILAMENT_URL_PREFIX_V1_TAG)) {
+            // below the code should still use the base FILAMENT_URL_PREFIX
             return Err(Error::ParseError);
         }
         // let descriptor = descriptor.trim_start_matches(FILAMENT_URL_PREFIX);
@@ -2974,6 +2994,9 @@ pub async fn fix_k_on_restart(
     prev_virt_tray: Tray,
     prev_nozzle: Option<String>,
 ) {
+    if bambu_printer.borrow().is_locked() {
+        return;
+    }
     Timer::after_secs(1).await;
     let printer_number = bambu_printer.borrow().printer_number;
     term_info!("[{}] Checking pressure advance (k) at printer startup", printer_number);

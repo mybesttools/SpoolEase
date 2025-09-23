@@ -135,6 +135,7 @@ pub struct PrintData {
     pub nozzle_diameter: Option<String>, // sometimes received, required so to be sent in extruder_cali commane as below after filament setting (like slicer)
     pub filament_id: Option<String>,
     pub filaments: Option<Vec<Filament>>,
+    pub fun: Option<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
