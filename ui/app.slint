@@ -142,6 +142,7 @@ export global AppBackend {
     pure callback get-connected-scale-info() -> string;
     pure callback get-available-scales-info() -> [string];
     callback link_tag_to_spool_id(tag_id: string, spool-id: string, final-step: bool);
+    callback unlink-spool-from-tag(spool-id: string);
     callback set-spool-weight(spool-id: string, weight: int, unused: bool, final-step: bool);
     pure callback recently_added_spool_id_if_untagged() -> string;
     pure callback get-spool-record-display(spool-id: string) -> UiSpoolRecordDisplay;
@@ -568,6 +569,18 @@ export global AppState {
                 self.new-tag-scan-page = NewTagScanPage.StatusDisplay;
                 self.new-tag-scan-status = status;
             }
+        }
+    }
+
+    public function unlink-spool-id-from-tag-status(spool-id: string, status: string) {
+      // string empty ok, content is error message
+      if status == "" {
+            self.show-message-box("Unlink Notice", "Spool \{spool-id} Unlinked From Tag", "", StatusType.Success, 10);
+            if self.control-state == ControlState.StagingSelected {
+                self.control-state = ControlState.Ready
+            }
+        } else {
+            self.show-message-box("Unlink Notice", "Failed to Unlink Spool \{spool-id} From Tag", status, StatusType.Error, 10);
         }
     }
 

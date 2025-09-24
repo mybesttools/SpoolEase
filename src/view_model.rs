@@ -104,7 +104,10 @@ impl ViewModel {
     ) -> Rc<RefCell<ViewModel>> {
         let spawner = framework.borrow().spawner;
         // Setup Terminal
-        let terminal_view_model = Rc::new(RefCell::new(TerminalViewModel { ui_weak: ui_weak.clone(), term_text:String::with_capacity(8192)}));
+        let terminal_view_model = Rc::new(RefCell::new(TerminalViewModel {
+            ui_weak: ui_weak.clone(),
+            term_text: String::with_capacity(8192),
+        }));
         let trait_for_terminal_rc: Rc<RefCell<dyn terminal::TerminalObserver>> = terminal_view_model.clone();
         let trait_for_terminal_weak: Weak<RefCell<dyn terminal::TerminalObserver>> = Rc::downgrade(&trait_for_terminal_rc);
         term_mut().subscribe(trait_for_terminal_weak);
@@ -183,7 +186,7 @@ impl ViewModel {
     pub fn message_box(&self, title: &str, text: &str, text2: &str, status_type: crate::app::StatusType, timeout: i32) {
         let ui = self.ui_weak.unwrap();
         let ui_app_state: crate::app::AppState<'_> = ui.global::<crate::app::AppState>();
-        ui_app_state.invoke_show_message_box(title.into(), text.into(),  text2.into(), status_type, timeout); 
+        ui_app_state.invoke_show_message_box(title.into(), text.into(), text2.into(), status_type, timeout);
     }
 
     pub fn init_only_if_sdcard_init_ok(&mut self) {
@@ -275,6 +278,13 @@ impl ViewModel {
                 spool_id: spool_id.into(),
                 final_step,
             });
+        });
+
+        let moved_view_model = self.view_model.clone().unwrap();
+        ui_app_backend.on_unlink_spool_from_tag(move |spool_id| {
+            let _ = moved_view_model
+                .borrow()
+                .dispatch_async_task(AppAsyncTaskRequest::UnLinkSpoolFromTag { spool_id: spool_id.into() });
         });
 
         let moved_view_model = self.view_model.clone().unwrap();
@@ -778,7 +788,13 @@ impl ViewModel {
         error!("Received to erase spool's tag with invalid tag id");
         let ui = self.ui_weak.unwrap();
         let ui_app_state: crate::app::AppState<'_> = ui.global::<crate::app::AppState>();
-        ui_app_state.invoke_show_message_box("Erase Tag Notice".into(), slint::format!("No Tag-Id for Spool {}", spool_id), SharedString::new(), crate::app::StatusType::Error, -1); 
+        ui_app_state.invoke_show_message_box(
+            "Erase Tag Notice".into(),
+            slint::format!("No Tag-Id for Spool {}", spool_id),
+            SharedString::new(),
+            crate::app::StatusType::Error,
+            -1,
+        );
     }
 
     fn ui_erase_tag(&self, tag_id: &str) {
@@ -1316,14 +1332,12 @@ impl ViewModel {
             spool_rec.weight_current = Some(weight);
             let spool_rec_id = spool_rec.id.clone();
             let update_res = store.update_spool(spool_rec, None).await;
-            let ui = view_model.borrow().ui_weak.unwrap();
-            let ui_app_state = ui.global::<crate::app::AppState>();
             match update_res {
                 Ok(_) => {
-                    ui_app_state.invoke_show_message_box(
-                        "Inventory Notice".into(),
-                        slint::format!("Updated Filament Weight for Spool {}", spool_rec_id),
-                        SharedString::new(),
+                    view_model.borrow().message_box(
+                        "Inventory Notice",
+                        &format!("Updated Spool {} Weight", spool_rec_id),
+                        "",
                         crate::app::StatusType::Success,
                         -1,
                     );
@@ -1331,10 +1345,10 @@ impl ViewModel {
                 }
                 Err(err) => {
                     error!("Error updating spool weight in store : {err:?}");
-                    ui_app_state.invoke_show_message_box(
-                        "Inventory Notice".into(),
-                        "Failed to Update Filament Weight/Tag".into(),
-                        err.to_shared_string(),
+                    view_model.borrow().message_box(
+                        "Inventory Notice",
+                        &format!("Failed to Update Spool {} Weight", spool_rec_id),
+                        &err.to_string(),
                         crate::app::StatusType::Error,
                         -1,
                     );
@@ -1443,7 +1457,7 @@ impl ViewModel {
                 } else {
                     // spool_rec not available, meaning a new record to add
                     let mut new_spool_rec = tag_info.to_spool_rec();
-                    new_spool_rec.tag_id = hex::encode_upper(tag_id);  // replace the tag_id with the real tag uid
+                    new_spool_rec.tag_id = hex::encode_upper(tag_id); // replace the tag_id with the real tag uid
                     new_spool_rec.ext_has_k = tag_k_info.is_some();
                     let new_spool_rec_ext = SpoolRecordExt {
                         tag: Some(tag),
@@ -1541,6 +1555,39 @@ impl ViewModel {
                     ui_app_state.invoke_link_tag_to_spool_id_status(format!("Failed to link tag to spool {spool_id}: {err:?}").to_shared_string());
                 }
             }
+        } else {
+            error!("Failed to link tag {tag_id} to spool_id {spool_id}: Spool Id not Found");
+            let ui = view_model.borrow().ui_weak.unwrap();
+            let ui_app_state = ui.global::<crate::app::AppState>();
+            ui_app_state.invoke_link_tag_to_spool_id_status(format!("Spool Id {spool_id} Not Found").to_shared_string());
+        }
+    }
+
+    // this unlinks a single tag from a spool-id, currently there's only one, bug in the future may be several
+    async fn unlink_spool_from_tag_async(view_model: Rc<RefCell<ViewModel>>, spool_id: String) {
+        let store = view_model.borrow().store.clone();
+        if let Some(mut spool_rec) = store.get_spool_by_id(&spool_id) {
+            let unlinked_tag_id = core::mem::take(&mut spool_rec.tag_id);
+            // spool_rec.tag_id = String::new();
+            let store_res = store.update_spool(spool_rec.clone(), None).await;
+            let ui = view_model.borrow().ui_weak.unwrap();
+            let ui_app_state = ui.global::<crate::app::AppState>();
+            match store_res {
+                Ok(_) => {
+                    view_model.borrow().filament_staging.borrow_mut().clear();
+                    ui_app_state.invoke_empty_spool_staging();
+                    ui_app_state.invoke_unlink_spool_id_from_tag_status(spool_id.to_shared_string(), SharedString::new());
+                }
+                Err(err) => {
+                    error!("Failed to unlink spool_id {spool_id} from tag {unlinked_tag_id}: {err:?}");
+                    ui_app_state.invoke_unlink_spool_id_from_tag_status(spool_id.to_shared_string(), err.to_string().into());
+                }
+            }
+        } else {
+            let ui = view_model.borrow().ui_weak.unwrap();
+            let ui_app_state = ui.global::<crate::app::AppState>();
+            error!("Failed to unlink spool_id {spool_id} from tag: Spool Id not found");
+            ui_app_state.invoke_unlink_spool_id_from_tag_status(spool_id.to_shared_string(), "Spool Id {spool_id} Not Found".to_string().into());
         }
     }
     async fn set_staging_rec_ext_async(view_model: Rc<RefCell<ViewModel>>, spool_id: String) {
@@ -2008,16 +2055,22 @@ struct TerminalViewModel {
 impl TerminalObserver for TerminalViewModel {
     fn on_add_text(&mut self, text: &str) {
         self.term_text.push_str(text);
-        let keep_from = self.term_text.match_indices('\n')
+        let keep_from = self
+            .term_text
+            .match_indices('\n')
             .nth_back(100) // nth newline from the end
             .map(|(i, _)| i + 1) // start after it
             .unwrap_or(0);
         self.term_text.drain(..keep_from);
 
-        self.ui_weak.unwrap()
-            .global::<crate::app::FrameworkState>().set_term_text(self.term_text.to_shared_string());
-        self.ui_weak.unwrap()
-            .global::<crate::app::FrameworkState>().set_term_text_added(text.to_shared_string());
+        self.ui_weak
+            .unwrap()
+            .global::<crate::app::FrameworkState>()
+            .set_term_text(self.term_text.to_shared_string());
+        self.ui_weak
+            .unwrap()
+            .global::<crate::app::FrameworkState>()
+            .set_term_text_added(text.to_shared_string());
         // self.ui_weak
         //     .unwrap()
         //     .global::<crate::app::FrameworkState>()
@@ -2407,6 +2460,9 @@ enum AppAsyncTaskRequest {
         spool_id: String,
         final_step: bool,
     },
+    UnLinkSpoolFromTag {
+        spool_id: String,
+    },
     SetStagingRecExt {
         spool_id: String,
     },
@@ -2446,6 +2502,7 @@ pub async fn app_async_task(view_model: Rc<RefCell<ViewModel>>) {
                 spool_id,
                 final_step,
             } => ViewModel::link_tag_to_spool_id_async(view_model.clone(), tag_id, spool_id, final_step).await,
+            AppAsyncTaskRequest::UnLinkSpoolFromTag { spool_id } => ViewModel::unlink_spool_from_tag_async(view_model.clone(), spool_id).await,
             AppAsyncTaskRequest::SetStagingRecExt { spool_id } => ViewModel::set_staging_rec_ext_async(view_model.clone(), spool_id).await,
             AppAsyncTaskRequest::SetSpoolWeight {
                 spool_id,

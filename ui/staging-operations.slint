@@ -15,7 +15,7 @@ component SpoolDisplayStep inherits Rectangle {
     VerticalLayout {
 
         SpoolDisplay {
-           spool-display: AppBackend.get-spool-record-display(AppState.spool-staging-info.id);
+            spool-display: AppBackend.get-spool-record-display(AppState.spool-staging-info.id);
         }
 
         HorizontalLayout {
@@ -92,18 +92,21 @@ component OperationSelectionStep inherits Rectangle {
                 }
 
                 MyButton {
-                    enabled: false;
                     text: "Unlink Tag";
+                    clicked => {
+                        AppBackend.unlink-spool-from-tag(AppState.spool-staging-info.id)
+                    }
                 }
 
                 MyButton {
                     text: "Erase Tag";
                     clicked => {
-                      AppBackend.erase-tag-by-spool-id(AppState.spool-staging-info.id);
-                      AppState.control-state = ControlState.Ready;
+                        AppBackend.erase-tag-by-spool-id(AppState.spool-staging-info.id);
+                        AppState.control-state = ControlState.Ready;
                     }
                 }
             }
+
             Row {
                 MyButton {
                     enabled: false;
