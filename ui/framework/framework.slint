@@ -39,8 +39,8 @@ export global FrameworkBackend {
     callback reset-device();
     callback update-firmware-ota();
     callback term-info(string);
-    callback info(string);
-    callback debug(string);
+    pure callback info(string);
+    pure callback debug(string);
 }
 
 export global Log {
@@ -48,10 +48,10 @@ export global Log {
         FrameworkBackend.info(text);
         FrameworkBackend.term-info("\n\{text}");
     }
-    public function info(text: string) {
+    pure public function info(text: string) {
         FrameworkBackend.info(text);
     }
-    public function debug(text: string) {
+    pure public function debug(text: string) {
         FrameworkBackend.debug(text);
     }
 }

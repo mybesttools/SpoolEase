@@ -278,23 +278,23 @@ impl ViewModel {
                 spool_id: spool_id.into(),
                 final_step,
             });
-            });
+        });
 
-            let moved_view_model = self.view_model.clone().unwrap();
-            ui_app_backend.on_unlink_spool_from_tag(move |spool_id| {
-                let _ = moved_view_model
-                    .borrow()
-                    .dispatch_async_task(AppAsyncTaskRequest::UnLinkSpoolFromTag { spool_id: spool_id.into() });
-            });
+        let moved_view_model = self.view_model.clone().unwrap();
+        ui_app_backend.on_unlink_spool_from_tag(move |spool_id| {
+            let _ = moved_view_model
+                .borrow()
+                .dispatch_async_task(AppAsyncTaskRequest::UnLinkSpoolFromTag { spool_id: spool_id.into() });
+        });
 
-            let moved_view_model = self.view_model.clone().unwrap();
-            ui_app_backend.on_set_spool_weight(move |spool_id, weight_current, weight_new, final_step| {
-                let _ = moved_view_model.borrow().dispatch_async_task(AppAsyncTaskRequest::SetSpoolWeight {
-                    spool_id: spool_id.into(),
-                    weight_current,
-                    weight_new,
-                    final_step,
-                    from_button: false,
+        let moved_view_model = self.view_model.clone().unwrap();
+        ui_app_backend.on_set_spool_weight(move |spool_id, weight_current, weight_new, final_step| {
+            let _ = moved_view_model.borrow().dispatch_async_task(AppAsyncTaskRequest::SetSpoolWeight {
+                spool_id: spool_id.into(),
+                weight_current,
+                weight_new,
+                final_step,
+                from_button: false,
             });
         });
 
@@ -923,7 +923,7 @@ impl ViewModel {
             slicer_filament: spool_rec.slicer_filament.into(),
             tag_id: spool_rec.tag_id.into(),
             weight_advertised: spool_rec.weight_advertised.unwrap_or_default(),
-            weight_core: spool_rec.weight_advertised.unwrap_or_default(),
+            weight_core: spool_rec.weight_core.unwrap_or_default(),
             weight_current: spool_rec.weight_current.unwrap_or_default(),
             weight_new: spool_rec.weight_new.unwrap_or_default(),
         };
@@ -1540,7 +1540,7 @@ impl ViewModel {
         let store = view_model.borrow().store.clone();
         if let Some(mut spool_rec) = store.get_spool_by_id(&spool_id) {
             let unlinked_tag_id = core::mem::take(&mut spool_rec.tag_id);
-            // spool_rec.tag_id = String::new();
+            spool_rec.encode_time = None;
             let store_res = store.update_spool(spool_rec.clone(), None).await;
             let ui = view_model.borrow().ui_weak.unwrap();
             let ui_app_state = ui.global::<crate::app::AppState>();
@@ -1571,7 +1571,14 @@ impl ViewModel {
     }
 
     // weight_new: if -1 don't touch, otherwiser set value (and added_full)
-    async fn set_spool_weight_async(view_model: Rc<RefCell<ViewModel>>, spool_id: String, weight_current: i32, weight_new: i32, final_step: bool, from_button: bool) {
+    async fn set_spool_weight_async(
+        view_model: Rc<RefCell<ViewModel>>,
+        spool_id: String,
+        weight_current: i32,
+        weight_new: i32,
+        final_step: bool,
+        from_button: bool,
+    ) {
         let store = view_model.borrow().store.clone();
         if let Some(mut spool_rec) = store.get_spool_by_id(&spool_id) {
             spool_rec.weight_current = Some(weight_current);

@@ -15,7 +15,7 @@ export component SlotDisplay inherits Rectangle {
     VerticalLayout {
         alignment: stretch;
         Rectangle {
-            vertical-stretch: 0;
+            vertical-stretch: 1;
             MyText {
                 text: display.filament-title;
             }
@@ -65,11 +65,5 @@ export component SlotDisplay inherits Rectangle {
             text: display.consumed-since-loaded != 0 ? "\{display.consumed-since-loaded}g" : "–";
         }
 
-        LabeledInfo {
-            vertical-stretch: 1;
-            label-width: 240px;
-            label: "Available in Spool:";
-            text: display.available-in-spool != 0 ? "\{display.available-in-spool}g" : "–";
-        }
     }
 }
