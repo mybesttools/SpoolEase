@@ -128,17 +128,19 @@ impl SpoolRecord {
         let mut tag_id_part = part_val("TG", &self.tag_id);
         tag_id_part.drain(..1); // remove the "&"
         let id_part = part_val("ID", &self.id);
-        let material = &self.material_type;
+        let material_part = part_val("M", &self.material_type);
         let material_subtype_part = part_val("MS", &self.material_subtype);
         let brand_part = part_val("B", &self.brand);
-        let weight_advertised_part = part_opt("WA", &self.weight_advertised);
-        let weight_core_part = part_opt("WC", &self.weight_core);
-        let weight_new_part = part_opt("WN", &self.weight_new);
+        let color_code_part = part_val("CC", &self.color_code);
+        let color_name_part = part_val("CN", &self.color_name);
+        let weight_advertised_part = part_opt("WL", &self.weight_advertised);
+        let weight_core_part = part_opt("WE", &self.weight_core);
+        let weight_new_part = part_opt("WF", &self.weight_new);
         let slicer_filament_code_part = part_val("SC", &self.slicer_filament);
         let note_part = part_val("N", &self.note);
         let slicer_filament_name = filament_sup_info.as_ref().map_or("", |fsi| &fsi.slicer_name);
         let slicer_filament_name_part = part_val("SN", &slicer_filament_name.to_string());
-        Some(format!("{TAG_URL_PREFIX_V2}?{tag_id_part}{id_part}{encode_time_part}{added_time_part}&M={material}{material_subtype_part}{brand_part}{weight_advertised_part}{weight_core_part}{weight_new_part}{slicer_filament_code_part}{slicer_filament_name_part}{note_part}"))
+        Some(format!("{TAG_URL_PREFIX_V2}?{tag_id_part}{id_part}{encode_time_part}{added_time_part}{material_part}{material_subtype_part}{color_code_part}{color_name_part}{brand_part}{weight_advertised_part}{weight_core_part}{weight_new_part}{slicer_filament_code_part}{slicer_filament_name_part}{note_part}"))
     }
     pub fn has_valid_tag_id(&self) -> bool {
         !self.tag_id.is_empty() && !self.tag_id.starts_with('-')
