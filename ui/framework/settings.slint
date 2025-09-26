@@ -2,6 +2,7 @@ import { MyButton } from "widgets.slint";
 import { FrameworkState, FrameworkBackend, OtaState, WebConfigState, ResetWifiCredentialsState, ResetFixedSecurityKeyState, RestartDeviceState } from "framework.slint";
 import { Title, LeftTab } from "widgets.slint";
 import { AppBackend } from "../app.slint";
+import { StandardListView } from "std-widgets.slint";
 
 export component MyText inherits Text {
     height: 22px;
@@ -19,7 +20,7 @@ export component WebConfigButton inherits SettingsButton {
         if FrameworkState.web-config-state == WebConfigState.Started-STA {
             FrameworkState.web-config-state = WebConfigState.Started-STA-Displayed;
         } else if FrameworkState.web-config-state == WebConfigState.Started-STA-Displayed {
-            FrameworkState.web-config-state = WebConfigState.Started-STA; 
+            FrameworkState.web-config-state = WebConfigState.Started-STA;
         }
         // if FrameworkState.web-config-state == WebConfigState.Stopped {
         //     // Order is important
@@ -72,31 +73,48 @@ export component SettingsConfirm inherits VerticalLayout {
     callback clicked-negative;
     alignment: space-between;
     VerticalLayout {
+        alignment: stretch;
+        spacing: 10px;
 
         Title {
+            vertical-stretch: 0;
             text: title;
         }
 
-        Text {
-            vertical-alignment: center;
-            horizontal-alignment: center;
-            height: 100px;
+        VerticalLayout {
+            vertical-stretch: 1;
+            alignment: center;
+            padding-left: 5px;
+            padding-right: 5px;
+            Rectangle {
+                Text {
+                    width: parent.width;
+                    vertical-stretch: 1;
+                    vertical-alignment: center;
+                    horizontal-alignment: left;
+            // height: 100px;
             text: text;
-            font-size: 20px;
+                    color: black;
+                    font-size: 20px;
+                    wrap: word-wrap;
+                }
+            }
         }
+    }
 
+    HorizontalLayout {
         SettingsButton {
             text: positive-text;
             clicked => {
                 root.clicked-positive()
             }
         }
-    }
 
-    SettingsButton {
-        text: negative-text;
-        clicked => {
-            root.clicked-negative()
+        SettingsButton {
+            text: negative-text;
+            clicked => {
+                root.clicked-negative()
+            }
         }
     }
 }
@@ -124,7 +142,7 @@ export component FrameworkSettingsDetails inherits Rectangle {
     if FrameworkState.reset-wifi-credentials-state == ResetWifiCredentialsState.UserInput: 
         SettingsConfirm {
         title: "Reset Wifi Credentials";
-        text: "Are you sure you want to erase\nthe stored WiFi credentials?\n\nDevice will Restart immediately";
+        text: "Are you sure you want to erase the stored WiFi credentials?\n\nDevice will Restart immediately";
         clicked-positive => {
             FrameworkBackend.reset-flash-wifi-credentials();
         }
@@ -137,7 +155,7 @@ export component FrameworkSettingsDetails inherits Rectangle {
     if FrameworkState.reset-fixed-security-key-state == ResetFixedSecurityKeyState.UserInput: 
         SettingsConfirm {
         title: "Reset Fixed Security Key";
-        text: "Are you sure you want to erase\nthe fixed custom security key?\n\nThis is relevant only if one is currently set";
+        text: "Are you sure you want to erase the fixed custom security key?\n\nThis is relevant only if one is currently set";
         clicked-positive => {
             FrameworkBackend.reset-fixed-security-key();
             FrameworkState.reset-fixed-security-key-state = ResetFixedSecurityKeyState.NotStarted;
@@ -163,7 +181,7 @@ export component FrameworkSettingsDetails inherits Rectangle {
     if FrameworkState.ota-state == OtaState.UserInput: 
         SettingsConfirm {
         title: "Over the Air Network Update";
-        text: "Do you want to check for an updated firmware update and install if available?\n\nThe whole process may take a couple of minutes";
+        text: "Check for firmware updates and install if available?\n\nIMPORTANT: This is an Alpha version—make sure you know what you’re updating to.\n\nThe process may take a few minutes.";
         clicked-positive => {
             FrameworkBackend.update-firmware-ota();
         }
@@ -221,8 +239,7 @@ export component FrameworkSettingsDetails inherits Rectangle {
                 }
 
                 MyText {
-                    text: "2. Browse to URL" + 
-                          (FrameworkState.web-config-state == WebConfigState.Started-AP ? " (if not shown automatically)" : " (or scan NFC with your phone)");
+                    text: "2. Browse to URL" + (FrameworkState.web-config-state == WebConfigState.Started-AP ? " (if not shown automatically)" : " (or scan NFC with your phone)");
                 }
 
                 MyText {
@@ -259,12 +276,7 @@ export component Settings inherits Rectangle {
     in-out property <length> buttons-width: self.width - x-offset;
     in-out property <[string]> tabs;
 
-    property <bool> framework-buttons-visible:  FrameworkState.restart-device-state == RestartDeviceState.NotStarted && 
-                                                FrameworkState.reset-fixed-security-key-state == ResetFixedSecurityKeyState.NotStarted && 
-                                                FrameworkState.ota-state == OtaState.NotStarted && 
-                                                FrameworkState.web-config-state != WebConfigState.Started-STA-Displayed && 
-                                                FrameworkState.web-config-state != WebConfigState.Started-AP && 
-                                                FrameworkState.reset-wifi-credentials-state == ResetWifiCredentialsState.NotStarted;
+    property <bool> framework-buttons-visible:  FrameworkState.restart-device-state == RestartDeviceState.NotStarted && FrameworkState.reset-fixed-security-key-state == ResetFixedSecurityKeyState.NotStarted && FrameworkState.ota-state == OtaState.NotStarted && FrameworkState.web-config-state != WebConfigState.Started-STA-Displayed && FrameworkState.web-config-state != WebConfigState.Started-AP && FrameworkState.reset-wifi-credentials-state == ResetWifiCredentialsState.NotStarted;
     in property <bool> framework-tab-selected;
     VerticalLayout {
         title := Title {
