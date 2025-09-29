@@ -1566,8 +1566,8 @@ impl BambuPrinter {
         if filament_ok_to_send {
             let cmd = crate::bambu_api::AmsFilamentSettingCommand::new(
                 ams_id as i32,
-                ams_tray_id as i32, // here we need the tray_id within the specific ams (newer versions)
-                slot_id,
+                ams_tray_id as i32,     // here we need the tray_id within the specific ams (newer versions)
+                slot_id,                // slot number within ams
                 &filament.tray_info_idx,
                 setting_id,
                 &filament.tray_type,
@@ -1581,7 +1581,7 @@ impl BambuPrinter {
             let cmd = crate::bambu_api::ExtrusionCaliSelCommand::new(
                 &self.nozzle_diameter().clone().unwrap_or_default(),
                 ams_id as i32,
-                original_tray_id, // here we need the original tray_id
+                original_tray_id,         // here we need the original tray_id
                 slot_id,
                 &filament.tray_info_idx, // tray_info_idx is filament_id in this command
                 if let Some(calibration) = &matching_calibration {

@@ -697,15 +697,16 @@ impl ViewModel {
         ui: &slint::Weak<crate::app::AppWindow>,
         tray_id: i32,
     ) {
-        let (ams_id, tray_id) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
-        let tray_id = tray_id as i32;
+        let (ams_id, tray_id_for_ui) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
+        // let tray_id = tray_id_for_ui as i32;
+        let tray_id_for_ui = tray_id_for_ui as i32;
         let ams_id_for_ui = Self::ams_if_for_ui(ams_id);
         let mut filament_staging = filament_staging.borrow_mut();
         if bambu_printer.printer_connectivity_ok != Some(true) {
             ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_failed(
                 bambu_printer.printer_selector_name.to_shared_string(),
                 ams_id_for_ui,
-                tray_id,
+                tray_id_for_ui,
                 "Printer disconnected".to_shared_string(),
             );
         } else if let Some(full_spool_rec) = filament_staging.full_spool_rec() {
@@ -723,13 +724,13 @@ impl ViewModel {
                 ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_succeeded(
                     bambu_printer.printer_selector_name.to_shared_string(),
                     ams_id_for_ui,
-                    tray_id,
+                    tray_id_for_ui,
                 );
             } else {
                 ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_failed(
                     bambu_printer.printer_selector_name.to_shared_string(),
                     ams_id_for_ui,
-                    tray_id,
+                    tray_id_for_ui,
                     "Unknown Nozzle Temps".to_shared_string(),
                 );
             }
