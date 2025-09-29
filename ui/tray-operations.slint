@@ -92,9 +92,10 @@ component OperationSelectionStep inherits Rectangle {
             spacing: 5px;
             Row {
                 MyButton {
+                    enabled: AppState.trays-state[tray-index].spool_rec_id != "";
                     text: "Untag Slot";
                     clicked => {
-                        AppBackend.untag-slot(AppState.trays-state[AppState.tray-selected-tray-index].id);
+                        AppBackend.untag-slot(AppState.trays-state[tray-index].id);
                         AppState.control-state = ControlState.Ready;
                     }
                 }
@@ -103,7 +104,7 @@ component OperationSelectionStep inherits Rectangle {
                     enabled: AppState.spool-staging-state != SpoolStagingState.Empty;
                     text: "Configure from Staging";
                     clicked => {
-                        AppBackend.set-staging-to-tray(AppState.tray-selected-tray-index);
+                        AppBackend.set-staging-to-tray(tray-index);
                     }
                 }
 
