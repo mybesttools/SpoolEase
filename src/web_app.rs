@@ -33,9 +33,8 @@ use shared::gcode_analysis_task::Fetch3mf;
 
 use crate::app_config::{AppConfig, DefaultPrinterConfig, PrinterConfig, PrintersConfig, ScaleConfig, FILAMENT_BRAND_NAMES, SPOOLS_CATALOG};
 use crate::bambu::KInfo;
-
-use crate::store::{BackupMeta, FileMeta, Store};
 use crate::spool_record::{SpoolRecord, SpoolRecordExt};
+use crate::store::{BackupMeta, FileMeta, Store};
 use crate::view_model::ViewModel;
 
 #[derive(Clone)]
@@ -334,7 +333,16 @@ impl AppWithStateBuilder for NestedAppBuilder {
                         ext_has_k: add_spool.k_info.is_some(),
                     };
                     if new_spool.id.is_empty() {
-                        match store.add_spool(new_spool, SpoolRecordExt { tag: None, k_info: add_spool.k_info}).await {
+                        match store
+                            .add_spool(
+                                new_spool,
+                                SpoolRecordExt {
+                                    tag: None,
+                                    k_info: add_spool.k_info,
+                                },
+                            )
+                            .await
+                        {
                             Ok(new_id) => match store.query_spools() {
                                 Some(csv) => {
                                     state.view_model.borrow_mut().recently_added_spool_id = Some(new_id.clone());
@@ -419,17 +427,19 @@ impl AppWithStateBuilder for NestedAppBuilder {
             "/api/spool-kinfo",
             post(
                 async move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>, get_spool_kinfo: GetSpoolKInfoDTO| {
-                    {
-                        let store = state.0.view_model.borrow_mut().store.clone();
-                        match store.get_spool_ext_by_id(&get_spool_kinfo.id).await {
-                            Ok(spool_rec_ext) => Ok::<String, StatusCode>(GetSpoolKInfoDTOResponse { k_info: spool_rec_ext.k_info }.encrypt(&key.borrow())),
-                            Err(_) => Err::<String, StatusCode>(StatusCode::new(404)),
-                        }
+                    let store = state.0.view_model.borrow_mut().store.clone();
+                    match store.get_spool_ext_by_id(&get_spool_kinfo.id).await {
+                        Ok(spool_rec_ext) => Ok::<String, StatusCode>(
+                            GetSpoolKInfoDTOResponse {
+                                k_info: spool_rec_ext.k_info,
+                            }
+                            .encrypt(&key.borrow()),
+                        ),
+                        Err(_) => Err::<String, StatusCode>(StatusCode::new(404)),
                     }
                 },
             ),
         );
-
 
         // Web App //
 
@@ -489,6 +499,32 @@ impl AppWithStateBuilder for NestedAppBuilder {
             }),
         );
 
+        #[derive(serde::Deserialize)]
+        struct ScreenshotQueryParams {
+            key: String,
+            file: String,
+        }
+        let router = router.route(
+            "/insecure/screenshot",
+            get(
+                move |picoserve::extract::Query(ScreenshotQueryParams { file, key }),
+                      State(Encryption(_key)),
+                      State(state): State<ConsoleAppState>,
+                      State(FrameworkState(framework))| async move {
+                    if key == framework.borrow().web_config_key {
+                        let screenshot = state.view_model.borrow().taks_screenshot();
+                        let resp = ChunkedResponse::new(ScreenshotChunks { screenshot }).into_response();
+                        resp.with_header("Content-Disposition", format!("attachment; filename=\"{file}\""))
+                            .with_status_code(StatusCode::OK)
+                    } else {
+                        let screenshot = Err(slint::PlatformError::Other("Security Key Error".to_string()));
+                        let resp = ChunkedResponse::new(ScreenshotChunks { screenshot }).into_response();
+                        resp.with_header("", String::new()).with_status_code(StatusCode::UNAUTHORIZED)
+                    }
+                },
+            ),
+        );
+
         #[allow(clippy::let_and_return)]
         let router = router.route(
             "/style.css",
@@ -503,16 +539,21 @@ impl AppWithStateBuilder for NestedAppBuilder {
     }
 }
 
-// #[derive(Serialize, Deserialize)]
-// struct BackupMeta {
-//     spoolease_console_ver: &'static str,
-// }
-//
-// #[derive(Serialize, Deserialize)]
-// struct FileMeta {
-//     path: String,
-//     length: usize,
-// }
+struct ScreenshotChunks {
+    screenshot: Result<slint::SharedPixelBuffer<slint::Rgba8Pixel>, slint::PlatformError>,
+}
+
+impl picoserve::response::chunked::Chunks for ScreenshotChunks {
+    fn content_type(&self) -> &'static str {
+        "application/octet-stream"
+    }
+    async fn write_chunks<W: picoserve::io::Write>(self, mut chunk_writer: ChunkWriter<W>) -> Result<ChunksWritten, W::Error> {
+        if let Ok(screenshot) = self.screenshot {
+            chunk_writer.write_chunk(screenshot.as_bytes()).await?;
+        }
+        chunk_writer.finalize().await
+    }
+}
 
 struct StoreBackupChunks {
     framework: Rc<RefCell<Framework>>,

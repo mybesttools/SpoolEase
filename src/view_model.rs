@@ -543,7 +543,11 @@ impl ViewModel {
         self.ui_weak
             .unwrap()
             .global::<crate::app::AppBackend>()
-            .on_add_v1_tag_to_inventory(move |tag_id, tag, final_step| moved_view_model.borrow().ui_add_v1_tag_to_inventory(tag_id.as_str(), tag.as_str(), final_step));
+            .on_add_v1_tag_to_inventory(move |tag_id, tag, final_step| {
+                moved_view_model
+                    .borrow()
+                    .ui_add_v1_tag_to_inventory(tag_id.as_str(), tag.as_str(), final_step)
+            });
 
         let moved_view_model = self.view_model.as_ref().unwrap().clone();
         self.ui_weak
@@ -1670,6 +1674,9 @@ impl ViewModel {
             }
         }
     }
+    pub fn taks_screenshot(&self) -> Result<slint::SharedPixelBuffer<slint::Rgba8Pixel>, slint::PlatformError> {
+        self.ui_weak.unwrap().window().take_snapshot()
+    }
 }
 
 impl From<&TrayState> for crate::app::UiTrayState {
@@ -2516,7 +2523,9 @@ pub async fn app_async_task(view_model: Rc<RefCell<ViewModel>>) {
 
     loop {
         match requests.receive().await {
-            AppAsyncTaskRequest::ProcessV1TagRead { tag_id, tag, final_step } => ViewModel::process_v1_tag_read_async(view_model.clone(), tag_id, tag, final_step).await,
+            AppAsyncTaskRequest::ProcessV1TagRead { tag_id, tag, final_step } => {
+                ViewModel::process_v1_tag_read_async(view_model.clone(), tag_id, tag, final_step).await
+            }
             AppAsyncTaskRequest::LinkTagToSpool {
                 tag_id,
                 spool_id,
