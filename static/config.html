@@ -857,10 +857,10 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
                 <div class = "form-row" >
                   <div style="display: flex; align-items: center; margin-bottom: 0px; margin-top: 0px; padding-bottom: 0px;">
                     <input class="track-print-consume" type="checkbox" id="tack-print-consume" checked>
-                    <label for="track-print-consume" style="margin-top: 0px; margin-bottom:0px; padding-left: 2px;">Track prints filament consumption</label>
+                    <label for="track-print-consume" style="margin-top: 0px; margin-bottom:0px; padding-left: 2px;">Track Prints Filament Consumption</label>
                   </div>
                   <div style="display: flex; align-items: center; margin-left: 1.2rem; margin-bottom: 0px; margin-top: 6px; padding-bottom: 0px;">
-                    <label for="fetch-3mf" style="margin-top: 0px; margin-bottom:0px; padding-left: 2px;">Default fetch 3mf to</label>
+                    <label for="fetch-3mf" style="margin-top: 0px; margin-bottom:0px; padding-left: 2px;">Default Fetch 3MF From</label>
                     <select style="padding-right: 12px; height: 20px; font-size: 1rem; margin-left: 12px;" class="fetch-3mf" type="checkbox" id="fetch-3mf">
                       <option value="printer-ftp">FTP (No Authorization)&nbsp;</option>
                       <option value="cloud-http">HTTP</option>
@@ -872,13 +872,18 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
                     <input class="auto-restore-k" type="checkbox" id="auto-restore-k" checked>
                     <label for="auto-restore-k" style="margin-top: 0px; margin-bottom: 0px; padding-left: 2px;">Auto Restore K Values On Printer Restart</label>
                   </div>
-                  <span >Mainly affects X1, which forgets K on restart.</span>
+                  <span >Mainly affects X1, when it forgets K on restart.</span>
+                </div>
+                <div class = "form-row">
+                  <div style="display: flex; align-items: center; margin-bottom: 0px;">
+                    <input class="printer-log-filter" type="checkbox" id="printer-log-filter">
+                    <label for="printer-log-filter" style="margin-top: 6px; padding-left: 2px;">Enable Extra  Printer  Logs</label>
+                  </div>
+                  <span >Only check if necessary; this will slow down the system!</span>
                 </div>
 
                 <div style="display: flex; align-items: center;">
                   <button class="default-btn" type="button" onclick="setAsDefault(${id})">Set as Default</button>
-                  <input class="printer-log-filter" type="checkbox" id="printer-log-filter">
-                  <label for="printer-log-filter" style="margin-top: 6px; padding-left: 2px;">Enable Logs</label>
                   <button class="add-btn" style="margin-left:auto" type="button" onclick="addPrinterBelow(this)">Add Printer Below</button>
                 </div>
             `;
