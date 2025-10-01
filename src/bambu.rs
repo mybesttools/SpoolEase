@@ -422,11 +422,11 @@ impl BambuPrinter {
                         *x |= *y
                     }
                     printer_borrow.nozzle_diameter_dirty |= nozzle_diameter_dirty;
-                    printer_borrow.ams_exist_bits_dirty = ams_exist_bits_dirty;
-                    printer_borrow.tray_exist_bits_dirty = tray_exist_bits_dirty;
-                    printer_borrow.tray_read_done_bits_dirty = tray_read_done_bits_dirty;
-                    printer_borrow.calibrations_dirty = calibrations_dirty;
-                    printer_borrow.printer_name_dirty = printer_name_dirty;
+                    printer_borrow.ams_exist_bits_dirty |= ams_exist_bits_dirty;
+                    printer_borrow.tray_exist_bits_dirty |= tray_exist_bits_dirty;
+                    printer_borrow.tray_read_done_bits_dirty |= tray_read_done_bits_dirty;
+                    printer_borrow.calibrations_dirty |= calibrations_dirty;
+                    printer_borrow.printer_name_dirty |= printer_name_dirty;
                     printer_borrow.force_store_state = true; // is is set to true in case we miss something or forget in the future
                     error!("[{}] Failed to store printer restart state : {err}", printer_borrow.printer_number);
                     view_model.borrow().message_box(
