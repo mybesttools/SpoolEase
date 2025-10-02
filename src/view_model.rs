@@ -578,6 +578,12 @@ impl ViewModel {
             .unwrap()
             .global::<crate::app::AppBackend>()
             .on_reset_slot(move |tray_id| moved_view_model.borrow().ui_reset_slot(tray_id));
+
+        let moved_view_model = self.view_model.as_ref().unwrap().clone();
+        self.ui_weak
+            .unwrap()
+            .global::<crate::app::AppBackend>()
+            .on_configure_slot_with_spool_id(move |tray_id, spool_id| moved_view_model.borrow().ui_configure_slot_with_spool_id(tray_id, &spool_id));
     }
 
     fn perform_select_printer(
@@ -710,7 +716,7 @@ impl ViewModel {
         let (ams_id, tray_id_for_ui) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
         // let tray_id = tray_id_for_ui as i32;
         let tray_id_for_ui = tray_id_for_ui as i32;
-        let ams_id_for_ui = Self::ams_if_for_ui(ams_id);
+        let ams_id_for_ui = Self::ams_id_for_ui(ams_id);
         let mut filament_staging = filament_staging.borrow_mut();
         if bambu_printer.printer_connectivity_ok != Some(true) {
             ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_failed(
@@ -747,7 +753,7 @@ impl ViewModel {
         }
     }
 
-    fn ams_if_for_ui(ams_id: usize) -> i32 {
+    fn ams_id_for_ui(ams_id: usize) -> i32 {
         let ams_id_for_ui = if ams_id <= 3 {
             ams_id
         } else if ams_id <= 3 + 8 {
@@ -786,6 +792,13 @@ impl ViewModel {
             });
     }
 
+    fn ui_configure_slot_with_spool_id(&self, slot_id: i32, spool_id: &str) {
+        let _ = self.dispatch_async_task(AppAsyncTaskRequest::ConfigureSlotWithSpool {
+            slot_id,
+            spool_id: spool_id.to_string(),
+        });
+    }
+
     fn ui_untag_slot(&self, tray_id: i32) {
         self.bambu_printer_model
             .borrow_mut()
@@ -793,9 +806,7 @@ impl ViewModel {
         self.update_ui_from_printer(&self.bambu_printer_model.borrow());
     }
     fn ui_reset_slot(&self, tray_id: i32) {
-        self.bambu_printer_model
-            .borrow_mut()
-            .reset_tray(tray_id);
+        self.bambu_printer_model.borrow_mut().reset_tray(tray_id);
         self.update_ui_from_printer(&self.bambu_printer_model.borrow());
     }
     fn ui_term_info(&self, text: &str) {
@@ -1686,6 +1697,79 @@ impl ViewModel {
             }
         }
     }
+
+    async fn configure_slot_with_spool_async(view_model: Rc<RefCell<ViewModel>>, slot_id: i32, spool_id: String) {
+        let store = view_model.borrow().store.clone();
+        if let Some(spool_rec) = store.get_spool_by_id(&spool_id) {
+            let mut full_spool_rec = FullSpoolRecord {
+                spool_rec,
+                spool_rec_ext: SpoolRecordExt::default(),
+            };
+            if full_spool_rec.spool_rec.ext_has_k {
+                match store.get_spool_ext_by_id(&spool_id).await {
+                    Ok(spool_rec_ext) => {
+                        full_spool_rec.spool_rec_ext = spool_rec_ext;
+
+                        let view_model_borrow = view_model.borrow();
+                        let (ams_id, tray_id_for_ui) = BambuPrinter::get_ams_and_tray_id(slot_id as usize);
+                        let tray_id_for_ui = tray_id_for_ui as i32;
+                        let ams_id_for_ui = Self::ams_id_for_ui(ams_id);
+
+                        view_model_borrow
+                            .ui_weak
+                            .unwrap()
+                            .global::<crate::app::AppState>()
+                            .invoke_tray_update_succeeded(
+                                view_model_borrow.bambu_printer_model.borrow().printer_selector_name.to_shared_string(),
+                                ams_id_for_ui,
+                                tray_id_for_ui,
+                            );
+                    }
+                    Err(err) => {
+                        error!("Failed to load Spool {spool_id} Extended Info when configuring slot");
+                        view_model.borrow().message_box(
+                            "Configure Slot Notice",
+                            &format!("Error Loading Spool {spool_id} Extended Info"),
+                            &err.to_string(),
+                            crate::app::StatusType::Error,
+                            0,
+                        );
+                    }
+                }
+            }
+
+            let filament_info = view_model
+                .borrow()
+                .get_filament_info(&full_spool_rec.spool_rec.slicer_filament, Some(&full_spool_rec.spool_rec.material_type));
+            if let Some(filament_info) = filament_info {
+                view_model.borrow().bambu_printer_model.borrow_mut().set_tray_filament(
+                    slot_id,
+                    &full_spool_rec,
+                    filament_info.nozzle_temp_low as u32,
+                    filament_info.nozzle_temp_high as u32,
+                );
+            } else {
+                error!("Failed to resolve filament temps for spool {spool_id}");
+                view_model.borrow().message_box(
+                    "Configure Slot Notice",
+                    &format!("Failed to Resolve Temps for Spool {spool_id}"),
+                    "",
+                    crate::app::StatusType::Error,
+                    0,
+                );
+            }
+        } else {
+            error!("Spool {spool_id} not found when trying to configure slot {slot_id}");
+            view_model.borrow().message_box(
+                "Configure Slot Notice",
+                &format!("Spool {spool_id} Not Found"),
+                "",
+                crate::app::StatusType::Error,
+                0,
+            );
+        }
+    }
+
     pub fn taks_screenshot(&self) -> Result<slint::SharedPixelBuffer<slint::Rgba8Pixel>, slint::PlatformError> {
         self.ui_weak.unwrap().window().take_snapshot()
     }
@@ -2319,8 +2403,17 @@ pub async fn printers_scheduled_store_state_task(framework: Rc<RefCell<Framework
                     Ok(_) => break,
                     Err(err) => {
                         if retry == num_retries {
-                            view_model.borrow().message_box("State Store Error", "Failed All Retries Storing State", "Please report on Github/Discord !!!", crate::app::StatusType::Error, 0);
-                            error!("[{}] Failed all retries trying to store printer restart state : {err}", printer.borrow().printer_number);
+                            view_model.borrow().message_box(
+                                "State Store Error",
+                                "Failed All Retries Storing State",
+                                "Please report on Github/Discord !!!",
+                                crate::app::StatusType::Error,
+                                0,
+                            );
+                            error!(
+                                "[{}] Failed all retries trying to store printer restart state : {err}",
+                                printer.borrow().printer_number
+                            );
                         }
                     }
                 }
@@ -2526,6 +2619,10 @@ enum AppAsyncTaskRequest {
     UpdateSpoolRec {
         spool_rec: SpoolRecord,
     },
+    ConfigureSlotWithSpool {
+        slot_id: i32,
+        spool_id: String,
+    },
 }
 
 type AppAsyncTasksChannel = Channel<NoopRawMutex, AppAsyncTaskRequest, 5>;
@@ -2564,6 +2661,9 @@ pub async fn app_async_task(view_model: Rc<RefCell<ViewModel>>) {
                 from_button,
             } => ViewModel::set_spool_weight_async(view_model.clone(), spool_id, weight_current, weight_new, final_step, from_button).await,
             AppAsyncTaskRequest::UpdateSpoolRec { spool_rec } => ViewModel::update_spool_rec_async(view_model.clone(), spool_rec).await,
+            AppAsyncTaskRequest::ConfigureSlotWithSpool { slot_id, spool_id } => {
+                ViewModel::configure_slot_with_spool_async(view_model.clone(), slot_id, spool_id).await
+            }
         }
     }
 }

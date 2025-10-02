@@ -121,6 +121,14 @@ component OperationSelectionStep inherits Rectangle {
 
             Row {
                 MyButton {
+                    enabled: AppState.trays-state[tray-index].spool_rec_id != "";
+                    text: "Reapply Tag";
+                    clicked => {
+                        AppBackend.configure-slot-with-spool-id(AppState.trays-state[tray-index].id,  AppState.trays-state[tray-index].spool_rec_id);
+                        AppState.control-state = ControlState.Ready;
+                    }
+                }
+                MyButton {
                     visible: false;
                     text: "Unload Filament";
                     clicked => {

@@ -153,6 +153,7 @@ export global AppBackend {
     callback erase-tag-by-spool-id(id: string);
     callback untag-slot(tray-id: int);
     callback reset-slot(tray-id: int);
+    callback configure-slot-with-spool-id(tray-id: int, spool-id: string);
 }
 
 export enum NewTagScanPage {
