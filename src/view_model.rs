@@ -2101,6 +2101,10 @@ impl FrameworkObserver for ViewModel {
         self.framework.borrow().check_firmware_ota();
     }
 
+    fn on_wifi_sta_disconnected(&self) {
+        info!("WiFi disconnected");
+    }
+
     fn on_ota_start(&self) {
         self.ui_weak.unwrap().global::<crate::app::FrameworkState>().invoke_ota_started();
     }
