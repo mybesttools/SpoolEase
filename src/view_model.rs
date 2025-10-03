@@ -1773,6 +1773,40 @@ impl ViewModel {
     pub fn taks_screenshot(&self) -> Result<slint::SharedPixelBuffer<slint::Rgba8Pixel>, slint::PlatformError> {
         self.ui_weak.unwrap().window().take_snapshot()
     }
+
+    pub fn get_spools_in_printers(&self) -> HashMap<String, String> {
+        // spool_id,
+        // location: A1 / B3 /... or Ext
+        let mut locations = HashMap::new();
+        let num_of_printers = self.bambu_printer_model.printers.len();
+        for printer in &self.bambu_printer_model.printers {
+            let printer_borrow = printer.borrow();
+            for tray_id in (0..printer_borrow.ams_trays().len() - 1).chain(core::iter::once(254)) {
+                // TODO: need to fix for H2 Series, deal with two external spools
+                if let Some(spool_id) = &printer_borrow.get_any_tray(tray_id).meta_info.spool_id {
+                    let (ams_id, tray_id_in_ams) = BambuPrinter::get_ams_and_tray_id(tray_id);
+                    let tray_name = match ams_id {
+                        0..3 => {
+                            format!("{}{}", (b'A' + ams_id as u8) as  char, tray_id_in_ams+1)
+                        }
+                        128..135 => {
+                            format!("HT-{}", (b'A' + (ams_id as u8 - 128)) as  char)
+                        }
+                        255 => {
+                            "Ext".to_string()
+                        }
+                        _ => String::new(),
+                    };
+                    if num_of_printers >1 {
+                        locations.insert(spool_id.clone(), format!("{} @ {}", tray_name, printer_borrow.printer_name()));
+                    } else {
+                        locations.insert(spool_id.clone(), format!("{} @ Printer", tray_name));
+                    }
+                }
+            }
+        }
+        locations
+    }
 }
 
 impl From<&TrayState> for crate::app::UiTrayState {

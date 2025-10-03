@@ -264,6 +264,16 @@ impl AppWithStateBuilder for NestedAppBuilder {
         // );
 
         let router = router.route(
+            "/api/spools-in-printers",
+            get(async move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>| {
+                GetSpoolsInPrintersResponse {
+                    spools: state.0.view_model.borrow().get_spools_in_printers(),
+                }
+                .encrypt(&key.borrow())
+            }),
+        );
+
+        let router = router.route(
             "/api/spools",
             get(
                 async move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>| match state.0.store.query_spools() {
@@ -859,6 +869,11 @@ encrypted_input!(GetSpoolKInfoDTO);
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct GetSpoolKInfoDTOResponse {
     pub k_info: Option<KInfo>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct GetSpoolsInPrintersResponse {
+    pub spools: HashMap<String, String>,
 }
 
 /////////////////////////////////////////////
