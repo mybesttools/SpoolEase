@@ -60,18 +60,18 @@ component OperationSelectionStep inherits Rectangle {
             spacing: 5px;
             Row {
                 MyButton {
+                    text: "Configure Slot Manually";
+                    clicked => {
+                        AppState.control-state = ControlState.TraySelect;
+                    }
+                }
+
+                MyButton {
                     enabled: AppState.spool-staging-state != SpoolStagingState.Empty && AppState.is-scale-usable-now();
                     text: "Advanced Weight";
                     clicked => {
                         AppState.prev-staging-operation-page = AppState.staging-operation-page;
                         AppState.staging-operation-page = StagingOperationsPage.UpdateWeight;
-                    }
-                }
-
-                MyButton {
-                    text: "Configure Slot Manually";
-                    clicked => {
-                        AppState.control-state = ControlState.TraySelect;
                     }
                 }
 

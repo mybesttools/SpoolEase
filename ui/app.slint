@@ -429,15 +429,17 @@ export global AppState {
         self.user-message-type = StatusType.Success;
     }
 
-    public function tray-update-failed(printer: string, ams-id: int, tray-id: int, err-txt: string) {
+    public function tray-update-failed(printer: string, configured-entity: string, ams-id: int, tray-id: int, err-txt: string) {
         self.control-state = ControlState.PostAction;
-        self.user-message = ((tray-id == 254 ? "Filed to Configure\nExternal Slot\n" : "Failed to Configure\nAMS \{ams-id + 1}, Slot \{tray-id + 1} Filament\n") + err-txt);
+        self.user-message = "Failed to Configure\n\{configured-entity}\n\{err-txt}";
         self.user-message-type = StatusType.Error;
     }
 
-    public function tray-update-succeeded(printer: string, ams-id: int, tray-id: int) {
+    // ams-id here is as follows : 0..3 (normal), 4.. (HT), 255 (external)
+    // tray-id is the tray number inside the AMS (in HT all are 0) or 254 for external
+    public function tray-update-succeeded(printer: string, configured-entity: string, ams-id: int, tray-id: int) {
         self.control-state = ControlState.PostAction;
-        self.user-message = (tray-id == 254 ? "Configured Successfully\nExternal Spool Filament" : "Configured Successfully\nAMS \{ams-id + 1}, Slot \{tray-id + 1} Filament");
+        self.user-message = "Configured Successfully\n\{configured-entity}";
         self.user-message-type = StatusType.Success;
         start-highlight-tray((tray-id == 254) ? 254 : get_tray_id(ams-id, tray-id));
         if printer != self.curr-printer {

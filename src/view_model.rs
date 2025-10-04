@@ -717,10 +717,12 @@ impl ViewModel {
         // let tray_id = tray_id_for_ui as i32;
         let tray_id_for_ui = tray_id_for_ui as i32;
         let ams_id_for_ui = Self::ams_id_for_ui(ams_id);
+        let full_slot_description = Self::full_slot_description(tray_id);
         let mut filament_staging = filament_staging.borrow_mut();
         if bambu_printer.printer_connectivity_ok != Some(true) {
             ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_failed(
                 bambu_printer.printer_selector_name.to_shared_string(),
+                full_slot_description.into(),
                 ams_id_for_ui,
                 tray_id_for_ui,
                 "Printer disconnected".to_shared_string(),
@@ -739,12 +741,14 @@ impl ViewModel {
                 ui.unwrap().global::<crate::app::AppState>().invoke_empty_spool_staging();
                 ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_succeeded(
                     bambu_printer.printer_selector_name.to_shared_string(),
+                    full_slot_description.into(),
                     ams_id_for_ui,
                     tray_id_for_ui,
                 );
             } else {
                 ui.unwrap().global::<crate::app::AppState>().invoke_tray_update_failed(
                     bambu_printer.printer_selector_name.to_shared_string(),
+                    full_slot_description.into(),
                     ams_id_for_ui,
                     tray_id_for_ui,
                     "Unknown Nozzle Temps".to_shared_string(),
@@ -753,13 +757,35 @@ impl ViewModel {
         }
     }
 
+    fn full_slot_description(tray_id: i32) -> String {
+        let (ams_id, slot_in_ams) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
+        if ams_id <= 3 {
+            format!("{} Slot {}", Self::ams_name(ams_id), slot_in_ams+1)
+        } else {
+            Self::ams_name(ams_id)
+        }
+    }
+
+    fn ams_name(ams_id: usize) -> String {
+        if ams_id <= 3 {
+            format!("AMS-{}", (b'A' + ams_id as u8) as char)
+        } else if (128..128 + 8).contains(&ams_id) {
+            format!("HT-{}", (b'A' + (ams_id - 128) as u8) as char)
+        } else if ams_id == 255 {
+            "External Spool Holder".into()
+        } else {
+            format!("AMS-#{ams_id}?")
+        }
+    }
+
+    // returns AMS 0..3 for standard, 4.. for HT and 254 for External
     fn ams_id_for_ui(ams_id: usize) -> i32 {
         let ams_id_for_ui = if ams_id <= 3 {
             ams_id
         } else if ams_id <= 3 + 8 {
             ams_id - 128 + 4
         } else {
-            254
+            255
         };
         ams_id_for_ui as i32
     }
@@ -1719,12 +1745,13 @@ impl ViewModel {
                         let (ams_id, tray_id_for_ui) = BambuPrinter::get_ams_and_tray_id(slot_id as usize);
                         let tray_id_for_ui = tray_id_for_ui as i32;
                         let ams_id_for_ui = Self::ams_id_for_ui(ams_id);
-
+                        let full_slot_description = Self::full_slot_description(slot_id);
                         view_model_borrow
                             .ui_weak
                             .unwrap()
                             .global::<crate::app::AppState>()
                             .invoke_tray_update_succeeded(
+                                full_slot_description.into(),
                                 view_model_borrow.bambu_printer_model.borrow().printer_selector_name.to_shared_string(),
                                 ams_id_for_ui,
                                 tray_id_for_ui,
@@ -1792,17 +1819,15 @@ impl ViewModel {
                     let (ams_id, tray_id_in_ams) = BambuPrinter::get_ams_and_tray_id(tray_id);
                     let tray_name = match ams_id {
                         0..3 => {
-                            format!("{}{}", (b'A' + ams_id as u8) as  char, tray_id_in_ams+1)
+                            format!("{}{}", (b'A' + ams_id as u8) as char, tray_id_in_ams + 1)
                         }
                         128..135 => {
-                            format!("HT-{}", (b'A' + (ams_id as u8 - 128)) as  char)
+                            format!("HT-{}", (b'A' + (ams_id as u8 - 128)) as char)
                         }
-                        255 => {
-                            "Ext".to_string()
-                        }
+                        255 => "Ext".to_string(),
                         _ => String::new(),
                     };
-                    if num_of_printers >1 {
+                    if num_of_printers > 1 {
                         locations.insert(spool_id.clone(), format!("{} @ {}", tray_name, printer_borrow.printer_name()));
                     } else {
                         locations.insert(spool_id.clone(), format!("{} @ Printer", tray_name));
