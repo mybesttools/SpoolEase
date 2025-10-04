@@ -1044,6 +1044,8 @@ impl ViewModel {
 
         let ui = self.ui_weak.unwrap();
         // ----- handle number of ams's and curr_ams -----
+        // OPT: calculate only when ams_exists change (store in printer struct), here use the value calculated there
+        //      don't forget to consider loading the ams_exist from state which will need to recalculate, so add inner_set_ams_exist_bits
         if let Some(mut ams_exist_bits) = bambu_printer.ams_exist_bits() {
             let mut ams_exist_vec = Vec::<i32>::new();
             let mut first_ams = -1;
@@ -1069,6 +1071,7 @@ impl ViewModel {
         let trays_state_rc = ui.global::<crate::app::AppState>().get_trays_state();
         // let trays_state_rc = ui.get_trays_state();
         let trays_state = trays_state_rc;
+        // OPT: run only on real trays (consider also AMS-HT), use the ams_exists from above
         for tray_row in 0..trays_state.row_count() {
             let tray_id = trays_state.row_data(tray_row).unwrap().id;
             let curr_tray = if tray_id == 254 {
@@ -1114,20 +1117,22 @@ impl ViewModel {
     }
 
     fn weight_left(&self, tray: &Tray) -> Option<f32> {
+        // OPT: don'e access spool_rec, cache required data in meta_info / cache all spool_rec and update on changes in store using events
+        let mut weight_left = None;
         if let Some(spool_id) = &tray.meta_info.spool_id {
             if let Some(spool) = self.store.get_spool_by_id(spool_id) {
                 if let (Some(weight_core), Some(weight_current)) = (spool.weight_core, spool.weight_current) {
                     let realtime_weight = (weight_current - weight_core) as f32 - tray.meta_info.consumed_since_weight;
-                    return Some(realtime_weight);
+                    weight_left = Some(realtime_weight);
                 } else if let (Some(weight_current), Some(weight_new), Some(weight_advertised)) =
                     (spool.weight_current, spool.weight_new, spool.weight_advertised)
                 {
                     let realtime_weight = (weight_current - (weight_new - weight_advertised)) as f32 - tray.meta_info.consumed_since_weight;
-                    return Some(realtime_weight);
+                    weight_left = Some(realtime_weight);
                 }
             }
         }
-        None
+        weight_left
     }
 
     fn try_dispatch_next_gcode_job(&mut self) {
