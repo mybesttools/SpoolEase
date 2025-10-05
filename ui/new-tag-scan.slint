@@ -257,7 +257,7 @@ export component NewTagScan inherits Rectangle {
         weight-new: spool-display.spool-record.weight-new;
         spool-id: spool-display.spool-record.id;
         cancel-clicked => {
-            AppState.control-state = ControlState.Ready;
+            AppState.control-state = ControlState.PostAction; // so will show the message that tag was scanned from previous step
         }
         back-clicked => {
             AppState.staging-operation-page = AppState.prev-staging-operation-page;

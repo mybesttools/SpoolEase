@@ -350,13 +350,15 @@ export global AppState {
             self.user-message-type = StatusType.Error;
         }
     }
-    public function read-tag-succeeded(ui-spool-info: UiSpoolInfo) {
+    public function read-tag-succeeded(ui-spool-info: UiSpoolInfo, final-step: bool) {
         self.spool-staging-state = SpoolStagingState.Scanned;
         self.spool-staging-info = ui-spool-info;
-        self.control-state = ControlState.PostAction;
         self.user-message = "Tag Scanned to Staging";
         self.user-message-type = StatusType.Success;
         start-highlight-tray(999);
+        if final-step {
+          self.control-state = ControlState.PostAction;
+        }
     }
 
     public function tag-unloaded(ui-spool-info: UiSpoolInfo) {

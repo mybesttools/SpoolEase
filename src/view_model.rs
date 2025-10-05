@@ -760,7 +760,7 @@ impl ViewModel {
     fn full_slot_description(tray_id: i32) -> String {
         let (ams_id, slot_in_ams) = BambuPrinter::get_ams_and_tray_id(tray_id as usize);
         if ams_id <= 3 {
-            format!("{} Slot {}", Self::ams_name(ams_id), slot_in_ams+1)
+            format!("{} Slot {}", Self::ams_name(ams_id), slot_in_ams + 1)
         } else {
             Self::ams_name(ams_id)
         }
@@ -1297,17 +1297,19 @@ impl ViewModel {
         None
     }
 
-    fn display_filament_staging_direct(&self, bambu_printer_borrow: &BambuPrinter, notify_operation: bool) {
+    fn display_filament_staging_direct(&self, bambu_printer_borrow: &BambuPrinter, finish_operation: bool) {
         let filament_staging_borrow = self.filament_staging.borrow();
         if let Some(ui_spool_info) = self.tag_info_to_ui_spool_info_direct(bambu_printer_borrow, filament_staging_borrow.full_spool_rec()) {
             let ui = self.ui_weak.clone();
-            if *filament_staging_borrow.origin() == StagingOrigin::Scanned && notify_operation {
-                ui.unwrap().global::<crate::app::AppState>().invoke_read_tag_succeeded(ui_spool_info);
-            } else if *filament_staging_borrow.origin() == StagingOrigin::Encoded && notify_operation {
+            if *filament_staging_borrow.origin() == StagingOrigin::Scanned {
+                ui.unwrap()
+                    .global::<crate::app::AppState>()
+                    .invoke_read_tag_succeeded(ui_spool_info, finish_operation);
+            } else if *filament_staging_borrow.origin() == StagingOrigin::Encoded && finish_operation {
                 ui.unwrap()
                     .global::<crate::app::AppState>()
                     .invoke_update_spool_staging(ui_spool_info.clone(), crate::app::SpoolStagingState::Encoded);
-            } else if *filament_staging_borrow.origin() == StagingOrigin::Unloaded && notify_operation {
+            } else if *filament_staging_borrow.origin() == StagingOrigin::Unloaded && finish_operation {
                 ui.unwrap().global::<crate::app::AppState>().invoke_tag_unloaded(ui_spool_info);
             } else {
                 ui.unwrap()
@@ -1597,6 +1599,7 @@ impl ViewModel {
                         .borrow_mut()
                         .set_spool_record(spool_rec, StagingOrigin::Scanned);
                     view_model.borrow().display_filament_staging(final_step);
+                    Self::set_staging_rec_ext_async(view_model.clone()).await;
                 }
                 Err(err) => {
                     error!("Failed to link tag {tag_id} to spool_id {spool_id}: {err:?}");
@@ -1638,11 +1641,18 @@ impl ViewModel {
             ui_app_state.invoke_unlink_spool_id_from_tag_status(spool_id.to_shared_string(), "Spool Id {spool_id} Not Found".to_string().into());
         }
     }
-    async fn set_staging_rec_ext_async(view_model: Rc<RefCell<ViewModel>>, spool_id: String) {
-        let store = view_model.borrow().store.clone();
-        if let Ok(spool_rec_ext) = store.get_spool_ext_by_id(&spool_id).await {
-            view_model.borrow().filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
-            view_model.borrow().display_filament_staging(false);
+    async fn set_staging_rec_ext_async(view_model: Rc<RefCell<ViewModel>>) {
+        let spool_id = {
+            let view_model_borrow = view_model.borrow();
+            let filament_staging = view_model_borrow.filament_staging.borrow();
+            filament_staging.spool_rec().map(|spool_rec| spool_rec.id.clone())
+        };
+        if let Some(spool_id) = spool_id {
+            let store = view_model.borrow().store.clone();
+            if let Ok(spool_rec_ext) = store.get_spool_ext_by_id(&spool_id).await {
+                view_model.borrow().filament_staging.borrow_mut().set_spool_record_ext(spool_rec_ext);
+                view_model.borrow().display_filament_staging(false);
+            }
         }
     }
 
@@ -1931,9 +1941,7 @@ impl BambuPrinterObserver for ViewModel {
                 if let Some(spool_rec) = self.store.get_spool_by_id(removed_spool.1) {
                     self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Unloaded);
                     self.display_filament_staging_direct(bambu_printer, true);
-                    let _ = self.dispatch_async_task(AppAsyncTaskRequest::SetStagingRecExt {
-                        spool_id: removed_spool.1.clone(),
-                    });
+                    let _ = self.dispatch_async_task(AppAsyncTaskRequest::SetStagingRecExt {});
                     // let _ = self.store.try_send_op(StoreOp::ReadExtInfo { id: removed_spool.1.clone() });
                 }
             }
@@ -2104,10 +2112,9 @@ impl SpoolTagObserver for ViewModel {
                     // not V1 tag
                     let hex_tag = hex::encode_upper(uid);
                     if let Some(spool_rec) = self.store.get_spool_by_hex_tag(&hex_tag) {
-                        let spool_rec_id = spool_rec.id.clone();
                         self.filament_staging.borrow_mut().set_spool_record(spool_rec, StagingOrigin::Scanned);
                         self.display_filament_staging(true);
-                        let _ = self.dispatch_async_task(AppAsyncTaskRequest::SetStagingRecExt { spool_id: spool_rec_id });
+                        let _ = self.dispatch_async_task(AppAsyncTaskRequest::SetStagingRecExt {});
                     } else {
                         let ui = self.ui_weak.unwrap();
                         let ui_app_state = ui.global::<crate::app::AppState>();
@@ -2674,9 +2681,7 @@ enum AppAsyncTaskRequest {
     UnLinkSpoolFromTag {
         spool_id: String,
     },
-    SetStagingRecExt {
-        spool_id: String,
-    },
+    SetStagingRecExt {},
     SetSpoolWeight {
         spool_id: String,
         weight_current: i32,
@@ -2720,7 +2725,7 @@ pub async fn app_async_task(view_model: Rc<RefCell<ViewModel>>) {
                 final_step,
             } => ViewModel::link_tag_to_spool_id_async(view_model.clone(), tag_id, spool_id, final_step).await,
             AppAsyncTaskRequest::UnLinkSpoolFromTag { spool_id } => ViewModel::unlink_spool_from_tag_async(view_model.clone(), spool_id).await,
-            AppAsyncTaskRequest::SetStagingRecExt { spool_id } => ViewModel::set_staging_rec_ext_async(view_model.clone(), spool_id).await,
+            AppAsyncTaskRequest::SetStagingRecExt {} => ViewModel::set_staging_rec_ext_async(view_model.clone()).await,
             AppAsyncTaskRequest::SetSpoolWeight {
                 spool_id,
                 weight_current,
