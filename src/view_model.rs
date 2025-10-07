@@ -14,11 +14,10 @@ use embassy_executor::raw::TaskStorage;
 use embassy_net::Stack;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_time::{Instant, Timer};
+use embassy_time::{with_timeout, Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
-use shared::gcode_analysis::FilamentUsageEntry;
 use shared::gcode_analysis_task::{
     fetch_gcode_analysis_task, Fetch3mf, FilamentUsage, GcodeAnalysisNotification, GcodeAnalysisNotificationChannel, GcodeAnalysisRequest,
     GcodeAnalysisRequestChannel, GcodeAnalyzerObserver,
@@ -33,7 +32,7 @@ use framework::{
 
 use crate::app::{UiSlotDisplay, UiSpoolRecord, UiSpoolRecordDisplay};
 use crate::app_config::{BASE_FILAMENTS, FILAMENT_BRAND_NAMES, MATERIALS};
-use crate::bambu::bambu_print::{GcodeAnalysis, PrintProject};
+use crate::bambu::bambu_print::PrintProject;
 use crate::bambu::{Filament, KExtruder, KInfo, KNozzleDiameter, KNozzleId, KPrinter, SpoolId, Tray, TrayBits};
 use crate::color_utils::get_color_name;
 use crate::filament_staging::StagingOrigin;
@@ -82,6 +81,7 @@ pub struct ViewModel {
     ssdp_pub_sub: &'static SSDPPubSubChannel,
     app_async_tasks_channel: Rc<AppAsyncTasksChannel>,
     pub recently_added_spool_id: Option<String>,
+    store_state_request_channel: Rc<StoreStateRequestChannel>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -167,6 +167,7 @@ impl ViewModel {
             ssdp_pub_sub,
             app_async_tasks_channel,
             recently_added_spool_id: None,
+            store_state_request_channel: Rc::new(StoreStateRequestChannel::new()),
         };
         let view_model_rc = Rc::new(RefCell::new(view_model));
 
@@ -206,6 +207,7 @@ impl ViewModel {
                 printer_config,
                 self.app_config.clone(),
                 self.ssdp_pub_sub,
+                self.store_state_request_channel.clone(),
             ) {
                 Ok(bambu_printer_model) => {
                     self.bambu_printer_model.printers.push(bambu_printer_model.clone());
@@ -2387,10 +2389,8 @@ impl SpoolScaleObserver for ViewModel {
     }
 
     // note that this is from Scale (which ends up calling the GcodeAnalyzerObserver on_gcode_analysis)
-    fn on_gcode_analysis(&mut self, job_number: i32, printer_index: usize, gcode_analysis: Vec<FilamentUsageEntry>) {
-        let filament_usage = FilamentUsage { data: gcode_analysis };
-
-        shared::gcode_analysis_task::GcodeAnalyzerObserver::on_gcode_analysis(self, job_number, printer_index, filament_usage);
+    fn on_gcode_analysis(&mut self, job_number: i32, printer_index: usize, gcode_analysis: FilamentUsage) {
+        shared::gcode_analysis_task::GcodeAnalyzerObserver::on_gcode_analysis(self, job_number, printer_index, gcode_analysis);
     }
 
     fn on_gcode_analysis_failed(&mut self, job_number: i32, printer_index: usize) {
@@ -2448,8 +2448,18 @@ fn decode_csv_field(s: &str) -> String {
     }
 }
 
+#[derive(Debug)]
+pub enum StoreStateRequest {
+    StorePrintProject { printer_index: usize },
+    StoreConsumeIndex { printer_index: usize, consume_store_counter: i32 },
+    DeletePrintProject { printer_index: usize },
+}
+
+pub type StoreStateRequestChannel = Channel<NoopRawMutex, StoreStateRequest, 5>;
+
 #[embassy_executor::task] // up to two printers in parallel
 pub async fn printers_scheduled_store_state_task(framework: Rc<RefCell<Framework>>, view_model: Rc<RefCell<ViewModel>>, store: Rc<Store>) {
+    info!("store_state_task started");
     {
         let file_store = framework.borrow().file_store();
         let file_store = file_store.lock().await;
@@ -2458,46 +2468,87 @@ pub async fn printers_scheduled_store_state_task(framework: Rc<RefCell<Framework
             return;
         }
     }
-
     let num_of_printers = view_model.borrow().bambu_printer_model.printers.len();
     term_info!("Restoring printer(s) state");
     for printer_index in 0..num_of_printers {
         let printer = view_model.borrow().bambu_printer_model.printers[printer_index].clone();
-        BambuPrinter::load_printer_state(&framework, &printer, &store).await;
+        if let Err(err) = BambuPrinter::load_printer_state(&framework, &printer, &store).await {
+                view_model.borrow().message_box("Restore Print State Notice", &err, "", crate::app::StatusType::Error, 0);
+        }
+        info!("[{}] Checking for print project resume state", printer.borrow().printer_number);
+        match BambuPrinter::load_print_project_state(&framework, &printer).await {
+            Ok(found_print_project_state) => {
+                if !found_print_project_state {
+                    info!("[{}] Print project resume state not found", printer.borrow().printer_number);
+                    let _ = BambuPrinter::delete_print_project_state(&framework, &printer).await;
+                }
+            }
+            Err(err) => {
+                error!("{err} - Print tracking can't be resumed");
+                let _ = BambuPrinter::delete_print_project_state(&framework, &printer).await;
+                view_model.borrow().message_box("Restore Running Print State Notice", &err, "Print Tracking Can't be Resumed", crate::app::StatusType::Error, 0);
+            }
+        }
         view_model.borrow().update_ui_from_printer(&printer.borrow());
     }
 
     let mut printer_index = 0;
     let delay_time = max(1000u64, (3000 / num_of_printers) as u64); // want every printer to save every 3 seconds, and not all together
+    let store_state_request_channel = view_model.borrow().store_state_request_channel.clone();
+    let receiver = store_state_request_channel.receiver();
     loop {
-        if printer_index < num_of_printers {
-            let printer = view_model.borrow().bambu_printer_model.printers[printer_index].clone();
-            let num_retries = 3;
-            for retry in 1..=num_retries {
-                match BambuPrinter::store_printer_state(&framework, &printer, &view_model).await {
-                    Ok(_) => break,
-                    Err(err) => {
-                        if retry == num_retries {
-                            view_model.borrow().message_box(
-                                "State Store Error",
-                                "Failed All Retries Storing State",
-                                "Please report on Github/Discord !!!",
-                                crate::app::StatusType::Error,
-                                0,
-                            );
-                            error!(
-                                "[{}] Failed all retries trying to store printer restart state : {err}",
-                                printer.borrow().printer_number
-                            );
+        // Timer::after_millis(delay_time).await;
+        match with_timeout(Duration::from_millis(delay_time), receiver.receive()).await {
+            Ok(request) => match request {
+                StoreStateRequest::StorePrintProject { printer_index } => {
+                    let printer = view_model.borrow().bambu_printer_model.printers[printer_index].clone();
+                    if let Err(err) = BambuPrinter::store_print_project_state(&framework, &printer).await {
+                        view_model.borrow().message_box("Print Tracking Notice", &err, "SpoolEase Will Not be Able to Resume Tracking if Restarted", crate::app::StatusType::Error, 0);
+                        let _ = BambuPrinter::delete_print_project_state(&framework, &printer).await;
+                    }
+                }
+                StoreStateRequest::StoreConsumeIndex { printer_index,  consume_store_counter } => {
+                    let printer = view_model.borrow().bambu_printer_model.printers[printer_index].clone();
+                    if let Err(err) = BambuPrinter::store_consume_index_state(&framework, &printer, consume_store_counter).await {
+                        view_model.borrow().message_box("Print Tracking Notice", &err, "If This Error Repeats, SpoolEase Will Not be Able to Resume Tracking if Restarted", crate::app::StatusType::Error, 0);
+                    }
+                }
+                StoreStateRequest::DeletePrintProject { printer_index } => {
+                    let printer = view_model.borrow().bambu_printer_model.printers[printer_index].clone();
+                    let _ = BambuPrinter::delete_print_project_state(&framework, &printer).await;
+                }
+            },
+            Err(_) => {
+                // Time expired
+                if printer_index < num_of_printers {
+                    let printer = view_model.borrow().bambu_printer_model.printers[printer_index].clone();
+                    let num_retries = 3;
+                    for retry in 1..=num_retries {
+                        match BambuPrinter::store_printer_state(&framework, &printer, &view_model).await {
+                            Ok(_) => break,
+                            Err(err) => {
+                                if retry == num_retries {
+                                    view_model.borrow().message_box(
+                                        "State Store Error",
+                                        "Failed All Retries Storing State",
+                                        "Please report on Github/Discord !!!",
+                                        crate::app::StatusType::Error,
+                                        0,
+                                    );
+                                    error!(
+                                        "[{}] Failed all retries trying to store printer restart state : {err}",
+                                        printer.borrow().printer_number
+                                    );
+                                }
+                            }
                         }
                     }
                 }
+                printer_index += 1;
+                if printer_index >= num_of_printers {
+                    printer_index = 0;
+                }
             }
-        }
-        Timer::after_millis(delay_time).await;
-        printer_index += 1;
-        if printer_index >= num_of_printers {
-            printer_index = 0;
         }
     }
 }
@@ -2578,44 +2629,7 @@ impl GcodeAnalyzerObserver for ViewModel {
     fn on_gcode_analysis(&mut self, job_number: i32, printer_index: usize, filament_usage: FilamentUsage) {
         if let Some(printer) = self.bambu_printer_model.printers.get(printer_index) {
             let mut printer_borrow = printer.borrow_mut();
-            let printer_log_id = printer_borrow.printer_number;
-            info!("[{}] Setting gcode analysis with {} entries", printer_log_id, filament_usage.data.len());
-            if let Some(curr_print_project) = &mut printer_borrow.curr_print_project {
-                // TODO: turn to a function on print_project or on printer
-                match &curr_print_project.gcode_analysis {
-                    GcodeAnalysis::WaitingForPrinter => {
-                        warn!("[{}>] Print monitoring awaiting printer, ignoring gcode analysis", printer_log_id);
-                        return;
-                    }
-                    GcodeAnalysis::Requested {
-                        at: _,
-                        job_number: awaited_job_number,
-                    }
-                    | GcodeAnalysis::Received {
-                        at: _,
-                        job_number: awaited_job_number,
-                        usage: _,
-                    } => {
-                        if *awaited_job_number != job_number {
-                            warn!(
-                                "[{}] Print monitoring awaiting job number {}, received a different job number {}, ignoring gcode analysis",
-                                printer_log_id, awaited_job_number, job_number
-                            );
-                            return;
-                        }
-                    }
-                }
-                curr_print_project.gcode_analysis = GcodeAnalysis::Received {
-                    at: Instant::now(),
-                    job_number,
-                    usage: filament_usage,
-                };
-                if curr_print_project.consume_index == -1 {
-                    curr_print_project.consume_index = 0;
-                }
-            } else {
-                error!("Internal Error setting gcode analysis to printer index {printer_index}");
-            }
+            printer_borrow.set_gcode_analysis(job_number, filament_usage);
         }
     }
 

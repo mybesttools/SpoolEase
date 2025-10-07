@@ -79,7 +79,7 @@ pub struct PrintData {
     // pub queue_total: Option<i64>,
     // pub queue_est: Option<i64>,
     // pub queue_sts: Option<i64>,
-    // pub project_id: Option<String>,
+    pub project_id: Option<String>,
     // pub profile_id: Option<String>,
     // pub task_id: Option<String>,
     // pub subtask_id: Option<String>,

@@ -5672,6 +5672,7 @@ dependencies = [
  "no_std_io",
  "pn532",
  "serde",
+ "serde-csv-core",
  "serde_json",
  "snafu",
  "static_cell",

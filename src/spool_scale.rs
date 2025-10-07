@@ -1,5 +1,9 @@
 use alloc::{
-    boxed::Box, format, rc::Rc, string::{String, ToString}, vec::Vec
+    boxed::Box,
+    format,
+    rc::Rc,
+    string::{String, ToString},
+    vec::Vec,
 };
 use core::{
     cell::RefCell,
@@ -22,7 +26,8 @@ use framework::{debug, error, framework_web_app::encrypt, info, mk_static, prelu
 use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
 use shared::{
-    gcode_analysis::FilamentUsageEntry, gcode_analysis_task::{GcodeAnalysisNotification, GcodeAnalysisRequest}, scale::{ConsoleToScale, ScaleToConsole}
+    gcode_analysis_task::{FilamentUsage, GcodeAnalysisNotification, GcodeAnalysisRequest},
+    scale::{ConsoleToScale, ScaleToConsole},
 };
 
 use crate::{app_config::AppConfig, ssdp::SSDPPubSubChannel};
@@ -58,7 +63,7 @@ pub trait SpoolScaleObserver {
     fn on_tag_status(&mut self, status: &shared::spool_tag::Status);
     fn on_pn532_status(&mut self, status: bool);
     fn on_button_pressed(&mut self, scale_weight: ScaleWeight) -> Option<bool>;
-    fn on_gcode_analysis(&mut self, job_number: i32, printer_index: usize, gcode_analysis: Vec<FilamentUsageEntry>);
+    fn on_gcode_analysis(&mut self, job_number: i32, printer_index: usize, gcode_analysis: FilamentUsage);
     fn on_gcode_analysis_failed(&mut self, job_number: i32, printer_index: usize);
     fn on_gcode_analysis_canceled(&mut self, job_number: i32, printer_index: usize);
     fn on_gcode_analysis_completed(&mut self, job_number: i32, printer_index: usize);
@@ -89,10 +94,7 @@ impl SpoolScale {
     }
 
     pub fn read_tag(&self) -> Result<(), String> {
-        if let Err(err) = self
-            .console_to_scale
-            .try_send(ConsoleToScale::ReadTag)
-        {
+        if let Err(err) = self.console_to_scale.try_send(ConsoleToScale::ReadTag) {
             Err(format!("Failed sending read_tag to scale {err:?}"))
         } else {
             Ok(())
@@ -100,10 +102,11 @@ impl SpoolScale {
     }
 
     pub fn write_tag(&self, text: &str, check_uid: Option<Vec<u8>>, cookie: String) -> Result<(), String> {
-        if let Err(err) = self
-            .console_to_scale
-            .try_send(ConsoleToScale::WriteTag { text: text.to_string(), check_uid, cookie })
-        {
+        if let Err(err) = self.console_to_scale.try_send(ConsoleToScale::WriteTag {
+            text: text.to_string(),
+            check_uid,
+            cookie,
+        }) {
             Err(format!("Failed sending write_tag to scale {err:?}"))
         } else {
             Ok(())
@@ -111,10 +114,7 @@ impl SpoolScale {
     }
 
     pub fn erase_tag(&self, check_uid: Option<Vec<u8>>, cookie: String) -> Result<(), String> {
-        if let Err(err) = self
-            .console_to_scale
-            .try_send(ConsoleToScale::EraseTag { check_uid, cookie })
-        {
+        if let Err(err) = self.console_to_scale.try_send(ConsoleToScale::EraseTag { check_uid, cookie }) {
             Err(format!("Failed sending erase_tag to scale {err:?}"))
         } else {
             Ok(())
@@ -122,10 +122,7 @@ impl SpoolScale {
     }
     #[allow(dead_code)]
     pub fn emulate_tag(&self, url: &str) -> Result<(), String> {
-        if let Err(err) = self
-            .console_to_scale
-            .try_send(ConsoleToScale::EmulateTag { url: url.to_string()})
-        {
+        if let Err(err) = self.console_to_scale.try_send(ConsoleToScale::EmulateTag { url: url.to_string() }) {
             Err(format!("Failed sending request_gcode_analysis to scale {err:?}"))
         } else {
             Ok(())
@@ -300,28 +297,35 @@ impl SpoolScale {
         if self.observers.is_empty() {
             return;
         }
-        let num_records = filament_usage_csv.lines().count();
-        let mut data = Vec::<FilamentUsageEntry>::with_capacity(num_records);
-        let mut csv_parser = serde_csv_core::Reader::<16>::new(); // 16 is max field size
-        for line in filament_usage_csv.lines() {
-            match csv_parser.deserialize(line.as_bytes()) {
-                Ok(v) => {
-                    data.push(v.0);
-                }
-                Err(err) => {
-                    error!("Internal error deserializing FilamentUsageEntry : {err}");
-                    return;
-                }
+        // let num_records = filament_usage_csv.lines().count();
+        // let mut data = Vec::<FilamentUsageEntry>::with_capacity(num_records);
+        // let mut csv_parser = serde_csv_core::Reader::<16>::new(); // 16 is max field size
+        // for line in filament_usage_csv.lines() {
+        //     match csv_parser.deserialize(line.as_bytes()) {
+        //         Ok(v) => {
+        //             data.push(v.0);
+        //         }
+        //         Err(err) => {
+        //             error!("Internal error deserializing FilamentUsageEntry : {err}");
+        //             return;
+        //         }
+        //     }
+        // }
+        let filament_usage = match FilamentUsage::from_csv(&filament_usage_csv) {
+            Ok(v) => v,
+            Err(err) => {
+                error!("Internal error deserializing FilamentUsageEntry : {err}");
+                return;
             }
-        }
+        };
 
         if let Some((last, rest)) = self.observers.split_last() {
             for weak_observer in rest.iter() {
                 let observer = weak_observer.upgrade().unwrap();
-                observer.borrow_mut().on_gcode_analysis(job_number, printer_index, data.clone());
+                observer.borrow_mut().on_gcode_analysis(job_number, printer_index, filament_usage.clone());
             }
             let observer = last.upgrade().unwrap();
-            observer.borrow_mut().on_gcode_analysis(job_number, printer_index, data);
+            observer.borrow_mut().on_gcode_analysis(job_number, printer_index, filament_usage);
         }
     }
     pub fn notify_gcode_analysis_failed(&self, job_number: i32, printer_index: usize) {
@@ -329,7 +333,6 @@ impl SpoolScale {
             let observer = weak_observer.upgrade().unwrap();
             observer.borrow_mut().on_gcode_analysis_failed(job_number, printer_index);
         }
-        
     }
     pub fn notify_gcode_analysis_canceled(&self, job_number: i32, printer_index: usize) {
         for weak_observer in self.observers.iter() {

@@ -5,6 +5,7 @@
 pub mod bambu_print;
 
 use crate::spool_record::{FullSpoolRecord, SpoolRecord};
+use crate::view_model::{self, StoreStateRequestChannel};
 use crate::{
     app_config::{PrinterConfig, MATERIALS},
     bambu_api::GcodeState,
@@ -28,10 +29,9 @@ use embassy_executor::raw::TaskStorage;
 use embassy_futures::select::{select, Either};
 use embassy_net::Ipv4Address;
 use embassy_sync::{
-    blocking_mutex::{
-        raw::{CriticalSectionRawMutex, NoopRawMutex},
-        Mutex,
-    },
+    blocking_mutex::
+        raw::NoopRawMutex
+    ,
     channel::Channel,
     pubsub::PubSubChannel,
 };
@@ -41,7 +41,7 @@ use mqttrust::QoS;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use shared::{gcode_analysis_task::Fetch3mf, spool_tag::TAG_PLACEHOLDER};
+use shared::gcode_analysis_task::Fetch3mf;
 
 use framework::prelude::*;
 
@@ -106,12 +106,14 @@ pub struct BambuPrinter {
     printer_was_disconnected: bool,
     pending_k_restore_sequence: bool,
     pub curr_print_project: Option<PrintProject>,
+    pub loaded_print_project: Option<PrintProject>,
     tray_tar: i32,
     tray_now: i32,
     tray_pre: i32,
     gcode_state: GcodeState,
     layer_num: i32,
     pub locked_mode: Option<bool>, // None, unknown, treat as unlocked, false - dev mode, true - locked
+    store_state_request_channel: Rc<StoreStateRequestChannel>,
 }
 
 pub trait BambuPrinterObserver {
@@ -314,7 +316,11 @@ impl BambuPrinter {
         // }
     }
 
-    pub async fn load_printer_state(framework: &Rc<RefCell<Framework>>, printer: &Rc<RefCell<BambuPrinter>>, store: &Rc<Store>) {
+    pub async fn load_printer_state(
+        framework: &Rc<RefCell<Framework>>,
+        printer: &Rc<RefCell<BambuPrinter>>,
+        store: &Rc<Store>,
+    ) -> Result<(), String> {
         let path = Self::printer_state_file_path(&printer.borrow().printer_serial);
         let printer_number = printer.borrow().printer_number;
         loop {
@@ -323,20 +329,28 @@ impl BambuPrinter {
             }
             Timer::after_millis(100).await;
         }
-        let file_store = framework.borrow().file_store();
-        let mut file_store = file_store.lock().await;
-        match file_store.read_file_str(&path).await {
-            Ok(state_str) => match serde_json::from_str::<PrinterPersistentState>(&state_str) {
-                Ok(printer_state) => {
-                    printer.borrow_mut().init_printer_persistent_state(printer_state, store);
-                    term_info!("[{}] Restored printer state from SDCard", printer_number);
-                }
+        {
+            // in separate section for file_store to be release for later load
+            let file_store = framework.borrow().file_store();
+            let mut file_store = file_store.lock().await;
+            match file_store.read_file_str(&path).await {
+                Ok(state_str) => match serde_json::from_str::<PrinterPersistentState>(&state_str) {
+                    Ok(printer_state) => {
+                        printer.borrow_mut().init_printer_persistent_state(printer_state, store);
+                        term_info!("[{}] Restored printer state from SDCard", printer_number);
+                        Ok(())
+                    }
+                    Err(err) => {
+                        let err_str = format!("[{printer_number}] Failed to Parse Printer State File (Check Terminal for More Info)");
+                        term_error!("[{}] Failed to parse printer state in file {} : {}", printer_number, path, err);
+                         Err(err_str)
+
+                    }
+                },
                 Err(err) => {
-                    term_error!("[{}] Failed to parse printer state in file {} : {}", printer_number, path, err);
+                    term_error!("[{}] Can't read printer state file (ok, if first printer run) {} : {}", printer_number, path, err);
+                    Ok(())
                 }
-            },
-            Err(err) => {
-                error!("[{printer_number}] Error reading state file {path} : {err}");
             }
         }
     }
@@ -450,6 +464,12 @@ impl BambuPrinter {
         let file_name = &printer_serial[len - 11..len - 3];
         format!("/state/{file_name}.{file_ext}/startup.jsn")
     }
+    pub fn printer_state_path_for_file(&self, file: &str) -> String {
+        let len = self.printer_serial.len();
+        let file_ext = &self.printer_serial[len - 3..];
+        let file_name = &self.printer_serial[len - 11..len - 3];
+        format!("/state/{file_name}.{file_ext}/{file}")
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -468,6 +488,7 @@ impl BambuPrinter {
         app_config: Rc<RefCell<AppConfig>>,
         restart_printer: Rc<embassy_sync::signal::Signal<embassy_sync::blocking_mutex::raw::NoopRawMutex, i32>>,
         log_filter: log::LevelFilter,
+        store_state_request_channel: Rc<StoreStateRequestChannel>,
     ) -> Rc<RefCell<BambuPrinter>> {
         let myself = Self::internal_new(
             printer_number,
@@ -483,6 +504,7 @@ impl BambuPrinter {
             app_config,
             restart_printer,
             log_filter,
+            store_state_request_channel,
         );
         let myself_rc = Rc::new(RefCell::new(myself));
         myself_rc.borrow_mut().bambu_model = Some(myself_rc.clone());
@@ -503,6 +525,7 @@ impl BambuPrinter {
         app_config: Rc<RefCell<AppConfig>>,
         restart_printer: Rc<embassy_sync::signal::Signal<embassy_sync::blocking_mutex::raw::NoopRawMutex, i32>>,
         log_filter: log::LevelFilter,
+        store_state_request_channel: Rc<StoreStateRequestChannel>,
     ) -> Self {
         let unknown = Tray {
             state: TrayState::Unknown,
@@ -567,12 +590,14 @@ impl BambuPrinter {
             printer_was_disconnected: true,
             pending_k_restore_sequence: true,
             curr_print_project: None,
+            loaded_print_project: None,
             tray_tar: 255,
             tray_now: 255,
             tray_pre: 255,
             gcode_state: GcodeState::Unknown,
             layer_num: -1,
             locked_mode: None,
+            store_state_request_channel,
         }
     }
 
@@ -624,6 +649,7 @@ impl BambuPrinter {
             self.app_config.clone(),
             self.restart_printer.clone(),
             self.log_filter,
+            self.store_state_request_channel.clone(),
         );
         *self = Self {
             observers: self.observers.clone(),
@@ -1403,6 +1429,46 @@ impl BambuPrinter {
         }
         if !processed_specific_command {
             (change_made, removed_tags) = self.process_print_message__common(print);
+            if self.loaded_print_project.is_some() {
+                if let Some(gcode_state) = print.gcode_state {
+                    let loaded_project_id = self.loaded_print_project.as_ref().unwrap().project_id.clone();
+                    if [GcodeState::RUNNING, GcodeState::PREPARE].contains(&gcode_state) {
+                        if let Some(project_id) = print.project_id.clone() {
+                            if loaded_project_id == project_id {
+                                self.curr_print_project = self.loaded_print_project.take();
+                                info!("[{}] Resume tracking print project id {}", self.printer_number, loaded_project_id);
+                            } else {
+                                info!(
+                                    "[{}] Resume tracking print loaded project id {} different than running project_id {}",
+                                    self.printer_number, loaded_project_id, project_id
+                                );
+                                self.loaded_print_project = None;
+                                let _ = self
+                                    .store_state_request_channel
+                                    .try_send(view_model::StoreStateRequest::DeletePrintProject {
+                                        printer_index: self.printer_index,
+                                    });
+                            }
+                        } else {
+                            warn!(
+                                "[{}] On trying to resume print received {:?} but without project_id, continue waitinge;",
+                                self.printer_number, gcode_state
+                            );
+                        }
+                    } else {
+                        info!(
+                            "[{}] Can't resume tracking print loaded project id {} because it ended before SpoolEase restarted",
+                            self.printer_number, loaded_project_id
+                        );
+                        self.loaded_print_project = None;
+                        let _ = self
+                            .store_state_request_channel
+                            .try_send(view_model::StoreStateRequest::DeletePrintProject {
+                                printer_index: self.printer_index,
+                            });
+                    }
+                }
+            }
         }
         (change_made, removed_tags)
     }
@@ -1577,7 +1643,7 @@ impl BambuPrinter {
             ams_id as i32,
             ams_tray_id as i32, // here we need the tray_id within the specific ams (newer versions)
             slot_id,            // slot number within ams
-            &"",
+            "",
             Some(""),
             "",
             "",
@@ -1987,10 +2053,10 @@ const ENCODING_TABLE: [(char, &str); 9] = [
     ('~', "%7E"),
 ];
 
-static ENCODING_MAP: Lazy<Mutex<CriticalSectionRawMutex, HashMap<char, &str>>> = Lazy::new(|| {
-    let char_hashmap: HashMap<char, &str> = ENCODING_TABLE.into_iter().collect();
-    Mutex::new(char_hashmap)
-});
+// static ENCODING_MAP: Lazy<Mutex<CriticalSectionRawMutex, HashMap<char, &str>>> = Lazy::new(|| {
+//     let char_hashmap: HashMap<char, &str> = ENCODING_TABLE.into_iter().collect();
+//     Mutex::new(char_hashmap)
+// });
 
 fn my_decode_from_url_part(text: &str) -> String {
     // % must be last (because some originated from encodings and will need to be replaced first)
@@ -1998,44 +2064,44 @@ fn my_decode_from_url_part(text: &str) -> String {
     efficient_decode(text, &ENCODING_TABLE)
 }
 
-fn my_encode_to_url_part(text: &str) -> String {
-    // % must be first (because later added)
-    // let name = name.replace("%", "%25").replace("/", "%2F").replace("&", "%26").replace("?", "%3F").replace(" ", "%20").replace("(", "%28").replace(")", "%29").replace( "~","%7E");
-    ENCODING_MAP.lock(|encoding_map| efficient_encode(text, encoding_map))
-}
+// fn my_encode_to_url_part(text: &str) -> String {
+//     // % must be first (because later added)
+//     // let name = name.replace("%", "%25").replace("/", "%2F").replace("&", "%26").replace("?", "%3F").replace(" ", "%20").replace("(", "%28").replace(")", "%29").replace( "~","%7E");
+//     ENCODING_MAP.lock(|encoding_map| efficient_encode(text, encoding_map))
+// }
 
-/// Encodes specific characters in a string based on a provided mapping.
-/// Minimizes allocations while still returning a String.
-///
-/// # Arguments
-/// * `input` - The string to encode
-/// * `char_map` - A mapping of characters to their encoded string representation
-///
-/// # Returns
-/// The encoded string
-pub fn efficient_encode(input: &str, char_map: &HashMap<char, &str>) -> String {
-    // Pre-calculate output size to avoid reallocations
-    let mut capacity = 0;
-    for c in input.chars() {
-        capacity += match char_map.get(&c) {
-            Some(replacement) => replacement.len(),
-            None => c.len_utf8(),
-        };
-    }
-
-    // Pre-allocate output string with exact capacity needed
-    let mut result = String::with_capacity(capacity);
-
-    // Process each character
-    for c in input.chars() {
-        match char_map.get(&c) {
-            Some(replacement) => result.push_str(replacement),
-            None => result.push(c),
-        }
-    }
-
-    result
-}
+///// Encodes specific characters in a string based on a provided mapping.
+///// Minimizes allocations while still returning a String.
+/////
+///// # Arguments
+///// * `input` - The string to encode
+///// * `char_map` - A mapping of characters to their encoded string representation
+/////
+///// # Returns
+///// The encoded string
+//pub fn efficient_encode(input: &str, char_map: &HashMap<char, &str>) -> String {
+//    // Pre-calculate output size to avoid reallocations
+//    let mut capacity = 0;
+//    for c in input.chars() {
+//        capacity += match char_map.get(&c) {
+//            Some(replacement) => replacement.len(),
+//            None => c.len_utf8(),
+//        };
+//    }
+//
+//    // Pre-allocate output string with exact capacity needed
+//    let mut result = String::with_capacity(capacity);
+//
+//    // Process each character
+//    for c in input.chars() {
+//        match char_map.get(&c) {
+//            Some(replacement) => result.push_str(replacement),
+//            None => result.push(c),
+//        }
+//    }
+//
+//    result
+//}
 
 /// Decodes a string by replacing encoded sequences with their original characters.
 /// Minimizes allocations while still returning a String.
@@ -2244,6 +2310,7 @@ pub fn init(
     printer_config: &PrinterConfig,
     app_config: Rc<RefCell<AppConfig>>,
     ssdp_pub_sub: &'static SSDPPubSubChannel,
+    store_state_request_channel: Rc<StoreStateRequestChannel>,
 ) -> Result<Rc<RefCell<BambuPrinter>>, String> {
     let spawner = framework.borrow().spawner;
     let printer_serial = if let Some(printer_serial) = &printer_config.serial {
@@ -2290,6 +2357,7 @@ pub fn init(
         app_config.clone(),
         restart_printer.clone(),
         log_filter,
+        store_state_request_channel,
     );
 
     spawner
@@ -2735,64 +2803,64 @@ pub struct KNozzleId {
 // k_info.printers["01P..."][0]["0.4"]["HH00"].name / .k
 
 impl TagInformationV1 {
-    pub fn _to_v1_descriptor(&self, _printer_name: Option<&str>, _printer_uuid: Option<&str>) -> Option<String> {
-        let brand_part = self
-            .brand
-            .as_ref()
-            .map(|s| format!("&B={}", my_encode_to_url_part(s)))
-            .unwrap_or_default();
-        let filament_subtype_part = self
-            .filament_subtype
-            .as_ref()
-            .map(|s| format!("&MS={}", my_encode_to_url_part(s)))
-            .unwrap_or_default();
-        let color_name_part = self
-            .color_name
-            .as_ref()
-            .map(|s| format!("&CN={}", my_encode_to_url_part(s)))
-            .unwrap_or_default();
-        let note_part = self.note.as_ref().map(|s| format!("&N={}", my_encode_to_url_part(s))).unwrap_or_default();
-
-        let mut material_part = String::new();
-        let mut color_part = String::new();
-        let mut nozzle_temp_min_part = String::new();
-        let mut nozzle_temp_max_part = String::new();
-        let mut tray_info_idx_part = String::new();
-
-        if let Some(filament) = &self.filament {
-            material_part = if filament.tray_type.is_empty() {
-                String::new()
-            } else {
-                format!("&M={}", filament.tray_type.trim()) // changed due to a bug in inventory that got CR into material
-            };
-            color_part = if filament.tray_color.is_empty() {
-                String::new()
-            } else {
-                format!("&C={}", filament.tray_color)
-            };
-            nozzle_temp_min_part = if filament.nozzle_temp_min == 0 {
-                String::new()
-            } else {
-                format!("&NN={}", filament.nozzle_temp_min)
-            };
-            nozzle_temp_max_part = if filament.nozzle_temp_max == 0 {
-                String::new()
-            } else {
-                format!("&NX={}", filament.nozzle_temp_max)
-            };
-            tray_info_idx_part = if filament.tray_info_idx.is_empty() {
-                String::new()
-            } else {
-                format!("&FI={}", filament.tray_info_idx)
-            };
-        }
-        let advertised_weight_part = self.weight_advertised.map(|v| format!("&WA={}", v)).unwrap_or_default();
-        let weight_core_part = self.weight_core.map(|v| format!("&WC={}", v)).unwrap_or_default();
-        let weight_new_part = self.weight_new.map(|v| format!("&WN={}", v)).unwrap_or_default();
-        let encode_time_part = self.encode_time.map(|v| format!("&DE={}", v)).unwrap_or_default();
-
-        Some(format!("{FILAMENT_URL_PREFIX}V1?ID={TAG_PLACEHOLDER}{encode_time_part}{material_part}{filament_subtype_part}{color_part}{color_name_part}{brand_part}{advertised_weight_part}{weight_core_part}{weight_new_part}{nozzle_temp_min_part}{nozzle_temp_max_part}{note_part}{tray_info_idx_part}"))
-    }
+    // pub fn _to_v1_descriptor(&self, _printer_name: Option<&str>, _printer_uuid: Option<&str>) -> Option<String> {
+    //     let brand_part = self
+    //         .brand
+    //         .as_ref()
+    //         .map(|s| format!("&B={}", my_encode_to_url_part(s)))
+    //         .unwrap_or_default();
+    //     let filament_subtype_part = self
+    //         .filament_subtype
+    //         .as_ref()
+    //         .map(|s| format!("&MS={}", my_encode_to_url_part(s)))
+    //         .unwrap_or_default();
+    //     let color_name_part = self
+    //         .color_name
+    //         .as_ref()
+    //         .map(|s| format!("&CN={}", my_encode_to_url_part(s)))
+    //         .unwrap_or_default();
+    //     let note_part = self.note.as_ref().map(|s| format!("&N={}", my_encode_to_url_part(s))).unwrap_or_default();
+    //
+    //     let mut material_part = String::new();
+    //     let mut color_part = String::new();
+    //     let mut nozzle_temp_min_part = String::new();
+    //     let mut nozzle_temp_max_part = String::new();
+    //     let mut tray_info_idx_part = String::new();
+    //
+    //     if let Some(filament) = &self.filament {
+    //         material_part = if filament.tray_type.is_empty() {
+    //             String::new()
+    //         } else {
+    //             format!("&M={}", filament.tray_type.trim()) // changed due to a bug in inventory that got CR into material
+    //         };
+    //         color_part = if filament.tray_color.is_empty() {
+    //             String::new()
+    //         } else {
+    //             format!("&C={}", filament.tray_color)
+    //         };
+    //         nozzle_temp_min_part = if filament.nozzle_temp_min == 0 {
+    //             String::new()
+    //         } else {
+    //             format!("&NN={}", filament.nozzle_temp_min)
+    //         };
+    //         nozzle_temp_max_part = if filament.nozzle_temp_max == 0 {
+    //             String::new()
+    //         } else {
+    //             format!("&NX={}", filament.nozzle_temp_max)
+    //         };
+    //         tray_info_idx_part = if filament.tray_info_idx.is_empty() {
+    //             String::new()
+    //         } else {
+    //             format!("&FI={}", filament.tray_info_idx)
+    //         };
+    //     }
+    //     let advertised_weight_part = self.weight_advertised.map(|v| format!("&WA={}", v)).unwrap_or_default();
+    //     let weight_core_part = self.weight_core.map(|v| format!("&WC={}", v)).unwrap_or_default();
+    //     let weight_new_part = self.weight_new.map(|v| format!("&WN={}", v)).unwrap_or_default();
+    //     let encode_time_part = self.encode_time.map(|v| format!("&DE={}", v)).unwrap_or_default();
+    //
+    //     Some(format!("{FILAMENT_URL_PREFIX}V1?ID={TAG_PLACEHOLDER}{encode_time_part}{material_part}{filament_subtype_part}{color_part}{color_name_part}{brand_part}{advertised_weight_part}{weight_core_part}{weight_new_part}{nozzle_temp_min_part}{nozzle_temp_max_part}{note_part}{tray_info_idx_part}"))
+    // }
 
     // TODO: remove all the printer parts, should only parse, the rest of the matching thould go elsewhere
 
