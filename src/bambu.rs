@@ -147,8 +147,10 @@ impl BambuPrinter {
     pub fn ams_trays(&self) -> &Vec<Tray> {
         &self.inner_ams_trays
     }
-    pub fn swap_ams_tray<'a>(&mut self, index: usize, tray: &'a mut Tray) -> &'a mut Tray {
-        if !(0..self.inner_ams_trays.len()).contains(&index) {
+    pub fn swap_ams_tray<'a>(&mut self, mut index: usize, tray: &'a mut Tray) -> &'a mut Tray {
+        if (128..=135).contains(&index) {
+            index -= 128 + 16;
+        } else if !(0..self.inner_ams_trays.len()).contains(&index) {
             error!("Unsupported tray index {index}, probably an unsupported AMS");
             return tray;
         }
@@ -163,11 +165,13 @@ impl BambuPrinter {
         }
         tray
     }
-    pub fn update_ams_tray<F>(&mut self, index: usize, f: F)
+    pub fn update_ams_tray<F>(&mut self, mut index: usize, f: F)
     where
         F: FnOnce(&mut Tray),
     {
-        if !(0..self.inner_ams_trays.len()).contains(&index) {
+        if (128..=135).contains(&index) {
+            index -= 128 + 16;
+        } else if !(0..self.inner_ams_trays.len()).contains(&index) {
             error!("Unsupported tray index {index}, probably an unsupported AMS");
             return;
         }
@@ -208,10 +212,13 @@ impl BambuPrinter {
             self.update_ams_tray(index, f);
         }
     }
-    pub fn get_any_tray(&self, index: usize) -> &Tray {
+    pub fn get_any_tray(&self, mut index: usize) -> &Tray {
         if index == 254 {
             self.virt_tray()
         } else {
+            if (128..=135).contains(&index) {
+                index -= 128 + 16;
+            }    
             &self.ams_trays()[index]
         }
     }
