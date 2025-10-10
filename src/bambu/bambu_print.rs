@@ -632,7 +632,7 @@ impl BambuPrinter {
                                 }
                             }
                             Err(err) => {
-                                error!("Error parsing consume index file {consume_index_path}{} : {err}", if i == 0 {", trying second one"} else {""});
+                                error!("Error parsing consume index file {consume_index_path}{}, error : {err}", if i == 0 {", will try second one"} else {""});
                                 error!("File {consume_index_path} contains '{consume_index_str}'");
                             }
                         }
@@ -683,7 +683,7 @@ impl BambuPrinter {
                 if let GcodeAnalysis::Received { at:_, job_number:_, usage: filament_uage } = &curr_print_project.gcode_analysis {
                     let inner_curr_print_project_str = serde_json::to_string(curr_print_project).unwrap();
                     let inner_filament_usage_csv = filament_uage.to_csv().unwrap();
-                    let consume_index_str = format!("{}", curr_print_project.consume_index());
+                    let consume_index_str = serde_json::to_string(&ConsumeIndexState { rev: curr_print_project.consume_store_counter, value: curr_print_project.consume_index() }).unwrap();
                     (inner_curr_print_project_str, inner_filament_usage_csv, consume_index_str, curr_print_project.consume_store_counter)
                 } else {
                     let err_str = format!("[{printer_log_id}] Internal Error: store_print_project_state called at wrong state") ;
