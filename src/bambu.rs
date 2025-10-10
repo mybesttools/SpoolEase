@@ -1439,7 +1439,7 @@ impl BambuPrinter {
             if self.loaded_print_project.is_some() {
                 if let Some(gcode_state) = print.gcode_state {
                     let loaded_project_id = self.loaded_print_project.as_ref().unwrap().project_id.clone();
-                    if [GcodeState::RUNNING, GcodeState::PREPARE].contains(&gcode_state) {
+                    if [GcodeState::RUNNING, GcodeState::PREPARE, GcodeState::PAUSE].contains(&gcode_state) {
                         if let Some(project_id) = print.project_id.clone() {
                             if loaded_project_id == project_id {
                                 self.curr_print_project = self.loaded_print_project.take();

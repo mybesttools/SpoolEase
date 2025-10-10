@@ -587,6 +587,7 @@ pub enum GcodeState {
     RUNNING,
     FINISH,
     FAILED,
+    PAUSE,
     #[serde(other)]
     Unsupported,
 }
