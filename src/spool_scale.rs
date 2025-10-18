@@ -28,7 +28,6 @@ use serde::{Deserialize, Serialize};
 use shared::{
     gcode_analysis_task::{FilamentUsage, GcodeAnalysisNotification, GcodeAnalysisRequest},
     scale::{ConsoleToScale, OtaProgressUpdate, ScaleToConsole},
-    types::AppOtaTrain,
 };
 
 use crate::{app_config::AppConfig, ssdp::SSDPPubSubChannel};
