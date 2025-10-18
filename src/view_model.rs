@@ -22,6 +22,7 @@ use shared::gcode_analysis_task::{
     fetch_gcode_analysis_task, Fetch3mf, FilamentUsage, GcodeAnalysisNotification, GcodeAnalysisNotificationChannel, GcodeAnalysisRequest,
     GcodeAnalysisRequestChannel, GcodeAnalyzerObserver,
 };
+use shared::settings::{OTA_DOMAIN_STABLE, OTA_TLS_CERTIFICATE, SCALE_STABLE_OTA_PATH, SCALE_UNSTABLE_OTA_PATH};
 use shared::types::AppOtaTrain;
 use shared::utils::channel_send;
 use slint::{ComponentHandle, Model, SharedString, ToSharedString};
@@ -39,6 +40,7 @@ use crate::bambu::bambu_print::PrintProject;
 use crate::bambu::{Filament, KExtruder, KInfo, KNozzleDiameter, KNozzleId, KPrinter, SpoolId, Tray, TrayBits};
 use crate::color_utils::get_color_name;
 use crate::filament_staging::StagingOrigin;
+use crate::settings::OTA_TOML_FILENAME;
 use crate::spool_record::{FullSpoolRecord, SpoolRecord, SpoolRecordExt};
 use crate::spool_scale::{self, ScaleWeight, SpoolScaleObserver};
 use crate::ssdp::{ssdp_task, SSDPPubSubChannel};
@@ -865,7 +867,18 @@ impl ViewModel {
             }
             "scale" => {
                 info!("Sending request to update firmware to Scale");
-                let _ = self.spool_scale_model.borrow().update_firmware(train);
+
+                let (ota_domain, ota_path) = match train {
+                    AppOtaTrain::Stable => (OTA_DOMAIN_STABLE, SCALE_STABLE_OTA_PATH),
+                    AppOtaTrain::Unstable => (OTA_DOMAIN_STABLE, SCALE_UNSTABLE_OTA_PATH),
+                };
+
+                let _ = self.spool_scale_model.borrow().update_firmware(
+                    ota_domain,
+                    ota_path,
+                    OTA_TOML_FILENAME,
+                    OTA_TLS_CERTIFICATE,
+                );
             }
             _ => {
                 error!("Internal error, unsupported product to update");

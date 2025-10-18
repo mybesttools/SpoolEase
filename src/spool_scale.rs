@@ -145,8 +145,13 @@ impl SpoolScale {
         }
     }
 
-    pub fn update_firmware(&self, train: AppOtaTrain) -> Result<(), String> {
-        if let Err(err) = self.console_to_scale.try_send(ConsoleToScale::UpdateFirmware { train }) {
+    pub fn update_firmware(&self, ota_domain: &str, ota_path: &str, ota_toml_filename: &str, ota_cert: &str) -> Result<(), String> {
+        if let Err(err) = self.console_to_scale.try_send(ConsoleToScale::UpdateFirmware {
+            ota_domain: ota_domain.to_string(),
+            ota_path: ota_path.to_string(),
+            ota_toml_filename: ota_toml_filename.to_string(),
+            ota_cert: ota_cert.to_string(),
+        }) {
             Err(format!("Failed sending update_firmware to scale {err:?}"))
         } else {
             Ok(())
