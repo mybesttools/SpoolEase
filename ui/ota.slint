@@ -104,7 +104,7 @@ export component OtaDisplay inherits Rectangle {
 
                 beta-row := HorizontalLayout {
                     in-out property <int> pressed-counter:0;
-                    in-out property <bool> debug: Math.mod(pressed-counter,6) > 3;
+                    in-out property <bool> debug: Math.mod(pressed-counter,6) >=3;
                     in-out property <bool> beta: !debug;
                     RectText {
                         width: 100px;
