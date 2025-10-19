@@ -16,13 +16,13 @@ use edge_http::{
 };
 use edge_nal_embassy::{Tcp, TcpBuffers};
 use edge_ws::{FrameHeader, FrameType};
-use embassy_executor::{raw::TaskStorage, Spawner};
+use embassy_executor::Spawner;
 use embassy_futures::select::select3;
 use embassy_net::Stack;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
 use embassy_time::{Instant, Timer};
 use embedded_io_async::Write;
-use framework::{debug, error, framework_web_app::encrypt, info, mk_static, prelude::Framework, term_error, term_info, utils::random_u32, warn};
+use framework::{debug, error, framework_web_app::encrypt, info, mk_static, prelude::*, term_error, term_info, utils::random_u32, warn};
 use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
 use shared::{
@@ -402,27 +402,18 @@ pub fn init(
         available_scales: HashSet::new(),
     }));
 
-    // let task = Box::leak(Box::new(TaskStorage::new())).spawn(||monitor_scales_task(spool_scale_rc.clone(), ssdp_pub_sub));
-    // spawner.spawn(task).ok();
-
-    spawner.spawn(monitor_scales_task(spool_scale_rc.clone(), ssdp_pub_sub)).ok();
+    spawner.spawn_heap(monitor_scales_task(spool_scale_rc.clone(), ssdp_pub_sub)).ok();
 
     if let Some(spool_scale_config) = &app_config.clone().borrow().configured_scale {
         if spool_scale_config.available {
-            let task = Box::leak(Box::new(TaskStorage::new()))
-                .spawn(|| spool_scale_task(framework, app_config, stack, spool_scale_rc.clone(), ssdp_pub_sub));
-            spawner.spawn(task).ok();
-
-            // spawner
-            //     .spawn(spool_scale_task(framework, app_config, stack, spool_scale_rc.clone(), ssdp_pub_sub))
-            //     .ok();
+            spawner.spawn_heap(spool_scale_task(framework, app_config, stack, spool_scale_rc.clone(), ssdp_pub_sub)).ok();
         }
     }
 
     spool_scale_rc
 }
 
-#[embassy_executor::task]
+// #[embassy_executor::task]
 pub async fn monitor_scales_task(spool_scale_rc: Rc<RefCell<SpoolScale>>, ssdp_pub_sub: &'static SSDPPubSubChannel) {
     let mut ssdp_subscribe = ssdp_pub_sub.subscriber().unwrap();
     loop {

@@ -25,7 +25,6 @@ use bambu_print::PrintProject;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use core::{cell::RefCell, mem::swap, str::FromStr};
 use derivative::Derivative;
-use embassy_executor::raw::TaskStorage;
 use embassy_futures::select::{select, Either};
 use embassy_net::Ipv4Address;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, pubsub::PubSubChannel};
@@ -1228,23 +1227,14 @@ impl BambuPrinter {
             if let Some(prev_state) = prev_state {
                 if self.ams_trays()[..] != prev_state.0 || *self.virt_tray() != prev_state.1 {
                     let spawner = self.app_config.borrow().framework.borrow().spawner;
-                    let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| {
-                        fix_k_on_restart(
+                    spawner
+                        .spawn_heap(fix_k_on_restart(
                             self.bambu_model.as_ref().unwrap().clone(),
                             prev_state.0, // ams_trays
                             prev_state.1, // virt_tray
                             prev_state.2, // nozzle_diameter
-                        )
-                    });
-                    spawner.spawn(task).ok();
-                    // spawner
-                    //     .spawn(fix_k_on_restart(
-                    //         self.bambu_model.as_ref().unwrap().clone(),
-                    //         prev_state.0, // ams_trays
-                    //         prev_state.1, // virt_tray
-                    //         prev_state.2, // nozzle_diameter
-                    //     ))
-                    //     .ok();
+                        ))
+                        .ok();
                     triggered_k_restore_sequence = true;
                 }
             }
@@ -2380,8 +2370,8 @@ pub fn init(
         store_state_request_channel,
     );
 
-    let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| {
-        restartable_mqtt_task(
+    spawner
+        .spawn_heap(restartable_mqtt_task(
             framework,
             8192,
             4096,
@@ -2390,21 +2380,8 @@ pub fn init(
             bambu_printer.clone(),
             restart_printer,
             ssdp_pub_sub,
-        )
-    });
-    spawner.spawn(task).ok();
-    // spawner
-    //     .spawn(restartable_mqtt_task(
-    //         framework,
-    //         8192,
-    //         4096,
-    //         read_packets.clone(),
-    //         write_packets,
-    //         bambu_printer.clone(),
-    //         restart_printer,
-    //         ssdp_pub_sub,
-    //     ))
-    //     .ok();
+        ))
+        .ok();
 
     spawner.spawn(incoming_messages_task(read_packets, bambu_printer.clone())).ok();
 

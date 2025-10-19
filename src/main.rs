@@ -26,7 +26,7 @@ mod spool_record;
 mod types;
 mod app_ota;
 
-use alloc::{boxed::Box, format, rc::Rc, string::ToString};
+use alloc::{format, rc::Rc, string::ToString};
 use shared::settings::OTA_TLS_CERTIFICATE;
 use core::{cell::RefCell, marker::PhantomData, net::Ipv4Addr};
 use embassy_futures::yield_now;
@@ -42,7 +42,7 @@ use slint::ComponentHandle;
 extern crate alloc;
 
 use embassy_embedded_hal::adapter::BlockingAsync;
-use embassy_executor::{raw::TaskStorage, Spawner};
+use embassy_executor::Spawner;
 use embassy_net::{Config, Ipv4Cidr, StackResources, StaticConfigV4};
 use embassy_time::{Duration, Timer};
 
@@ -130,11 +130,7 @@ async fn main(spawner: Spawner) {
     // Last, reserve from 'standard' area, if need additional memory for esp-wifi/esp-mbedtls, need to increase this
     esp_alloc::heap_allocator!(147 * 1024);
 
-    let task = Box::leak(Box::new(TaskStorage::new())).spawn(heap_stats_task);
-    spawner.spawn(task).ok();
-    // storage.spawn(|| heap_stats_task());
-
-    // spawner.spawn(heap_stats_task()).ok();
+    spawner.spawn_heap(heap_stats_task()).ok();
 
     // == Setup timers & delay ========================================================
 
@@ -351,11 +347,8 @@ async fn main(spawner: Spawner) {
 
     debug!("Setting up Wifi");
 
-    let task = Box::leak(Box::new(TaskStorage::new())).spawn(||framework::wifi::connection_task_inner(controller, sta_stack, ap_stack, rx, tx, framework.clone()));
-    spawner.spawn(task).ok();
-    // spawner
-    //     .spawn(framework::wifi::connection_task(controller, sta_stack, ap_stack, rx, tx, framework.clone()))
-    //     .ok();
+    spawner.spawn_heap(framework::wifi::connection_task_inner(controller, sta_stack, ap_stack, rx, tx, framework.clone())).ok();
+
     spawner.spawn(framework::wifi::sta_net_task(sta_runner)).ok();
     spawner.spawn(framework::wifi::ap_net_task(ap_runner)).ok(); // TODO: Maybe move this to run only when needed (in wifi.rs)
 
@@ -451,9 +444,8 @@ async fn main(spawner: Spawner) {
     );
 
     for id in 0..WEB_SERVER_NUM_LISTENERS {
-        let task = Box::leak(Box::new(TaskStorage::new())).spawn(||web_server_task(web_server_runner, id));
-        spawner.spawn(task).ok();
-        // spawner.spawn(web_server_task(web_server_runner, id)).unwrap();
+
+        spawner.spawn_heap(web_server_task(web_server_runner, id)).unwrap();
     }
 
     // yields for term initialization to complete until term is fixed to not require this

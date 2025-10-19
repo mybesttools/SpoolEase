@@ -10,7 +10,6 @@ use alloc::{
     string::ToString,
     vec::Vec,
 };
-use embassy_executor::raw::TaskStorage;
 use embassy_net::Stack;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
@@ -22,7 +21,9 @@ use shared::gcode_analysis_task::{
     fetch_gcode_analysis_task, Fetch3mf, FilamentUsage, GcodeAnalysisNotification, GcodeAnalysisNotificationChannel, GcodeAnalysisRequest,
     GcodeAnalysisRequestChannel, GcodeAnalyzerObserver,
 };
-use shared::settings::{OTA_DOMAIN_DEBUG, OTA_DOMAIN_STABLE, OTA_TLS_CERTIFICATE, SCALE_DEBUG_OTA_PATH, SCALE_STABLE_OTA_PATH, SCALE_UNSTABLE_OTA_PATH};
+use shared::settings::{
+    OTA_DOMAIN_DEBUG, OTA_DOMAIN_STABLE, OTA_TLS_CERTIFICATE, SCALE_DEBUG_OTA_PATH, SCALE_STABLE_OTA_PATH, SCALE_UNSTABLE_OTA_PATH,
+};
 use shared::types::AppOtaTrain;
 use shared::utils::channel_send;
 use slint::{ComponentHandle, Model, SharedString, ToSharedString};
@@ -128,9 +129,7 @@ impl ViewModel {
 
         // Initialize ssdp
         let ssdp_pub_sub = mk_static!(SSDPPubSubChannel, SSDPPubSubChannel::new());
-        let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| ssdp_task(framework.clone(), ssdp_pub_sub));
-        spawner.spawn(task).ok();
-        // spawner.spawn(ssdp_task(framework.clone(), ssdp_pub_sub)).ok();
+        spawner.spawn_heap(ssdp_task(framework.clone(), ssdp_pub_sub)).ok();
 
         // Initialize store
         let store = Store::new(framework.clone());
@@ -277,18 +276,11 @@ impl ViewModel {
                 ))
                 .ok();
 
-
-            let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| store_printers_consume(self.view_model.clone().unwrap()));
             self.framework
                 .borrow()
                 .spawner
-                .spawn(task)
+                .spawn_heap(store_printers_consume(self.view_model.clone().unwrap()))
                 .ok();
-            // self.framework
-            //     .borrow()
-            //     .spawner
-            //     .spawn(store_printers_consume(self.view_model.clone().unwrap()))
-            //     .ok();
         }
         let moved_view_model = self.view_model.clone().unwrap();
         ui_app_backend.on_link_tag_to_spool_id(move |tag_id, spool_id, final_step| {
@@ -445,11 +437,17 @@ impl ViewModel {
     }
 
     pub fn init_app_stuff(&mut self) {
-        let async_tasks_task = Box::leak(Box::new(TaskStorage::new())).spawn(|| app_async_task(self.view_model.clone().unwrap()));
-        self.framework.borrow().spawner.spawn(async_tasks_task).ok();
+        self.framework
+            .borrow()
+            .spawner
+            .spawn_heap(app_async_task(self.view_model.clone().unwrap()))
+            .ok();
 
-        let app_ota_task = Box::leak(Box::new(TaskStorage::new())).spawn(|| app_ota_task(self.framework.clone(), self.view_model.clone().unwrap()));
-        self.framework.borrow().spawner.spawn(app_ota_task).ok();
+        self.framework
+            .borrow()
+            .spawner
+            .spawn_heap(app_ota_task(self.framework.clone(), self.view_model.clone().unwrap()))
+            .ok();
 
         // Subscribe to rust spool_tag events
         let trait_for_spool_tag_rc: Rc<RefCell<dyn spool_tag::SpoolTagObserver>> = self.view_model.as_ref().unwrap().clone();
@@ -882,12 +880,10 @@ impl ViewModel {
                     AppOtaTrain::Debug => (OTA_DOMAIN_DEBUG, SCALE_DEBUG_OTA_PATH),
                 };
 
-                let _ = self.spool_scale_model.borrow().update_firmware(
-                    ota_domain,
-                    ota_path,
-                    OTA_TOML_FILENAME,
-                    OTA_TLS_CERTIFICATE,
-                );
+                let _ = self
+                    .spool_scale_model
+                    .borrow()
+                    .update_firmware(ota_domain, ota_path, OTA_TOML_FILENAME, OTA_TLS_CERTIFICATE);
             }
             _ => {
                 error!("Internal error, unsupported product to update");
@@ -1277,18 +1273,21 @@ impl ViewModel {
                     "Launching a new fetch_gcode_analysis_task task # {}",
                     self.console_available_gcode_tasks + 1
                 );
-                let task = Box::leak(Box::new(TaskStorage::new())).spawn(|| {
-                    let trait_for_gcode_analyzer_rc: Rc<RefCell<dyn GcodeAnalyzerObserver>> = self.view_model.clone().unwrap();
-                    let trait_for_gcode_analyzer_weak: Weak<RefCell<dyn GcodeAnalyzerObserver>> = Rc::downgrade(&trait_for_gcode_analyzer_rc);
-                    fetch_gcode_analysis_task(
-                        self.framework.clone(),
-                        self.gcode_analysis_request_channel.clone(),
-                        self.gcode_analysis_notification_channel.clone(),
-                        trait_for_gcode_analyzer_weak,
-                        gcode_job.analysis_request.take(),
-                    )
-                });
-                self.framework.borrow().spawner.spawn(task).ok();
+                self.framework
+                    .borrow()
+                    .spawner
+                    .spawn_heap({
+                        let trait_for_gcode_analyzer_rc: Rc<RefCell<dyn GcodeAnalyzerObserver>> = self.view_model.clone().unwrap();
+                        let trait_for_gcode_analyzer_weak: Weak<RefCell<dyn GcodeAnalyzerObserver>> = Rc::downgrade(&trait_for_gcode_analyzer_rc);
+                        fetch_gcode_analysis_task(
+                            self.framework.clone(),
+                            self.gcode_analysis_request_channel.clone(),
+                            self.gcode_analysis_notification_channel.clone(),
+                            trait_for_gcode_analyzer_weak,
+                            gcode_job.analysis_request.take(),
+                        )
+                    })
+                    .ok();
                 self.console_available_gcode_tasks += 1;
                 gcode_job.job_location = GcodeJobLocation::Console;
             } else {

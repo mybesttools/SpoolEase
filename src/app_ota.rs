@@ -4,7 +4,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
 use framework::framework::FrameworkObserver;
 use framework::ota::{run_ota, OtaObserver, OtaRequest};
-use framework::{debug, error, info};
+use framework::{error, info};
 use shared::settings::{OTA_DOMAIN_DEBUG, OTA_DOMAIN_STABLE, OTA_DOMAIN_UNSTABLE, OTA_TLS_CERTIFICATE, SCALE_DEBUG_OTA_PATH, SCALE_STABLE_OTA_PATH, SCALE_UNSTABLE_OTA_PATH};
 use shared::types::AppOtaTrain;
 
