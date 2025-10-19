@@ -17,7 +17,7 @@ use alloc::{
 use framework::{
     debug, error, info,
     ntp::InstantExt,
-    prelude::{Framework, SDCardStoreErrorSource},
+    prelude::*,
     settings::{FILE_STORE_MAX_DIRS, FILE_STORE_MAX_FILES},
     term_error, term_info, warn,
 };
@@ -143,7 +143,7 @@ impl Store {
         self.framework
             .borrow()
             .spawner
-            .spawn(store_task(self.framework.clone(), store, view_model))
+            .spawn_heap(store_task(self.framework.clone(), store, view_model))
             .ok();
     }
 
@@ -687,7 +687,7 @@ impl Store {
     // }
 }
 
-#[embassy_executor::task] // up to two printers in parallel
+// #[embassy_executor::task]
 pub async fn store_task(framework: Rc<RefCell<Framework>>, store: Rc<Store>, view_model: Rc<RefCell<ViewModel>>) {
     let db_available;
     {

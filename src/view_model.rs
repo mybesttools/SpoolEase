@@ -269,7 +269,7 @@ impl ViewModel {
             self.framework
                 .borrow()
                 .spawner
-                .spawn(printers_scheduled_store_state_task(
+                .spawn_heap(printers_scheduled_store_state_task(
                     self.framework.clone(),
                     self.view_model.clone().unwrap(),
                     self.store.clone(),
@@ -2624,7 +2624,7 @@ pub enum StoreStateRequest {
 
 pub type StoreStateRequestChannel = Channel<NoopRawMutex, StoreStateRequest, 5>;
 
-#[embassy_executor::task] // up to two printers in parallel
+// #[embassy_executor::task] // up to two printers in parallel
 pub async fn printers_scheduled_store_state_task(framework: Rc<RefCell<Framework>>, view_model: Rc<RefCell<ViewModel>>, store: Rc<Store>) {
     info!("store_state_task started");
     {
