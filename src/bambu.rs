@@ -261,6 +261,7 @@ impl BambuPrinter {
 
     pub fn init_printer_persistent_state(&mut self, mut state: PrinterPersistentState, store: &Rc<Store>) {
         self.inner_ams_trays = core::mem::take(state.ams_trays.to_mut());
+        self.inner_ams_trays.resize(24,Tray::default()); 
         self.inner_virt_tray = core::mem::take(state.virt_tray.to_mut());
         self.inner_nozzle_diameter = state.nozzle_diameter;
         self.inner_ams_exist_bits = state.ams_exist_bits;
