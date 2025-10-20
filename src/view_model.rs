@@ -1748,6 +1748,7 @@ impl ViewModel {
         let store = view_model.borrow().store.clone();
         if let Some(mut spool_rec) = store.get_spool_by_id(&spool_id) {
             spool_rec.weight_current = Some(weight_current);
+            spool_rec.consumed_since_weight = 0.0;
             if weight_new != -1 {
                 spool_rec.weight_new = Some(weight_new);
                 if weight_new != 0 {
