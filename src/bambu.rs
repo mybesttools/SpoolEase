@@ -64,13 +64,13 @@ pub struct BambuPrinter {
     pub printer_index: usize, // index of printer in the array of printers, if a config is not good and skipped, then index would be different than number
     pub printer_serial: String, // mandatory, so configured is the same as actual
     pub printer_access_code: String, // mandatory, so configured is the same as actual
-    pub configured_printer_name: Option<String>,
+    pub configured_printer_name: Option<String>,  // the name from config, could be empty
+    pub inner_printer_name: String,  // Unknown or Configured name or from SSDP if discovered
+    pub printer_selector_name: String, // Will be assigned printer name from config OR printer serial (which is always availble) if config not available
     pub configured_printer_ip: Option<Ipv4Address>,
     pub auto_restore_k: bool,
     pub track_print_consume: bool,
     pub fetch_3mf: Fetch3mf,
-    pub inner_printer_name: String,
-    pub printer_selector_name: String, // configured_printer_name or if not set then printer_serial which is always available
     pub printer_ip: Ipv4Address,
     pub printer_uuid_to_encode: String,
     pub printer_connectivity_ok: Option<bool>,
@@ -268,7 +268,18 @@ impl BambuPrinter {
         self.inner_tray_exist_bits = state.tray_exist_bits;
         self.inner_tray_read_done_bits = state.tray_read_done_bits;
         self.calibrations = core::mem::take(state.calibrations.to_mut());
-        self.inner_printer_name = state.printer_name.clone();
+        if self.configured_printer_ip.is_some() { // meaning won't have name from SSDP
+            // in this case the name should be taken from the configuration and not from the state, could be it is newer
+            if self.inner_printer_name==default_printer_name() {
+                // can't be in case printer ip configured, since web config forces name, but lets be defensive about it and support such case
+                self.inner_printer_name = state.printer_name.clone();
+            }
+        } else {
+            // we will get a name from SSDP, and could be such name is in the state and is better for this printer_name in case it exists, but only if it exists not as unknown in state
+            if state.printer_name != default_printer_name() { // override printer_name (which could be from configured name) only if the value stored is not 
+                self.inner_printer_name = state.printer_name.clone();
+            } 
+        }
 
         // this is for upgrading tray from using the old tag_info to the id.
         // It happens only until the first state store takes place again, because then the old tag_info is not serialized and the id will be there
@@ -484,7 +495,7 @@ impl BambuPrinter {
         printer_index: usize,
         printer_serial: &str,
         printer_access_code: &str,
-        printer_name: &Option<String>,
+        printer_config_name: &Option<String>,
         printer_ip: &Option<Ipv4Address>,
         auto_restore_k: bool,
         track_print_consume: bool,
@@ -500,7 +511,7 @@ impl BambuPrinter {
             printer_index,
             printer_serial,
             printer_access_code,
-            printer_name,
+            printer_config_name,
             printer_ip,
             auto_restore_k,
             track_print_consume,
@@ -521,7 +532,7 @@ impl BambuPrinter {
         printer_index: usize,
         printer_serial: &str,
         printer_access_code: &str,
-        printer_name: &Option<String>,
+        printer_config_name: &Option<String>,
         printer_ip: &Option<Ipv4Address>,
         auto_restore_k: bool,
         track_print_consume: bool,
@@ -548,7 +559,7 @@ impl BambuPrinter {
         let printer_uuid_to_encode = hashed_encoded_serial;
 
         // Define a user oriented name for selection
-        let printer_selector_name = if let Some(printer_name) = &printer_name {
+        let printer_selector_name = if let Some(printer_name) = &printer_config_name {
             printer_name.clone()
         } else {
             printer_serial.to_string()
@@ -561,13 +572,13 @@ impl BambuPrinter {
             printer_serial: String::from(printer_serial),
             printer_access_code: String::from(printer_access_code),
             configured_printer_ip: *printer_ip,
-            configured_printer_name: printer_name.clone(),
+            configured_printer_name: printer_config_name.clone(),
+            inner_printer_name: printer_config_name.clone().unwrap_or(default_printer_name()),
+            printer_selector_name, 
             auto_restore_k,
             track_print_consume,
             fetch_3mf,
             printer_ip: printer_ip.unwrap_or(Ipv4Address::new(0, 0, 0, 0)),
-            inner_printer_name: printer_name.clone().unwrap_or(default_printer_name()),
-            printer_selector_name,
             printer_uuid_to_encode,
             printer_connectivity_ok: None,
             inner_nozzle_diameter: None,
@@ -1151,8 +1162,10 @@ impl BambuPrinter {
             if let Ok(fun) = u64::from_str_radix(fun, 16) {
                 if fun & 0x20000000 != 0 {
                     // locked mode
+                    // self.locked_mode = Some(true)
                 } else {
                     // dev mode
+                    // self.locked_mode = Some(false)
                 }
             }
         }
@@ -2336,7 +2349,7 @@ pub fn init(
         return Err("Missing printer access code".to_string());
     };
 
-    let printer_name = printer_config.name.clone();
+    let printer_config_name = printer_config.name.clone();
     let printer_ip = printer_config.ip;
     let log_filter = if let Some(log_filter) = &printer_config.log_filter {
         *log_filter
@@ -2359,7 +2372,7 @@ pub fn init(
         printer_index,
         &printer_serial,
         &printer_access_code,
-        &printer_name,
+        &printer_config_name,
         &printer_ip,
         auto_restore_k,
         track_print_consume,
