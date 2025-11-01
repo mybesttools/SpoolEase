@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "SpoolEase"
-version = "0.5.0-b.19"
+version = "0.5.0-b.20"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -2099,6 +2099,7 @@ dependencies = [
 [[package]]
 name = "esp-hal-app-framework"
 version = "0.5.0"
+source = "git+https://github.com/yanshay/esp-hal-app/?tag=0.5.0#7c17123b6065120ba5b3c7d35435719b44974d4a"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -2174,6 +2175,7 @@ dependencies = [
 [[package]]
 name = "esp-hal-app-framework-macros"
 version = "0.1.0"
+source = "git+https://github.com/yanshay/esp-hal-app/?tag=0.5.0#7c17123b6065120ba5b3c7d35435719b44974d4a"
 dependencies = [
  "flate2",
  "proc-macro2",
