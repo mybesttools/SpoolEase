@@ -118,7 +118,7 @@ This software is licensed under Apache License, Version 2.0 **with Commons Claus
 - ❌ Cannot be sold, offered as a service, or used for consulting, see [LICENSE.md](LICENSE.md) for more details
 - 📧 For commercial licensing inquiries about restricted uses, contact: **SpoolEase at Gmail dot Com**
 
-### Contribution notice
+### Contribution Notice
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
 the work by you, shall be licensed as above, without any additional terms or conditions.
