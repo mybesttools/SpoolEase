@@ -462,7 +462,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
             "/inventory",
             get_service(picoserve::response::File::with_content_type_and_headers(
                 "text/html",
-                include_bytes!("../../inventory/dist/src/apps/inventory/index.html.gz"),
+                include_bytes!("../static/inventory/index.html.gz"),
                 &[("Content-Encoding", "gzip")],
             )),
         );
@@ -471,7 +471,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
             "/inventory.js",
             get_service(picoserve::response::File::with_content_type_and_headers(
                 "application/javascript; charset=utf-8",
-                include_bytes!("../../inventory/dist/inventory.js.gz"),
+                include_bytes!("../static/inventory/inventory.js.gz"),
                 &[("Content-Encoding", "gzip")],
             )),
         );
@@ -518,7 +518,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
             "/style.css",
             get_service(picoserve::response::File::with_content_type_and_headers(
                 "text/css",
-                include_bytes!("../../inventory/dist/style.css.gz"),
+                include_bytes!("../static/inventory/style.css.gz"),
                 &[("Content-Encoding", "gzip")],
             )),
         );

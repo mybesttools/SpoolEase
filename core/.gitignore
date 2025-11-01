@@ -51,8 +51,8 @@ Temporary Items
 
 # End of https://www.toptal.com/developers/gitignore/api/macos
 
-src/certs
-!src/certs/bambulab.pem
+./src/certs
+!./src/certs/bambulab.pem
 .envrc
 
 _untracked/
