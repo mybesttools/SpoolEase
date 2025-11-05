@@ -938,16 +938,25 @@ impl BambuPrinter {
         }
     }
 
-    fn get_active_extruder_from_extruder_state(extruder_state: &Option<i32>) -> usize {
-        (extruder_state.unwrap_or_default() >> 4 & 0xF) as usize
+    fn get_active_extruder_from_extruder_state(extruder_state: &Option<i32>) -> Option<usize> {
+        let extruder_index = (extruder_state.unwrap_or_default() >> 4 & 0xF) as usize;
+        if extruder_index <= 1 {
+            Some(extruder_index)
+        } else {
+            None
+        }
     }
 
-    fn get_active_extruder(&self) -> usize {
+    fn get_active_extruder(&self) -> Option<usize> {
         Self::get_active_extruder_from_extruder_state(&self.extruder_state)
     }
 
     fn get_tray_active(&self) -> i32 {
-        self.tray_now[self.get_active_extruder()]
+        if let Some(active_extruder) = self.get_active_extruder() {
+            self.tray_now[active_extruder]
+        } else {
+            255
+        }
     }
 
     fn get_print_data_tray_active(print: &bambu_api::PrintData, current_tray_active: i32) -> i32 {
@@ -955,7 +964,10 @@ impl BambuPrinter {
         // always a single value, also in multi extruder printers
         if let Some(extruder) = print.device.as_ref().and_then(|d| d.extruder.as_ref()) {
             let active_extruder = Self::get_active_extruder_from_extruder_state(&extruder.state);
-            Self::normalized_h2d_tray_xxx(extruder.info[active_extruder].snow)
+            match active_extruder {
+                Some(active_extruder) => Self::normalized_h2d_tray_xxx(extruder.info[active_extruder].snow),
+                None => 255,
+            }
         } else if let Some(tray_now) = &print.ams.as_ref().and_then(|ams| ams.tray_now) {
             *tray_now
         } else {
@@ -971,7 +983,7 @@ impl BambuPrinter {
             0..16 => Some(tray_xxx as usize),
             128..135 => Some((tray_xxx - 128 + 16) as usize),
             254 => Some(254),
-            _ => None
+            _ => None,
         }
     }
 
@@ -1046,7 +1058,11 @@ impl BambuPrinter {
 
     #[allow(non_snake_case)]
     pub fn process_print_message__vir_slots(&mut self, vir_slot: &[PrintTray]) -> (bool, Option<SpoolId>) {
-        let vt_tray = vir_slot.iter().find(|slot| slot.id == Some(254));
+        let vt_tray = if vir_slot.len() == 1 {
+            Some(&vir_slot[0]) // probably would be 255, but let's pick it anyway if only one
+        } else {
+            vir_slot.iter().find(|slot| slot.id == Some(255)) // 255 is right
+        };
         if let Some(vt_tray) = vt_tray {
             self.process_print_message__vt_tray(vt_tray)
         } else {
@@ -1186,7 +1202,7 @@ impl BambuPrinter {
         }
         // Get a snapshot of current trays and diameter before any later change, to later be able to update cali_idx if removed
         // leave this section here because later changes will affect it (like self.nozzle_diameter)
-        let full_push_status = print.ams.is_some() && print.vt_tray.is_some();
+        let full_push_status = print.ams.is_some() && (print.vt_tray.is_some() || print.vir_slot.is_some());
         let prev_state = if full_push_status && self.auto_restore_k && self.printer_was_disconnected {
             // TODO: To save memory (a few kb's, might be needed in the future) copy from ams_trays only the data requried and not entire tray
             Some((self.ams_trays().to_vec(), self.virt_tray().clone(), self.nozzle_diameter().clone()))

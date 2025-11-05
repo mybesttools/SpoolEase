@@ -386,12 +386,7 @@ P714fe8c,ELEGOO PLA Pro,190,240
 Pd7bcff9,FLASHFORGE ASA Basic,240,280
 Pda16356,SUNLU PLA PLA + 2,190,240"
         ></textarea>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <button onclick="copyCustomFilamentsToClipboard()">Copy to Clipboard *</button>
-          <span id="custom-filaments-chars-left" class="csv-chars-left">0</span>
-        </div>
-        <span style="margin-bottom: 8px; display: inline-block;">(* Paste copied text in mobile tag viewer configuration)</span>
-        <label>Press "Create List" button and Select Folder</label>
+        <p>Press "Create List" Button and Select Folder as Explained Here:</p>
         <label>On MacOS</label>
           <p class="i0">/Users</p>
           <p class="i1">/{user-name}</p>
@@ -425,7 +420,7 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
       <h2 class="section-title">Network Firmware Upgrade</h2>
 
       <div class="form-row">
-        <label for="curr-version">Current firmware version:</label>
+        <label for="curr-version">Current firmware version. For none release versions (beta/debug), update from console:</label>
         <p class="status-text" id="curr-version"></p>
       </div>
 
@@ -863,16 +858,16 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
                     <label for="fetch-3mf" style="margin-top: 0px; margin-bottom:0px; padding-left: 2px;">Default Fetch 3MF From</label>
                     <select style="padding-right: 12px; height: 20px; font-size: 1rem; margin-left: 12px;" class="fetch-3mf" type="checkbox" id="fetch-3mf">
                       <option value="printer-ftp">FTP (No Authorization)&nbsp;</option>
-                      <option value="cloud-http">HTTP</option>
+                      <option value="cloud-http">HTTP (Only in Cloud)</option>
                     </select>
                   </div>
                 </div>
                 <div class = "form-row">
                   <div style="display: flex; align-items: center; margin-bottom: 0px;">
-                    <input class="auto-restore-k" type="checkbox" id="auto-restore-k" checked>
+                    <input class="auto-restore-k" type="checkbox" id="auto-restore-k">
                     <label for="auto-restore-k" style="margin-top: 0px; margin-bottom: 0px; padding-left: 2px;">Auto Restore K Values On Printer Restart</label>
                   </div>
-                  <span >Mainly affects X1, when it forgets K on restart.</span>
+                  <span>Use only with X1 printer, if it forgets K on restart.</span>
                 </div>
                 <div class = "form-row">
                   <div style="display: flex; align-items: center; margin-bottom: 0px;">
@@ -1368,18 +1363,6 @@ Pda16356,SUNLU PLA PLA + 2,190,240"
           return `"${value.replace(/"/g, '""')}"`;
         }
         return value;
-      }
-
-      // Because runnig over HTTP, need to use use techniques. New ones don't work over HTTP
-      function copyCustomFilamentsToClipboard() {
-        let textarea = document.getElementById('custom-filaments-text');
-        textarea.focus();
-        textarea.select();
-        try {
-          document.execCommand('copy');
-        } catch (e) {
-          alert('Copy to clipboard failed');
-        }
       }
 
       function applyScaleSettings() {
