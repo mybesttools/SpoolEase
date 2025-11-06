@@ -1213,7 +1213,7 @@ impl ViewModel {
         if let Some(weight_left) = self.weight_left(tray) {
             slint::format!("{:.1}g", weight_left)
         } else if tray.meta_info.consumed_since_load != 0.0 {
-            slint::format!("-{:.2}g", tray.meta_info.consumed_since_load)
+            slint::format!("-{:.1}g", tray.meta_info.consumed_since_load)
         } else {
             SharedString::new()
         }
@@ -2160,14 +2160,14 @@ impl BambuPrinterObserver for ViewModel {
             bambu::PrinterModelSeries::X1 | bambu::PrinterModelSeries::H2 | bambu::PrinterModelSeries::P2 | bambu::PrinterModelSeries::Unknown => "/",
         };
 
-        let mut threemf_ftp_filename: String = subtask_name
+        let threemf_ftp_filename: String = subtask_name
             .chars()
             .map(|c| if chars_to_replace_for_file.contains(c) { '_' } else { c })
             .collect();
 
-        if matches!(printer.model_series(),bambu::PrinterModelSeries::P2) {
-            threemf_ftp_filename = format!("{}.gcode", threemf_ftp_filename);
-        }
+        // if matches!(printer.model_series(),bambu::PrinterModelSeries::P2) {
+        //     threemf_ftp_filename = format!("{}.gcode", threemf_ftp_filename);
+        // }
 
         let ftp_memory_save = required_tls_slots == 1;
 

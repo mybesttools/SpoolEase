@@ -195,9 +195,9 @@ where
         }
     }
 
-    pub async fn start_retrieve<'b, 'c>(
+    pub async fn start_retrieve_first_of<'b, 'c>(
         &mut self,
-        path: &'c str,
+        paths: &[String],
         mut data_socket: TcpSocket<'b>,
         memory_save: bool,
     ) -> Result<Option<usize>, Error>
@@ -233,17 +233,25 @@ where
 
         let _response = self.control_transaction("PROT P\r\n").await?;
 
-        self.write_control(&format!("RETR {path}\r\n")).await?; // only send request at this time (vsftpd sequence)
         let mut retr_response = ControlResponse::default();
 
-        if memory_save {
-            retr_response = self.read_decoded_control_response().await?;
-            if retr_response.code != 150 {
-                return Err(Error::Ftp {
-                    response: retr_response,
-                });
-            }
-        };
+        for path in paths {
+            debugex!(">>>> Trying to read {path}");
+            self.write_control(&format!("RETR {path}\r\n")).await?; // only send request at this time (vsftpd sequence)
+
+            if memory_save {
+                retr_response = self.read_decoded_control_response().await?;
+                if retr_response.code == 550 {
+                    continue;
+                } else if retr_response.code != 150 {
+                    return Err(Error::Ftp {
+                        response: retr_response,
+                    });
+                } else {
+                    break;
+                }
+            };
+        }
 
         data_socket
             .connect(pasv_result)
