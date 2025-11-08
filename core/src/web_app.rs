@@ -88,7 +88,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
             }),
         );
 
-        // TODO: >>>>>> Move to framework with setting for the css
+//        TODO: >>>>>> Move to framework with setting for the css
         let router = router.route(
             "/styles.css",
             get_service(picoserve::response::File::with_content_type_and_headers(
@@ -462,19 +462,19 @@ impl AppWithStateBuilder for NestedAppBuilder {
             "/inventory",
             get_service(picoserve::response::File::with_content_type_and_headers(
                 "text/html",
-                include_bytes!("../static/inventory/index.html.gz"),
+                include_bytes_gz!("static/inventory/index.html"),
                 &[("Content-Encoding", "gzip")],
             )),
         );
 
-        let router = router.route(
-            "/inventory.js",
-            get_service(picoserve::response::File::with_content_type_and_headers(
-                "application/javascript; charset=utf-8",
-                include_bytes!("../static/inventory/inventory.js.gz"),
-                &[("Content-Encoding", "gzip")],
-            )),
-        );
+        // let router = router.route(
+        //     "/inventory.js",
+        //     get_service(picoserve::response::File::with_content_type_and_headers(
+        //         "application/javascript; charset=utf-8",
+        //         include_bytes!("../static/inventory/inventory.js.gz"),
+        //         &[("Content-Encoding", "gzip")],
+        //     )),
+        // );
 
         let router = router.route(
             "/api/store-backup",
@@ -513,15 +513,15 @@ impl AppWithStateBuilder for NestedAppBuilder {
             ),
         );
 
-        #[allow(clippy::let_and_return)]
-        let router = router.route(
-            "/style.css",
-            get_service(picoserve::response::File::with_content_type_and_headers(
-                "text/css",
-                include_bytes!("../static/inventory/style.css.gz"),
-                &[("Content-Encoding", "gzip")],
-            )),
-        );
+        // #[allow(clippy::let_and_return)]
+        // let router = router.route(
+        //     "/style.css",
+        //     get_service(picoserve::response::File::with_content_type_and_headers(
+        //         "text/css",
+        //         include_bytes!("../static/inventory/style.css.gz"),
+        //         &[("Content-Encoding", "gzip")],
+        //     )),
+        // );
 
         router
     }
