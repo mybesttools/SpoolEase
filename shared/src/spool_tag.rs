@@ -15,8 +15,7 @@ use framework::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ndef,
-    pn532_ext::{self},
+    ndef, nfc::{self, NfcTagType, get_nfc_tag_type}, pn532_ext::{self}
 };
 
 pub const TAG_PLACEHOLDER: &str = "$tag-id$";
@@ -368,7 +367,7 @@ async fn nfc_task(
                 ),
             )
             .await;
-
+            let mut nfc_tag_type = NfcTagType::Unknown;
             let tag_res = match res {
                 Either::First(new_tag_operation) => {
                     debug!("Received request for operation {new_tag_operation:?} from now on");
@@ -394,9 +393,16 @@ async fn nfc_task(
                             );
                             continue;
                         }
+                        nfc_tag_type = get_nfc_tag_type(response);
+                        if nfc_tag_type == NfcTagType::Unknown {
+                            error!("Unknown tag type, this tag can't be used");
+                            continue;
+                        } else {
+                            debug!("Scanned tag type is: {nfc_tag_type:?}");
+                        }
                         let uid_len = response[5] as usize;
                         if uid_len < 4 || 6 + uid_len > response.len() {
-                            error!("Error with tag response, uid_len doen't seem right {uid_len}");
+                            error!("Error with tag response, uid_len doesn't seem right {uid_len}");
                             continue;
                         }
                         let uid = &response[6..6 + uid_len];
@@ -428,6 +434,14 @@ async fn nfc_task(
                     match &curr_operation_with_tag.as_ref() {
                         Some(TagOperation::WriteTag(write_tag_reuest)) => {
                             debug!("Performing write tag operation");
+                            if nfc_tag_type != NfcTagType::NTAG {
+                                spool_tag_rc.borrow().notify_tag_status(Status::Failure(
+                                    Failure::TagWriteFailure(
+                                        "Can't Encode MIFARE/Unknown Type Tags\nOnly NTAGs can be Encoded".to_string(),
+                                    ),
+                                ));
+                                continue;
+                            }
                             spool_tag_rc
                                 .borrow()
                                 .notify_tag_status(Status::FoundTagNowWriting);
@@ -446,7 +460,7 @@ async fn nfc_task(
                                 URL_SAFE_NO_PAD.encode(last_seen_tag.as_ref().unwrap().uid());
                             let final_tag_text =
                                 write_tag_reuest.text.replace(TAG_PLACEHOLDER, &tag_uid);
-                            match crate::nfc::write_ndef_url_record(
+                            match nfc::write_ndef_url_record(
                                 &mut pn532,
                                 &final_tag_text,
                                 Duration::from_secs(2),
@@ -482,11 +496,21 @@ async fn nfc_task(
                             spool_tag_rc
                                 .borrow()
                                 .notify_tag_status(Status::FoundTagNowReading);
-                            match crate::nfc::read_ndef_payload(
-                                &mut pn532,
-                                Duration::from_millis(2000),
-                            )
-                            .await
+
+                            let res = if nfc_tag_type== NfcTagType::NTAG {
+                                match crate::nfc::read_ndef_payload(
+                                    &mut pn532,
+                                    Duration::from_millis(2000),
+                                )
+                                .await {
+                                    Ok(v) => Ok(v),
+                                    Err(nfc::Error::NotNdefFormatted) => Ok(None),
+                                    Err(e) => Err(e)
+                                }
+                            } else {
+                                Ok(None)
+                            };
+                            match res
                             {
                                 // TODO: combine
                                 Ok(read_ndef_message_payload) => {
@@ -531,7 +555,7 @@ async fn nfc_task(
                                     continue;
                                 }
                             }
-                            match crate::nfc::erase_ndef_tag(&mut pn532, Duration::from_secs(2))
+                            match nfc::erase_ndef_tag(&mut pn532, Duration::from_secs(2))
                                 .await
                             {
                                 Ok(()) => {

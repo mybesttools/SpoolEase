@@ -101,3 +101,27 @@ where
 
     Ok(Some(buf_vec))
 }
+
+#[derive(Debug, PartialEq)]
+pub enum NfcTagType {
+    MifareClassic1K,
+    MifareClassic4K,
+    NTAG,
+    Unknown,
+}
+
+pub fn get_nfc_tag_type(inlist_response: &[u8]) -> NfcTagType {
+    if inlist_response.len() < 6 {
+        return NfcTagType::Unknown;
+    }
+
+    let sens_res = inlist_response[3];
+    let sak = inlist_response[4];
+
+    match (sens_res, sak) {
+        (0x44, 0x00) => NfcTagType::NTAG,
+        (0x04, 0x08) | (0x44, 0x08) => NfcTagType::MifareClassic1K,
+        (0x04, 0x18) | (0x02, 0x18) => NfcTagType::MifareClassic4K,
+        _ => NfcTagType::Unknown,
+    }
+}
