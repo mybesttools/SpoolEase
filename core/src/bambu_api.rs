@@ -190,6 +190,8 @@ pub struct PrintAmsData {
     pub humidity: String,
     // pub temp: String,
     pub tray: Vec<PrintTray>, // Vector of Trays
+    #[serde(default, serialize_with = "option_u32_as_str_hex_se", deserialize_with = "option_u32_as_str_hex_de")]
+    pub info: Option<u32>,
 }
 
 // An AMS Tray
@@ -419,6 +421,43 @@ where
     let option: Option<String> = Option::deserialize(deserializer)?;
     option.as_deref().map(|s| s.parse::<T>().map_err(serde::de::Error::custom)).transpose()
 }
+
+fn u32_as_str_hex_se<S>(x: &u32, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    s.serialize_str(&format!("{:x}", x))
+}
+
+#[allow(dead_code)]
+fn u32_as_str_hex_de<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: &str = Deserialize::deserialize(deserializer)?;
+    u32::from_str_radix(s, 16).map_err(serde::de::Error::custom)
+}
+
+fn option_u32_as_str_hex_se<S>(x: &Option<u32>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match x {
+        Some(v) => u32_as_str_hex_se(v, s),
+        None => s.serialize_none(),
+    }
+}
+
+fn option_u32_as_str_hex_de<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt: Option<String> = Option::deserialize(deserializer)?;
+    opt.as_deref()
+        .map(|s| u32::from_str_radix(s, 16).map_err(serde::de::Error::custom))
+        .transpose()
+}
+
 // "print": {
 //     "command": "ams_filament_setting",
 //     "ams_id": 0,

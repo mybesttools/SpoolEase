@@ -261,6 +261,14 @@ impl BambuPrinter {
         }
     }
 
+    pub fn num_extruders(&self) -> u32 {
+        if let Some(extruder_state) = &self.extruder_state {
+            *extruder_state as u32 & 0x0f
+        } else {
+            1
+        }
+    }
+
     pub fn init_printer_persistent_state(&mut self, mut state: PrinterPersistentState, store: &Rc<Store>) {
         self.inner_ams_trays = core::mem::take(state.ams_trays.to_mut());
         self.inner_ams_trays.resize(24, Tray::default());
@@ -2384,8 +2392,8 @@ impl Calibration {
     pub fn from(v: &bambu_api::Filament, diameter: &str) -> Self {
         // this "Filament" in bambu_api is really calibrations, bambulab naming ...
         Self {
-            extruder: 0,
-            nozzle_id: String::new(),
+            extruder: v.extruder_id.unwrap_or_default(),
+            nozzle_id: v.nozzle_id.clone().unwrap_or_default(),
             diameter: diameter.to_string(),
             filament_id: v.filament_id.clone(),
             name: v.name.clone(),

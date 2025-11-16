@@ -389,16 +389,16 @@ impl AppWithStateBuilder for NestedAppBuilder {
                                     printer.borrow().printer_serial.clone(),
                                     PrinterEntry {
                                         name: printer.borrow().printer_name().clone(),
-                                        extruders: 1,
+                                        extruders: printer.borrow().num_extruders(),
                                         pressure_advance: printer
                                             .borrow()
                                             .calibrations
                                             .iter()
                                             .filter(|cal| cal.filament_id == get_printers_filament_pa.slicer_filament_code)
                                             .map(|pa| PressureAdvanceEntry {
-                                                extruder: 0,
+                                                extruder: pa.extruder,
                                                 diameter: pa.diameter.clone(),
-                                                nozzle_id: "".to_string(),
+                                                nozzle_id: pa.nozzle_id.clone(),
                                                 name: pa.name.clone(),
                                                 k_value: pa.k_value.clone(),
                                                 cali_idx: pa.cali_idx,
