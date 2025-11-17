@@ -4,6 +4,7 @@
 
 pub mod bambu_print;
 
+use crate::bambu_api::PrintDeviceNozzleInfo;
 use crate::spool_record::{FullSpoolRecord, SpoolRecord};
 use crate::tag_standards::SPOOLEASE_V1_TAG_TYPE;
 use crate::view_model::{self, StoreStateRequestChannel};
@@ -14,6 +15,7 @@ use crate::{
     ssdp::{SSDPInfo, SSDPPubSubChannel},
     store::Store,
 };
+use alloc::borrow::ToOwned;
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -34,7 +36,7 @@ use hashbrown::HashMap;
 use mqttrust::QoS;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use shared::gcode_analysis_task::Fetch3mf;
 
 use framework::prelude::*;
@@ -44,6 +46,27 @@ use crate::{
     bambu_api::{self, PrintAms, PrintTray},
     my_mqtt::BufferedMqttPacket,
 };
+
+#[allow(dead_code)]
+const EXTRA_DEBUG: bool = false;
+
+#[allow(unused_macros)]
+macro_rules! debugex {
+    ($($t:tt)*) => {
+        if EXTRA_DEBUG {
+            debug!($($t)*);
+        }
+    };
+}
+
+#[allow(unused_macros)]
+macro_rules! warnex {
+    ($($t:tt)*) => {
+        if EXTRA_DEBUG {
+            warn!($($t)*);
+        }
+    };
+}
 
 const FILAMENT_URL_PREFIX: &str = "https://info.filament3d.org/";
 const FILAMENT_URL_PREFIX_V1_TAG: &str = "https://info.filament3d.org/V1";
@@ -56,11 +79,44 @@ pub struct TrayBits {
     pub tray_reading_bits: Option<u32>,
 }
 
-#[derive(Default, Clone, Debug, Serialize, Deserialize)]
-pub struct Extruder {
-    pub diameter: Option<String>,
-    pub nozzle_type: Option<String>,
+#[derive(Debug, PartialEq)]
+pub enum NozzleType {
+    Standard,
+    HighFlow,
 }
+
+#[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq)]
+// DON'T CHANGE - PERSISTED TO STATE
+pub struct Extruder {
+    pub id: u32,
+    pub diameter: Option<String>,
+    nozzle_type: Option<String>, // this is the string code, not to be used, instead use nozzle_type_code
+}
+
+impl Extruder {
+    pub fn nozzle_type_code(&self) -> Option<NozzleType> {
+        // nozzle diameter exist in both old and new printers.
+        // If it is not set it means that nozzle_type is also unknown.
+        // Otherwise, None for nozzle type means standard (since high flow doesn't exist for old printers)
+        #[allow(clippy::question_mark)]
+        if self.diameter.is_none() {
+            return None;
+        }
+        Some(self.nozzle_type.as_ref().map_or(NozzleType::Standard, |s| {
+            if s.len() < 8 || s.as_bytes()[1] != b'H' {
+                NozzleType::Standard
+            } else {
+                NozzleType::HighFlow
+            }
+        }))
+    }
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct AmsInfo {
+    pub extruder: u32,
+}
+
 type WritePacketsChannel = Channel<NoopRawMutex, crate::my_mqtt::BufferedMqttPacket, 20>;
 type ReadPacketsPubSub = PubSubChannel<NoopRawMutex, BufferedMqttPacket, 20, 2, 1>;
 pub struct BambuPrinter {
@@ -81,7 +137,7 @@ pub struct BambuPrinter {
     pub printer_uuid_to_encode: String,
     pub printer_connectivity_ok: Option<bool>,
     // inner_nozzle_diameter: Option<String>,
-    inner_extruders: [Extruder;2],
+    inner_extruders: [Extruder; 2],
     inner_ams_trays: Vec<Tray>, // [Tray; 24], // 16 in standard AMS, 8 in HT (H2D)
     inner_virt_tray: Tray,
     force_store_state: bool,
@@ -107,7 +163,8 @@ pub struct BambuPrinter {
     pending_k_restore_sequence: bool,
     pub curr_print_project: Option<PrintProject>,
     pub loaded_print_project: Option<PrintProject>,
-    extruder_state: Option<i32>,
+    inner_extruder_state: Option<i32>,
+    relevant_extruder_state_dirty: bool,
     tray_tar: [i32; 2],
     tray_now: [i32; 2],
     tray_pre: [i32; 2],
@@ -115,6 +172,7 @@ pub struct BambuPrinter {
     layer_num: i32,
     pub locked_mode: Option<bool>, // None, unknown, treat as unlocked, false - dev mode, true - locked
     store_state_request_channel: Rc<StoreStateRequestChannel>,
+    ams_info: Vec<AmsInfo>,
 }
 
 pub trait BambuPrinterObserver {
@@ -237,6 +295,27 @@ impl BambuPrinter {
             self.extruders_dirty = true;
         }
     }
+    pub fn set_extruder_info(&mut self, extruder_id: u32, new_nozzle_info: &PrintDeviceNozzleInfo) -> bool {
+        let new_extruder = Extruder {
+            id: extruder_id,
+            diameter: Some(format!("{:.1}", new_nozzle_info.diameter)),
+            nozzle_type: Some(new_nozzle_info.nozzle_type.clone()),
+        };
+
+        if new_extruder != self.inner_extruders[extruder_id as usize] {
+            info!(
+                "[{}] Extruder {extruder_id} info changed from {:?} to {:?}",
+                self.printer_number, self.inner_extruders[extruder_id as usize], new_extruder,
+            );
+            self.inner_extruders[extruder_id as usize] = new_extruder;
+            self.extruders_dirty = true;
+            return true;
+        }
+        false
+    }
+    pub fn get_extruder(&self, extruder_id: u32) -> &Extruder {
+        &self.inner_extruders[extruder_id as usize]
+    }
 
     pub fn ams_exist_bits(&self) -> &Option<u32> {
         &self.inner_ams_exist_bits
@@ -268,8 +347,26 @@ impl BambuPrinter {
         }
     }
 
+    pub fn set_extruder_state(&mut self, new_extruder_state: i32) -> bool {
+        let mut relevant_part_changed = false;
+        if self.inner_extruder_state != Some(new_extruder_state) {
+            if self.inner_extruder_state.unwrap_or_default() & 0xFF != new_extruder_state & 0xFF {
+                // for dirty purpose, at this time, only low 8 bits matter
+                // A bit ugly and risky, need to update the test if using additional bits
+                self.relevant_extruder_state_dirty = true;
+                relevant_part_changed = true;
+            }
+            self.inner_extruder_state = Some(new_extruder_state);
+        }
+        relevant_part_changed
+    }
+
+    pub fn extruder_state(&self) -> &Option<i32> {
+        &self.inner_extruder_state
+    }
+
     pub fn num_extruders(&self) -> u32 {
-        if let Some(extruder_state) = &self.extruder_state {
+        if let Some(extruder_state) = self.extruder_state() {
             *extruder_state as u32 & 0x0f
         } else {
             1
@@ -286,6 +383,7 @@ impl BambuPrinter {
         if let Some(mut extruders) = state.extruders {
             self.inner_extruders = core::mem::take(extruders.to_mut());
         }
+        self.inner_extruder_state = state.extruder_state;
         self.inner_ams_exist_bits = state.ams_exist_bits;
         self.inner_tray_exist_bits = state.tray_exist_bits;
         self.inner_tray_read_done_bits = state.tray_read_done_bits;
@@ -420,11 +518,12 @@ impl BambuPrinter {
                 || printer_borrow.calibrations_dirty
                 || printer_borrow.printer_name_dirty
                 || printer_borrow.force_store_state
+                || printer_borrow.relevant_extruder_state_dirty
             {
                 debug!(
-                    "[{}] Dirty status: AMS slots({}), Ext slot({}), Extruders({}), AmsExists: ({}), Tray Exists: ({}), Try Read Done ({}), Calibrations ({}), Printer Name ({}), Forced Store ({})",
+                    "[{}] Dirty status: AMS slots({}), Ext slot({}), Extruders({}), AmsExists: ({}), Tray Exists: ({}), Try Read Done ({}), Calibrations ({}), Printer Name ({}), Relevant Extruder State ({}), Forced Store ({})",
                     printer_borrow.printer_number, ams_trays_dirty, printer_borrow.virt_tray_dirty, printer_borrow.extruders_dirty,
-                    printer_borrow.ams_exist_bits_dirty, printer_borrow.tray_exist_bits_dirty, printer_borrow.tray_read_done_bits_dirty, printer_borrow.calibrations_dirty, printer_borrow.printer_name_dirty,
+                    printer_borrow.ams_exist_bits_dirty, printer_borrow.tray_exist_bits_dirty, printer_borrow.tray_read_done_bits_dirty, printer_borrow.calibrations_dirty, printer_borrow.printer_name_dirty, printer_borrow.relevant_extruder_state_dirty,
                     printer_borrow.force_store_state,
                 );
                 printer_serial = Some(printer_borrow.printer_serial.clone());
@@ -438,6 +537,7 @@ impl BambuPrinter {
                     calibrations: Cow::Borrowed(&printer_borrow.calibrations),
                     printer_name: printer_borrow.inner_printer_name.clone(),
                     extruders: Some(Cow::Borrowed(&printer_borrow.inner_extruders)),
+                    extruder_state: *printer_borrow.extruder_state(),
                 };
                 printer_state_str = Some(serde_json::to_string(&printer_state).unwrap());
             }
@@ -609,6 +709,7 @@ impl BambuPrinter {
             // inner_nozzle_diameter: None,
             inner_extruders: core::array::from_fn(|_| Extruder::default()),
             extruders_dirty: false,
+            relevant_extruder_state_dirty: false,
             inner_ams_trays: alloc::vec![Tray::default();24],
             inner_virt_tray: unknown,
             ams_trays_dirty: [false; 24],
@@ -633,14 +734,15 @@ impl BambuPrinter {
             pending_k_restore_sequence: true,
             curr_print_project: None,
             loaded_print_project: None,
-            extruder_state: None, // h2d field for knowing which extruder is active
-            tray_tar: [255, 255], // format for these fields: 0-16 (regular AMS), 128-135 (AMS-HT), 254 (external), 255 (none)
+            inner_extruder_state: None, // h2d field for knowing which extruder is active
+            tray_tar: [255, 255],       // format for these fields: 0-16 (regular AMS), 128-135 (AMS-HT), 254 (external), 255 (none)
             tray_now: [255, 255],
             tray_pre: [255, 255],
             gcode_state: GcodeState::Unknown,
             layer_num: -1,
             locked_mode: None,
             store_state_request_channel,
+            ams_info: alloc::vec![AmsInfo::default();14], // 0..3: standard ams, 4..11: 128..135 (HT), 12: 254 (external - left?), 13: 255 (external - right?)
         }
     }
 
@@ -719,86 +821,36 @@ impl BambuPrinter {
         self.observers.clear();
     }
 
-    fn get_calibration(&self, nozzle_diameter: &str, cali_idx: i32) -> Option<&Calibration> {
-        // let nozzle_calibrations = self.calibrations.get(nozzle_diameter)?;
-        // let calibration = nozzle_calibrations.get(&cali_idx)?;
-        self.calibrations
-            .iter()
-            .find(|cal| cal.diameter == nozzle_diameter && cal.cali_idx == cali_idx)
-        // Some(calibration)
+    fn get_calibration(&self, extruder: &Extruder, cali_idx: i32) -> Option<&Calibration> {
+        let extruder_id = extruder.id as i32;
+        let nozzle_diameter = extruder.diameter.as_deref()?;
+        let nozzle_type_code = extruder.nozzle_type_code()?;
+
+        self.calibrations.iter().find(|cal| {
+            cal.extruder == extruder_id && cal.diameter == nozzle_diameter && cal.nozzle_type_code() == nozzle_type_code && cal.cali_idx == cali_idx
+        })
     }
 
-    fn get_cali_k_value(&self, nozzle_diameter: &str, cali_idx: i32) -> Option<String> {
-        self.get_calibration(nozzle_diameter, cali_idx)
-            .map(|calibration| calibration.k_value.clone())
-        // let nozzle_calibrations = match self.calibrations.get(nozzle_diameter) {
-        //     Some(calibrations) => calibrations,
-        //     None => return None,
-        // };
-        // let calibration = match nozzle_calibrations.get(&cali_idx) {
-        //     Some(calibration) => calibration,
-        //     None => return None,
-        // };
-        //
-        // Some(calibration.k_value.clone())
+    fn get_cali_k_value(&self, extruder: &Extruder, cali_idx: i32) -> Option<String> {
+        self.get_calibration(extruder, cali_idx).map(|calibration| calibration.k_value.clone())
     }
 
-
-    // TODO: Diameter - here several functions that need to be modified to consider extruder and nozzle_id as well
-
-    pub fn get_tray_resolved_k_value(&self, tray: &Tray) -> String {
+    pub fn get_tray_resolved_k_value(&self, tray: &Tray, tray_id: i32) -> String {
+        // tray_id: 0..15 (4xAMS), 16..23 (8 AMS-HT), 254, 255
         let mut k_result = "(0.020)".to_string();
         if let Some(k_from_tray) = &tray.k_from_tray {
             k_result = format!("({k_from_tray:.3})");
         }
-        if let Some(cali_idx) = tray.cali_idx {
-            if let Some(nozzle_diameter) = &self.nozzle_diameter(0) {
-                if let Some(k_value) = self.get_cali_k_value(nozzle_diameter, cali_idx) {
+
+        if let Ok(extruder) = self.get_extruder_for_tray(tray_id) {
+            if let Some(cali_idx) = tray.cali_idx {
+                if let Some(k_value) = self.get_cali_k_value(extruder, cali_idx) {
                     let k_float = f32::from_str(&k_value).unwrap_or_default();
                     k_result = format!("{:.3}", k_float);
                 }
-            };
-        }
-        k_result
-    }
-
-    pub fn get_tray_calibration(&self, tray: &Tray) -> Option<&Calibration> {
-        if let Some(cali_idx) = tray.cali_idx {
-            if let Some(nozzle_diameter) = &self.nozzle_diameter(0) {
-                return self.get_calibration(nozzle_diameter, cali_idx);
             }
         }
-        None
-    }
-
-    #[allow(dead_code)]
-    pub fn get_tray_k_info(&self, tray_id: usize) -> Option<KInfo> {
-        let tray = self.get_any_tray(tray_id);
-        let calibration = self.get_tray_calibration(tray)?;
-        let diameter = self.nozzle_diameter(0).as_ref()?;
-
-        let nozzle_id = KNozzleId {
-            name: calibration.name.clone(),
-            k_value: calibration.k_value.clone(),
-            setting_id: calibration.setting_id.clone(),
-            cali_idx: calibration.cali_idx,
-        };
-
-        let nozzle_diameter = KNozzleDiameter {
-            nozzles: HashMap::from([(String::new(), nozzle_id)]),
-        };
-
-        let extruder = KExtruder {
-            diameters: HashMap::from([(diameter.clone(), nozzle_diameter)]),
-        };
-
-        let printer = KPrinter {
-            extruders: HashMap::from([(0, extruder)]),
-        };
-
-        Some(KInfo {
-            printers: HashMap::from([(self.printer_serial.clone(), printer)]),
-        })
+        k_result
     }
 
     fn tray_from_update(&self, tray_update: &PrintTray) -> Result<Option<Tray>, String> {
@@ -974,7 +1026,7 @@ impl BambuPrinter {
     }
 
     fn get_active_extruder(&self) -> Option<usize> {
-        Self::get_active_extruder_from_extruder_state(&self.extruder_state)
+        Self::get_active_extruder_from_extruder_state(self.extruder_state())
     }
 
     fn get_tray_active(&self) -> i32 {
@@ -1047,6 +1099,7 @@ impl BambuPrinter {
     }
 
     pub fn get_ams_and_tray_id(tray_id: usize) -> (usize, usize) {
+        // returns (ams_id, tray_id)
         if tray_id < 16 {
             // AMS
             let ams_id = tray_id / 4;
@@ -1229,7 +1282,6 @@ impl BambuPrinter {
         // Get a snapshot of current trays and diameter before any later change, to later be able to update cali_idx if removed
         // leave this section here because later changes will affect it (like self.nozzle_diameter)
 
-        // TODO: DIAMETER: here for prev_state can use just extruder 0 since it is for X1C
         let full_push_status = print.ams.is_some() && (print.vt_tray.is_some() || print.vir_slot.is_some());
         let prev_state = if full_push_status && self.auto_restore_k && self.printer_was_disconnected {
             // TODO: To save memory (a few kb's, might be needed in the future) copy from ams_trays only the data requried and not entire tray
@@ -1255,11 +1307,15 @@ impl BambuPrinter {
         }
 
         // Deal with nozzle diameter
-        let mut nozzle_diameter_change_made = false;
-        if let Some(nozzle_diameter) = &print.nozzle_diameter {
+        let mut extruders_change_made = false;
+        if let Some(nozzles) = print.device.as_ref().and_then(|d| d.nozzle.as_ref()) {
+            for nozzle in &nozzles.info {
+                extruders_change_made |= self.set_extruder_info(nozzle.id as u32, nozzle);
+            }
+        } else if let Some(nozzle_diameter) = &print.nozzle_diameter {
             let old_nozzle_diameter = self.nozzle_diameter(0).clone();
             self.set_nozzle_diameter(0, Some(nozzle_diameter.clone()));
-            nozzle_diameter_change_made = old_nozzle_diameter != *self.nozzle_diameter(0);
+            extruders_change_made = old_nozzle_diameter != *self.nozzle_diameter(0);
         }
 
         // Deal with tray_xxx - need to do before ams because depends on both AMS and Device sections, and used at the end of ams processing
@@ -1327,12 +1383,8 @@ impl BambuPrinter {
             }
         }
 
-        // TODO: Diameter - nozzle_diameter_change_made for return of change flag purpose might not be needed here
-        //       And can be made based on the extruder change where done. Need to verify it's considered there as change_made
-
         // Report back to caller
-        let change_made =
-            nozzle_diameter_change_made || ams_change_made || vt_tray_change_made || print_project_caused_change || tray_xxx_change_made;
+        let change_made = extruders_change_made || ams_change_made || vt_tray_change_made || print_project_caused_change || tray_xxx_change_made;
         (change_made, removed_tags)
     }
 
@@ -1383,7 +1435,7 @@ impl BambuPrinter {
 
         if let Some(extruder) = print.device.as_ref().and_then(|d| d.extruder.as_ref()) {
             if let Some(state) = &extruder.state {
-                self.extruder_state = Some(*state);
+                self.set_extruder_state(*state);
             }
             for (extruder, info) in extruder.info.iter().enumerate() {
                 if extruder > 1 {
@@ -1394,7 +1446,7 @@ impl BambuPrinter {
                 Self::update_h2d_tray_xxx(&mut self.tray_pre[extruder], &info.spre, &mut tray_xxx_change_made);
             }
         } else if let Some(ams) = &print.ams {
-            // debug!(">>>>> old version tray_xxx data");
+            // old version tray_xxx data
             Self::update_std_tray_xxx(&mut self.tray_tar[0], &ams.tray_tar, &mut tray_xxx_change_made);
             Self::update_std_tray_xxx(&mut self.tray_now[0], &ams.tray_now, &mut tray_xxx_change_made);
             Self::update_std_tray_xxx(&mut self.tray_pre[0], &ams.tray_pre, &mut tray_xxx_change_made);
@@ -1452,6 +1504,26 @@ impl BambuPrinter {
             }
         }
 
+        // IPORTANT Note: For now doesn't seem relevatnt to change_made, nor for persistent state
+        if let Some(ams_units) = &ams.ams {
+            for ams in ams_units {
+                if let Some(ams_info) = ams.info {
+                    let extruder = (ams_info >> 8) & 0x0F;
+                    let ams_id = ams.id;
+                    let ams_index = match ams_id {
+                        0..3 => ams_id,
+                        128..135 => ams_id - 128 + 4,
+                        254 | 255 => ams_id - 254 + 12,
+                        _ => {
+                            error!("[{}] Bad ams_id encountered: {ams_id}", self.printer_number);
+                            continue;
+                        }
+                    } as usize;
+                    self.ams_info[ams_index].extruder = extruder;
+                }
+            }
+        }
+
         let mut removed_tags: HashMap<usize, SpoolId> = HashMap::new();
 
         let mut _derived_ams_exist_bits = 0;
@@ -1462,9 +1534,8 @@ impl BambuPrinter {
                 false
             };
             let (ams_id, ams_tray_id) = BambuPrinter::get_ams_and_tray_id(tray_id);
-            let ams_id_str = format!("{ams_id}");
             let source_tray = if let Some(amss) = &ams.ams {
-                let ams = amss.iter().find(|v| v.id == ams_id_str);
+                let ams = amss.iter().find(|v| v.id == ams_id as u32);
                 if let Some(ams_data) = ams {
                     _derived_ams_exist_bits |= 1 << ams_id;
                     ams_data.tray.iter().find(|v| v.id == Some(ams_tray_id as u32))
@@ -1492,7 +1563,7 @@ impl BambuPrinter {
             }
 
             // This is taken care of insidte get_updated_tray, but leaving here for now, just in case
-            // debug!(">>>> Checking tray {tray_id} ready state;")
+            // debugex!(">>>> Checking tray {tray_id} ready state;")
             // if self.ams_trays()[tray_id].state == TrayState::Ready {
             //     let detailed_tray_ready_state = self.get_tray_detailed_ready_state(Some(tray_id));
             //     if detailed_tray_ready_state != TrayState::Ready {
@@ -1776,10 +1847,9 @@ impl BambuPrinter {
         let payload = serde_json::to_string_pretty(&cmd).unwrap();
         self.publish_payload(payload);
 
-        // TODO: Diameter - here need to get from H2D how the full message looks like. Diameter need to be done based on the specific extruder.
-        //       Maybe nozzle_id is also specified in this message, not sure why diameter is here for in the first place, maybe since Id's can be the same across diameters?
+        let extruder_id = self.get_extruder_id_for_tray(tray_id).unwrap_or_default();
         let cmd = crate::bambu_api::ExtrusionCaliSelCommand::new(
-            &self.nozzle_diameter(0).clone().unwrap_or_default(),
+            &self.nozzle_diameter(extruder_id).clone().unwrap_or_default(),
             ams_id as i32,
             original_tray_id, // here we need the original tray_id
             slot_id,
@@ -1788,6 +1858,33 @@ impl BambuPrinter {
         );
         let payload = serde_json::to_string_pretty(&cmd).unwrap();
         self.publish_payload(payload);
+    }
+
+    pub fn get_ams_info_index_for_tray(&self, tray_id: i32) -> Result<usize, String> {
+        // tray_id: 0..15 (4xAMS), 16..23 (8 AMS-HT), 254, 255
+        let ams_id = match tray_id {
+            0..=15 => tray_id / 4,
+            16..=23 => tray_id - 16 + 4,
+            254 => 12,
+            255 => 13,
+            _ => {
+                let err_str = format!("[{}] Error mapping slot {tray_id} to ams_id to get calibrations", self.printer_number);
+                error!("{}", err_str);
+                return Err(err_str);
+            }
+        } as usize;
+        Ok(ams_id)
+    }
+
+    pub fn get_extruder_id_for_tray(&self, tray_id: i32) -> Result<u32, String> {
+        // tray_id: 0..15 (4xAMS), 16..23 (8 AMS-HT), 254, 255
+        let ams_info_index = self.get_ams_info_index_for_tray(tray_id)?;
+        Ok(self.ams_info[ams_info_index].extruder)
+    }
+
+    pub fn get_extruder_for_tray(&self, tray_id: i32) -> Result<&Extruder, String> {
+        // tray_id: 0..15 (4xAMS), 16..23 (8 AMS-HT), 254, 255
+        Ok(self.get_extruder(self.get_extruder_id_for_tray(tray_id)?))
     }
 
     pub fn set_tray_filament(&mut self, tray_id: i32, full_spool_rec: &FullSpoolRecord, temp_min: u32, temp_max: u32) {
@@ -1818,11 +1915,9 @@ impl BambuPrinter {
           // So if we have calibration information, we send the setting_id from there. If we don't we send None and it seems to work
           // The slicer have the setting-if from the data it has when it selects everything together
 
+        let extruder_id = self.get_extruder_id_for_tray(tray_id).unwrap_or_default();
+        let matching_calibration = self.get_matching_printer_calibration_for_extruder(full_spool_rec, extruder_id);
 
-        // TODO: Diameter - this is the most important part, need to pass the extruder information here - Start from here
-        let matching_calibration = self.get_matching_printer_calibration_for_current_nozzle(full_spool_rec);
-
-        // let setting_id = matching_calibration.as_ref().map(|calibration| calibration.setting_id.as_str());
         let setting_id: Option<&str> = matching_calibration.as_ref().and_then(|c| c.setting_id.as_deref());
 
         let mut filament = FilamentInfo {
@@ -1849,9 +1944,9 @@ impl BambuPrinter {
             let payload = serde_json::to_string_pretty(&cmd).unwrap();
             self.publish_payload(payload);
 
-            // TODO: Diameter - need to verify this message is complete from H2D message information and no need to add nozle_id or something
+            let extruder_id = self.get_extruder_id_for_tray(tray_id).unwrap_or_default();
             let cmd = crate::bambu_api::ExtrusionCaliSelCommand::new(
-                &self.nozzle_diameter(0).clone().unwrap_or_default(),
+                &self.nozzle_diameter(extruder_id).clone().unwrap_or_default(),
                 ams_id as i32,
                 original_tray_id, // here we need the original tray_id
                 slot_id,
@@ -1890,7 +1985,7 @@ impl BambuPrinter {
         self.publish_payload(payload);
     }
 
-    pub fn get_matching_printer_calibration_for_current_nozzle(&self, full_spool_rec: &FullSpoolRecord) -> Option<Calibration> {
+    pub fn get_matching_printer_calibration_for_extruder(&self, full_spool_rec: &FullSpoolRecord, extruder_id: u32) -> Option<Calibration> {
         // cali_idx, setting_id
         // Now process it
 
@@ -1943,31 +2038,23 @@ impl BambuPrinter {
             false
         }
 
-        // let tag_filament_id = if let Some(filament_info) = &tag_info.filament {
-        //     &filament_info.tray_info_idx
-        // } else {
-        //     return None;
-        // };
-
-        // let printer_nozzle = if let Some(nozzle_diameter) = &self.nozzle_diameter() {
-        //     nozzle_diameter
-        // } else {
-        //     return None;
-        // };
-
-        let printer_nozzle = self.nozzle_diameter(0).as_ref()?;
-        // TODO: Diameter - need to deal with extruder specific match
-        // TODO: for H2D, need to add extruder, which would need to be decided by an extra param to receive which is the slot (which defines also the extruder indirectly thgouth AMS)
-        let printer_calibrations = self.calibrations.iter().filter(|cal| cal.diameter == *printer_nozzle);
-
+        let printer_nozzle_diameter = self.nozzle_diameter(extruder_id).as_ref()?;
+        let extruder = self.get_extruder(extruder_id);
+        let relevant_printer_calibrations = self.calibrations.iter().filter(|cal| {
+            cal.extruder as u32 == extruder_id
+                && cal.diameter == *printer_nozzle_diameter
+                && cal.nozzle_type_code() == extruder.nozzle_type_code().unwrap_or(NozzleType::Standard)
+        });
         let filament_id = &full_spool_rec.spool_rec.slicer_filament;
         // Using the new K from SpoolRecordExt
 
         // If there is filament calibration for that nozzle size (assumption there can be only one, which makes sense)
-        if let Some(nozzle_k) = full_spool_rec
-            .spool_rec_ext
-            .get_calibrations(&self.printer_serial, 0, self.nozzle_diameter(0).as_ref()?, "")
-        {
+        if let Some(nozzle_k) = full_spool_rec.spool_rec_ext.get_calibration(
+            &self.printer_serial,
+            extruder_id as i32,
+            self.nozzle_diameter(extruder_id).as_ref()?,
+            extruder.nozzle_type_code().unwrap_or(NozzleType::Standard),
+        ) {
             // here need to test not against printer nozzle but also consider the AMS tray which is the target, meaning, can't set/show it in staging
             // is tag_info modified when loaded into staging based on current printer? Or only displayed?
             // This also means, that we probably want the nozzle diameter when encoded to be the kay (so K4~0~HH-0.4) where 0 is extruder and after that comes the nozzle type
@@ -1977,10 +2064,10 @@ impl BambuPrinter {
             // Important Note: On A1,P1,X1 - calibration includes setting_id, so if we have it we encode it and then when scanning will compare it.
             //                 On H2D - Setting_id is not included - therefore the second part of below filter will compare None (on calibration) to filament setting_id
             //                 This is ok, because if there is no match it means it is not exact match from this printer type, it was encoded on pritner with setting_id and loaded to h2d
-            let same_filament_id_nozzle_printer_type_calibrations = printer_calibrations.filter(|&c| c.filament_id == *filament_id);
+            let same_filament_id_nozzle_printer_type_calibrations = relevant_printer_calibrations.filter(|&c| c.filament_id == *filament_id);
             // A1
             if let Some(calibration_match) = same_filament_id_nozzle_printer_type_calibrations
-                .clone()
+                .clone() // only cloning the iterator, not the data
                 .find(|printer_calibration| printer_calibration.name == nozzle_k.name)
             {
                 return Some(calibration_match.clone());
@@ -2335,13 +2422,23 @@ impl From<&bambu_api::PrintTray> for FilamentInfo {
 pub struct Calibration {
     pub extruder: i32,
     pub diameter: String,
-    pub nozzle_id: String,
+    pub nozzle_id: String, // this is "" for old printers, and HS01-0.4 for example for new (so not nozzle_type), nozzle_type is a function below
     pub filament_id: String,
     pub k_value: String,
     // n_coef: f32,
     pub setting_id: Option<String>,
     pub name: String,
     pub cali_idx: i32,
+}
+
+impl Calibration {
+    pub fn nozzle_type_code(&self) -> NozzleType {
+        if self.nozzle_id.len() < 8 || self.nozzle_id.as_bytes()[1] != b'H' {
+            NozzleType::Standard
+        } else {
+            NozzleType::HighFlow
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -2399,7 +2496,9 @@ pub struct PrinterPersistentState<'a> {
     #[serde(default = "default_printer_name")]
     pub printer_name: String,
     #[serde(default)]
-    pub extruders: Option<Cow<'a, [Extruder;2]>>
+    pub extruders: Option<Cow<'a, [Extruder; 2]>>,
+    #[serde(default)]
+    pub extruder_state: Option<i32>,
 }
 
 fn formatted_k_value(k: &str) -> String {
@@ -2549,7 +2648,6 @@ pub async fn fetch_initial_info(bambu_printer: Rc<RefCell<BambuPrinter>>) {
 
     // Now request full update, and wait until data is processed and have the nozzle diameter at hand for next request
     BambuPrinter::request_full_update_async(&printer_serial, printer_number, log_filter, write_packets.clone()).await;
-    // TODO: Diameter - seems ok to leave it as is here, to recognize when full message arrived
     while bambu_printer.borrow().nozzle_diameter(0).is_none() {
         Timer::after_millis(100).await;
     }
@@ -2557,9 +2655,6 @@ pub async fn fetch_initial_info(bambu_printer: Rc<RefCell<BambuPrinter>>) {
     // Get again the filaments for current nozzle size,
     // that's because in slicer they don't check if data received from printer it's current nozzle or not
     // it's a bug there, can even be reproduced in the slicer by switching in the manage results to another nozzle diameter
-    // TODO: Diameter - need to understand why this is done, and see if needs to be appplied for both potential diameters in the extruder
-    //       This is probably to not impact the slicer, so might not be relevant any more since they had to solve it
-    //       So maybe need to leave it as is
     let curr_nozzle_diameter = bambu_printer.borrow().nozzle_diameter(0).as_ref().unwrap().clone();
     BambuPrinter::fetch_filament_calibrations_async(&printer_serial, printer_number, log_filter, write_packets, &curr_nozzle_diameter).await;
 }
@@ -2905,7 +3000,7 @@ impl TagInformationV1 {
             consumed_since_weight: 0.0,
             ext_has_k: false, // this means if in the store, so need to be set to true when saving store
             data_origin: SPOOLEASE_V1_TAG_TYPE.to_string(),
-            tag_type:"".to_string(),
+            tag_type: "".to_string(),
         }
     }
 }
@@ -3289,10 +3384,6 @@ impl TryFrom<SSDPInfo> for BambuSSDPInfo {
     }
 }
 
-// TODO: Diameter - I think this doesn't need to change since it is for X1C only and has only one extruder
-
-// TODO: make this task instead of being spawned in parallel accept requests over channel and so no need to waste memory on task state
-// #[embassy_executor::task(pool_size = 3)] // up to three printers in parallel
 pub async fn fix_k_on_restart(
     bambu_printer: Rc<RefCell<BambuPrinter>>,
     prev_ams_trays: Vec<Tray>,

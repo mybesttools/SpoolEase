@@ -1,9 +1,12 @@
 use crate::{
-    bambu::{KInfo, KNozzleId}, csvdb::CsvDbId, tag_standards::BambuLabTag, types::FilamentSupInfo
+    bambu::{KInfo, KNozzleId, NozzleType},
+    csvdb::CsvDbId,
+    tag_standards::BambuLabTag,
+    types::FilamentSupInfo,
 };
 use alloc::{
     format,
-    string::{String, ToString}
+    string::{String, ToString},
 };
 use serde::{Deserialize, Serialize};
 use shared::utils::{
@@ -79,7 +82,7 @@ pub struct SpoolRecord {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum OriginData {
-    SpoolEaseV1 { uid: String, url: String},
+    SpoolEaseV1 { uid: String, url: String },
     BambuLabTag { bambulab_tag: BambuLabTag },
 }
 
@@ -94,8 +97,10 @@ pub struct SpoolRecordExt {
 }
 
 impl SpoolRecordExt {
-    pub fn get_calibrations(&self, printer: &str, extruder: i32, diameter: &str, nozzle_id: &str) -> Option<&KNozzleId> {
-        let res = self
+    pub fn get_calibration(&self, printer: &str, extruder: i32, diameter: &str, nozzle_type_code: NozzleType) -> Option<&KNozzleId> {
+        // Note that this search for nozzle_type, not specific nozzle_id (so HS00 and not HS00-0.4)
+        let calibration_nozzle_type_str = format!("H{}00-{}", if nozzle_type_code == NozzleType::HighFlow { 'H' } else { 'S' }, diameter);
+        let nozzles = &self
             .k_info
             .as_ref()?
             .printers
@@ -104,8 +109,16 @@ impl SpoolRecordExt {
             .get(&extruder)?
             .diameters
             .get(diameter)?
-            .nozzles
-            .get(nozzle_id);
+            .nozzles;
+
+        let res = nozzles.get(&calibration_nozzle_type_str).or_else(|| {
+            if nozzle_type_code == NozzleType::Standard {
+                nozzles.get("")
+            } else {
+                None
+            }
+        });
+
         res
     }
 }

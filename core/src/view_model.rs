@@ -59,6 +59,18 @@ use crate::{
 };
 use shared::spool_tag::{self, SpoolTagObserver, Status};
 
+#[allow(dead_code)]
+const EXTRA_DEBUG: bool = false;
+
+#[allow(unused_macros)]
+macro_rules! debugex {
+    ($($t:tt)*) => {
+        if EXTRA_DEBUG {
+            debug!($($t)*);
+        }
+    };
+}
+
 struct PrinterUiState {
     curr_ams: Option<i32>,
 }
@@ -1222,13 +1234,22 @@ impl ViewModel {
             weight_core: spool_rec.weight_core.unwrap_or_default(),
         };
 
-        let calibration = bambu_printer_borrow.get_matching_printer_calibration_for_current_nozzle(full_spool_rec);
-        if let Some(calibration) = calibration {
-            ui_spool_info.k = calibration.k_value.into();
-        } else if full_spool_rec.spool_rec_ext.k_info.is_some() {
-            ui_spool_info.k = "NoMatch".into()
+        if full_spool_rec.spool_rec_ext.k_info.is_some() {
+            // we might get here without k_info first until it is fetched, no need to search for calibration in such case
+            // we show only one K in staging, so show extruder 0 and if no value try extruder 1
+            let mut calibration = bambu_printer_borrow.get_matching_printer_calibration_for_extruder(full_spool_rec, 0);
+            if calibration.is_none() && bambu_printer_borrow.num_extruders() == 2 {
+                calibration = bambu_printer_borrow.get_matching_printer_calibration_for_extruder(full_spool_rec, 1);
+            }
+            if let Some(calibration) = calibration {
+                ui_spool_info.k = calibration.k_value.into();
+            } else if full_spool_rec.spool_rec_ext.k_info.is_some() {
+                ui_spool_info.k = "N/A".into()
+            } else {
+                ui_spool_info.k = "".into();
+            }
         } else {
-            ui_spool_info.k = "N/A".into();
+            ui_spool_info.k = "".into();
         }
 
         Some(ui_spool_info)
@@ -1269,11 +1290,11 @@ impl ViewModel {
         let trays_state = trays_state_rc;
         // OPT: run only on real trays (consider also AMS-HT), use the ams_exists from above
         for tray_row in 0..trays_state.row_count() {
-            let tray_id = trays_state.row_data(tray_row).unwrap().id;
-            let curr_tray = if tray_id == 254 {
+            let ui_tray_id = trays_state.row_data(tray_row).unwrap().id;
+            let curr_tray = if ui_tray_id == 254 {
                 bambu_printer.virt_tray()
             } else {
-                &bambu_printer.ams_trays()[tray_id as usize]
+                &bambu_printer.ams_trays()[ui_tray_id as usize]
             };
             let mut ui_tray = trays_state.row_data(tray_row).unwrap().clone();
             ui_tray.spool_state = crate::app::UiTrayState::from(&curr_tray.state);
@@ -1293,7 +1314,7 @@ impl ViewModel {
                 ui_tray.spool_rec_id = SharedString::new();
             }
             // let k_value_unformatted = curr_tray.k.as_ref().unwrap_or(&"(0.020)".to_string()).clone();
-            let k_value_unformatted = bambu_printer.get_tray_resolved_k_value(curr_tray);
+            let k_value_unformatted = bambu_printer.get_tray_resolved_k_value(curr_tray, ui_tray_id);
             // let k_value_for_ui = k_value_for_ui(&k_value_unformatted);
             ui_tray.k = SharedString::from(k_value_unformatted);
             ui_tray.weight_display = self.weight_display(curr_tray);

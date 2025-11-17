@@ -145,7 +145,8 @@ pub struct PrintData {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrintDevice {
-    pub extruder: Option<PrintDeviceExtruder>
+    pub extruder: Option<PrintDeviceExtruder>,
+    pub nozzle: Option<PrintDeviceNozzle>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -160,6 +161,22 @@ pub struct PrintDeviceExtruderInfo {
     pub snow: i32,
     pub spre: i32,
     pub star: i32,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PrintDeviceNozzle {
+    pub info: Vec<PrintDeviceNozzleInfo>,
+    pub exist: Option<i32>,
+    pub state: Option<i32>
+}
+
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PrintDeviceNozzleInfo {
+    pub id: i32,
+    pub diameter: f32,
+    #[serde(rename = "type")] // type is reserved in Rust
+    pub nozzle_type: String,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -186,7 +203,8 @@ pub struct PrintAms {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrintAmsData {
     // A Specific AMS
-    pub id: String,
+    #[serde(serialize_with = "u32_as_str_se", deserialize_with = "u32_as_str_de")]
+    pub id: u32,
     pub humidity: String,
     // pub temp: String,
     pub tray: Vec<PrintTray>, // Vector of Trays
