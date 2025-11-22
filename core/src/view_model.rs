@@ -1259,6 +1259,13 @@ impl ViewModel {
         // note - accepting bambu_printer rather than taking from self, because it may be called during callback on_trays_update,
         // and that's taking place when it's already borrowed and another borrow will panic
 
+
+        let current_selected_printer = self.bambu_printer_model.index;
+        if bambu_printer.printer_index != current_selected_printer {
+            warn!("Internal Error: Requested to update UI for non active printer");
+            return;
+        }
+
         let ui = self.ui_weak.unwrap();
         // ----- handle number of ams's and curr_ams -----
         // OPT: calculate only when ams_exists change (store in printer struct), here use the value calculated there
@@ -2876,7 +2883,11 @@ pub async fn printers_scheduled_store_state_task(framework: Rc<RefCell<Framework
                 );
             }
         }
-        view_model.borrow().update_ui_from_printer(&printer.borrow());
+
+        let current_selected_printer = view_model.borrow().bambu_printer_model.index;
+        if printer_index == current_selected_printer {
+            view_model.borrow().update_ui_from_printer(&printer.borrow());
+        }
     }
 
     let mut printer_index = 0;
