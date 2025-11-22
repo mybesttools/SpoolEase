@@ -506,6 +506,16 @@ export global AppState {
         return 254;
     }
 
+    pure public function get_tray_index(ams-id: int, tray-id: int) -> int {
+        if ams-id <= 3 {
+            return ams-id * 4 + tray-id + 2;
+        }
+        if ams-id <= 3 + 8 {
+            return 16 + ams-id - 4 + 2;
+        }
+        return 0;
+    }
+
     public function staging-selected() {
         self.staging-operation-page = StagingOperationsPage.SpoolDisplay;
         self.control-state = ControlState.StagingSelected;
@@ -722,9 +732,26 @@ export global AppState {
 
     function empty-trays-state() -> [UiTray] {
         return [
-  // External
+  // External (Right)
             {
                 id: 254,
+                external: true,
+                spool-state: UiTrayState.Unknown,
+                filament: {
+                    state: UiFilamentState.Unknown,
+                    color: #000,
+                    material: "???",
+                },
+                k: -1.0,
+                tagged: false,
+                spool_rec_id: "",
+                weight-display: "",
+                used-in-print: false,
+            },
+
+  // External (Right)
+            {
+                id: 255,
                 external: true,
                 spool-state: UiTrayState.Unknown,
                 filament: {

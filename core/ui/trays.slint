@@ -32,12 +32,12 @@ component AmsButton inherits Window {
             spacing: 3px + (active ? 0px : 3px);
             for tray-id in ams-id <= 3 ? [0, 1, 2, 3] : [0]: block := Rectangle {
                 horizontal-stretch: 0;
-                property <bool> used-in-print: trays-state[AppState.get_tray_id(ams-id,tray-id) + 1].used-in-print;
-                property <bool> slot-is-with-spool: slot-with-spool(trays-state[AppState.get_tray_id(ams-id,tray-id) + 1]);
-                property <bool> slot-is-with-known-color: slot-with-known-color(trays-state[AppState.get_tray_id(ams-id,tray-id) + 1]);
-                property <bool> slot-is-loaded: trays-state[AppState.get_tray_id(ams-id,tray-id) + 1].spool-state == UiTrayState.Loaded;
+                property <bool> used-in-print: trays-state[AppState.get_tray_index(ams-id,tray-id)].used-in-print;
+                property <bool> slot-is-with-spool: slot-with-spool(trays-state[AppState.get_tray_index(ams-id,tray-id)]);
+                property <bool> slot-is-with-known-color: slot-with-known-color(trays-state[AppState.get_tray_index(ams-id,tray-id)]);
+                property <bool> slot-is-loaded: trays-state[AppState.get_tray_index(ams-id,tray-id)].spool-state == UiTrayState.Loaded;
                 height: parent.height - parent.padding-top - parent.padding-bottom - 3px * 2;
-                background: /*slot-is-with-spool &&*/ slot-is-with-known-color ? trays-state[AppState.get_tray_id(ams-id,tray-id) + 1].filament.color : AppConsts.no-color;
+                background: /*slot-is-with-spool &&*/ slot-is-with-known-color ? trays-state[AppState.get_tray_index(ams-id,tray-id)].filament.color : AppConsts.no-color;
 
                 if !slot-is-with-spool: special-cases-circle := Rectangle {
                     height: Math.min(parent.height, parent.width) - 4px;

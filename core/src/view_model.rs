@@ -1291,11 +1291,11 @@ impl ViewModel {
         // OPT: run only on real trays (consider also AMS-HT), use the ams_exists from above
         for tray_row in 0..trays_state.row_count() {
             let ui_tray_id = trays_state.row_data(tray_row).unwrap().id;
-            let curr_tray = if ui_tray_id == 254 {
-                // TODO: external
-                &bambu_printer.virt_trays()[0]
-            } else {
-                &bambu_printer.ams_trays()[ui_tray_id as usize]
+            // TODO: external - need to swap 254 and 255 maybe? or use ams_id/slot_id instead
+            let curr_tray = match ui_tray_id {
+                254 => &bambu_printer.virt_trays()[0],
+                255 => continue,
+                _ => &bambu_printer.ams_trays()[ui_tray_id as usize],
             };
             let mut ui_tray = trays_state.row_data(tray_row).unwrap().clone();
             ui_tray.spool_state = crate::app::UiTrayState::from(&curr_tray.state);

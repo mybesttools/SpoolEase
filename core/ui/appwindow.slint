@@ -118,11 +118,11 @@ export component AppWindow inherits Window {
                         include-paging-left: false;
                         include-paging-right: false;
                         tray_numbers: AppState.curr-ams-id <= 3 ? [
-                            floor(AppState.curr-ams-id * 4 + 1),
-                            AppState.curr-ams-id * 4 + 2,
-                            AppState.curr-ams-id * 4 + 3,
-                            AppState.curr-ams-id * 4 + 4
-                        ] : [15 + AppState.curr-ams-id - 3 + 1];
+                            AppState.get_tray_index(AppState.curr-ams-id, 0),
+                            AppState.get_tray_index(AppState.curr-ams-id, 1),
+                            AppState.get_tray_index(AppState.curr-ams-id, 2),
+                            AppState.get_tray_index(AppState.curr-ams-id, 3),
+                        ] : [AppState.get_tray_index(AppState.curr-ams-id, 0)];
                         trays-state: AppState.trays-state;
                     }
 
