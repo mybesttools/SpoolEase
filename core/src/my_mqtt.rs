@@ -373,6 +373,8 @@ pub async fn generic_mqtt_task<
     ];
     let mut bambu_cert_index = 0;
 
+    let mut socket_error_count = 0;
+
     'establish_communication: loop {
         Framework::wait_for_wifi(&framework).await;
         let mut socket = TcpSocket::new(stack, socket_rx_buffer, socket_tx_buffer);
@@ -393,16 +395,27 @@ pub async fn generic_mqtt_task<
         let embassy_net::IpAddress::Ipv4(addr) = endpoint.addr else { todo!() }; // Ipv6 should not happen
         let octets = addr.octets();
 
-        term_info!(
-            "[{}] Connecting to Printer at {}.{}.{}.{}:{}",
-            printer_log_id,
-            octets[0],
-            octets[1],
-            octets[2],
-            octets[3],
-            port
-        );
-        let mut socket_error_count = 0;
+        if socket_error_count % 5 == 0 {
+            term_info!(
+                "[{}] Connecting to Printer at {}.{}.{}.{}:{}",
+                printer_log_id,
+                octets[0],
+                octets[1],
+                octets[2],
+                octets[3],
+                port
+            );
+        } else {
+            info!(
+                "[{}] Connecting to Printer at {}.{}.{}.{}:{}",
+                printer_log_id,
+                octets[0],
+                octets[1],
+                octets[2],
+                octets[3],
+                port
+            );
+        }
 
         match socket.connect(remote_endpoint).await {
             Ok(()) => (),
@@ -413,14 +426,18 @@ pub async fn generic_mqtt_task<
                 //     ConnectError::TimedOut => (),
                 //     ConnectError::NoRoute => (),
                 // }
-                socket_error_count += 1;
-                if socket_error_count % 10 == 0 {
-                    term_error!("[{}] Unexpected error connecting socket {:?}", printer_log_id, e);
+                if socket_error_count % 5 == 0 {
+                    term_error!("[{}] Unexpected error connecting socket, will retry {:?}", printer_log_id, e);
+                } else {
+                    // to log we want every time
+                    error!("[{}] Unexpected error connecting socket, will retry {:?}", printer_log_id, e);
                 }
-                Timer::after(Duration::from_millis(1000)).await;
+                socket_error_count += 1;
+                Timer::after(Duration::from_millis(2000)).await;
                 continue;
             }
         }
+        socket_error_count = 0;
 
         term_info!("[{}] Connected to Printer {}", printer_log_id, printer_name);
 
