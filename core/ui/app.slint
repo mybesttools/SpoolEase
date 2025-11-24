@@ -492,7 +492,6 @@ export global AppState {
         self.control-state = ControlState.PostAction;
         self.user-message = "Configured Successfully\n\{configured-entity}";
         self.user-message-type = StatusType.Success;
-        // Done: TODO: external
         start-highlight-tray(tray-id);
         if printer != self.curr-printer {
             self.set-later-curr-printer(printer)

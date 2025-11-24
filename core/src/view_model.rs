@@ -830,7 +830,6 @@ impl ViewModel {
         }
     }
 
-    // Done:  TODO: external - deal with left/right external
     fn ams_name(bambu_printer: &BambuPrinter, ams_id: usize) -> String {
         if ams_id <= 3 {
             format!("AMS-{}", (b'A' + ams_id as u8) as char)
@@ -1296,7 +1295,6 @@ impl ViewModel {
         // OPT: run only on real trays (consider also AMS-HT), use the ams_exists from above
         for tray_row in 0..trays_state.row_count() {
             let ui_tray_id = trays_state.row_data(tray_row).unwrap().id;
-            // Done:  TODO: external - need to swap 254 and 255 maybe? or use ams_id/slot_id instead
             let curr_tray = match ui_tray_id {
                 255 => &bambu_printer.virt_trays()[0],
                 254 => &bambu_printer.virt_trays()[1],
@@ -2013,7 +2011,6 @@ impl ViewModel {
                         let view_model_borrow = view_model.borrow();
                         let tray_id_for_ui = tray_id;
                         let full_slot_description = Self::full_slot_description(&view_model.borrow().bambu_printer_model.borrow(), tray_id);
-                        // Done: TODO: external - verify ams_id for ui/etc. are correct by new conventions
                         view_model_borrow
                             .ui_weak
                             .unwrap()
@@ -2091,7 +2088,6 @@ impl ViewModel {
                         128..135 => {
                             format!("HT-{}", (b'A' + (ams_id as u8 - 128)) as char)
                         }
-                        // Done: TODO: external - deal with this display in inventory correctly (Ext Left, vs Right, vs just External when just one extruder)
                         255 => {
                             if printer_borrow.num_extruders() == 1 {
                                 "Ext".to_string()

@@ -260,13 +260,11 @@ impl BambuPrinter {
             self.virt_trays_dirty = true;
         }
     }
-    // Done:  TODO: external - deal with 254/255
     pub fn update_any_tray<F>(&mut self, index: usize, f: F)
     where
         F: FnOnce(&mut Tray),
     {
         match index {
-            //Done:  TODO: external // search where update_any_tray is called with virt_tray and where does the number 254 come from, if UI then ok (will fix UI), if not then ???
             255 => self.update_virt_tray(0, f),
             254 => self.update_virt_tray(1, f),
             _ => self.update_ams_tray(index, f),
@@ -274,7 +272,6 @@ impl BambuPrinter {
     }
     pub fn get_any_tray(&self, mut index: usize) -> &Tray {
         match index {
-            // Done: TODO: external // search where get_any_tray is called with virt_tray and where does the number 254 come from, if UI then ok (will fix UI), if not then ???
             254 => &self.virt_trays()[1],
             255 => &self.virt_trays()[0],
             _ => {
@@ -380,7 +377,6 @@ impl BambuPrinter {
     pub fn init_printer_persistent_state(&mut self, mut state: PrinterPersistentState, store: &Rc<Store>) {
         self.inner_ams_trays = core::mem::take(state.ams_trays.to_mut());
         self.inner_ams_trays.resize(24, Tray::default());
-        // Done:  TODO: external - deal with reading a single tray to an array
         if let Some(mut virt_trays) = state.virt_trays {
             self.inner_virt_trays = core::mem::take(virt_trays.to_mut());
         } else if let Some(mut virt_tray) = state.virt_tray {
@@ -415,7 +411,6 @@ impl BambuPrinter {
 
         // this is for upgrading tray from using the old tag_info to the id.
         // It happens only until the first state store takes place again, because then the old tag_info is not serialized and the id will be there
-        // Done: TODO: external - I think this is good to leave as is, it is about some historical upgrade
         for tray_id in (0..self.ams_trays().len()).chain(core::iter::once(254)) {
             let old_id = self.get_any_tray(tray_id).meta_info.old_tag_info.as_ref().and_then(|v| v.id.clone());
             if let Some(old_id) = old_id {
@@ -1044,27 +1039,11 @@ impl BambuPrinter {
             Some(extruder_tray_now)
         }
     }
-    // Done: TODO: external - what is it exactly and how to deal with it? 255 is nothing active, but also external number
-    //       Need to use None instead and then support also 254/255? affects also bambu_print?
     fn get_tray_active(&self) -> Option<i32> {
         let active_extruder = self.get_active_extruder()?;
         Self::get_common_tray_active(active_extruder, self.tray_now[active_extruder])
-        // if let Some(active_extruder) = self.get_active_extruder() {
-        //     if self.tray_now[active_extruder] == 254 {
-        //         if active_extruder == 0 {
-        //             Some(255)
-        //         } else {
-        //             Some(254)
-        //         }
-        //     } else {
-        //         Some(self.tray_now[active_extruder])
-        //     }
-        // } else {
-        //     None
-        // }
     } 
 
-    //Done:  TODO: external (2) - this seems wrong and surely isn't concistent with regular get_tray_active - fixed
     fn get_print_data_tray_active(print: &bambu_api::PrintData, current_tray_active: Option<i32>) -> Option<i32> {
         // the active tray, usually also printing, convention like tray_xxx fields.
         // always a single value, also in multi extruder printers
@@ -1072,18 +1051,15 @@ impl BambuPrinter {
             let active_extruder = Self::get_active_extruder_from_extruder_state(&extruder.state)?;
             let extruder_snow = extruder.info[active_extruder].snow;
             Self::get_common_tray_active(active_extruder, extruder_snow)
-            // active_extruder.map(|active_extruder| Self::normalized_h2d_tray_xxx(extruder.info[active_extruder].snow))
         } else if let Some(tray_now) = &print.ams.as_ref().and_then(|ams| ams.tray_now) {
             // single tray printer w/o extruder field
             Self::get_common_tray_active(0, *tray_now)
-            // Some(*tray_now)
         } else {
             // no change, so return the current
             current_tray_active
         }
     }
 
-    // Done:  TODO: external - None represents external tray here? So which in case of two?
     fn get_tray_detailed_ready_state(&self, tray_id: i32) -> TrayState {
         // tray_id - 0..24
         // tray_active: tray_xxx format (0..16, 128..135, 254, 255)
@@ -1091,7 +1067,6 @@ impl BambuPrinter {
         // Normal trays are ready or loaded in this function (which checks for detailed ready)
         // External are either Empty or Loaded, no such thing as ready
 
-        // let extruder_id = self.get_extruder_id_for_tray(tray_id).unwrap();
         let perliminary_res = if let Some(active_tray_id) = self.get_tray_active() {
             if active_tray_id == tray_id {
                 TrayState::Loaded
@@ -1122,7 +1097,6 @@ impl BambuPrinter {
         //    1          1         1    ?ams_status = 768   loaded/printing (maybe earlier using additional field)
     }
 
-    // Done: TODO: external - where is it used,
     pub fn get_ams_and_slot_id(tray_id: usize) -> (usize, usize) {
         if tray_id < 16 {
             // AMS
@@ -1166,7 +1140,6 @@ impl BambuPrinter {
         }
     }
 
-    // Done:  TODO: external - deal with both external slots
     #[allow(non_snake_case)]
     pub fn process_print_message__vir_slots(&mut self, vir_slot: &[PrintTray]) -> (bool, Option<SpoolId>) {
         let mut changed_res = false;
@@ -1182,7 +1155,6 @@ impl BambuPrinter {
         (changed_res, removed_tag_res)
     }
 
-    // Done:  TODO: external
     #[allow(non_snake_case)]
     pub fn process_print_message__vt_tray(&mut self, extruder_id: u32, v_tray: &PrintTray) -> (bool, Option<SpoolId>) {
         let old_tray = self.virt_trays()[extruder_id as usize].clone();
@@ -1222,26 +1194,22 @@ impl BambuPrinter {
             };
             // tray_id == 254 in the response message is for old firmwares
             // in new firmwares the response message arrives with ams_id==255 && tray_id==Some(0) (not like the command which is tray 254 and slot_id 0)
-            // Done:  TODO: external - check what arrives in this command for every slot in both P1S and H2D (have the details in _untracked/config-filament.txt)
             // check first the use of ams_id, if not available then switch to tray_index 254
             if (print.ams_id.is_none() && tray_index == 254) || print.ams_id == Some(255) || print.ams_id == Some(254) {
                 // External tray handling
-                // Handle external tray
                 let extruder_id = if print.ams_id == Some(254) { 1 } else { 0 };
                 let virt_tray_id = if extruder_id == 1 { 254 } else { 255 };
                 let virt_tray_state = self.get_tray_detailed_ready_state(virt_tray_id);
                 self.update_virt_tray(extruder_id, |virt_tray| {
                     virt_tray.state = virt_tray_state;
                 });
+                // in case of external slot, clearing filament should remove tag
+                // that's because setting filament from spool marks the tag
+                // can in addition do it all when spool is removed after loaded, but that's elsewhere to do
                 if new_filament == Filament::Unknown {
                     self.update_virt_tray(extruder_id, |virt_tray| {
-                        // virt_tray.state = TrayState::Empty;
                         virt_tray.meta_info = TrayMetaInfo::default();
                     });
-                } else {
-                    // self.update_virt_tray(extruder_id, |virt_tray| {
-                    //     virt_tray.state = TrayState::Ready;
-                    // });
                 }
                 self.update_virt_tray(extruder_id, |virt_tray| {
                     virt_tray.filament = new_filament;
@@ -1277,17 +1245,6 @@ impl BambuPrinter {
     #[allow(non_snake_case)]
     pub fn process_print_message__extrusion_cali_get(&mut self, print: &bambu_api::PrintData) -> bool {
         let mut change_made = false;
-        // let nozzle_diameter = match &print.nozzle_diameter {
-        //     Some(nozzle_diameter) => nozzle_diameter,
-        //     None => return false,
-        // };
-
-        // // filament_id either empty string (so entire list) or something
-        // let filament_id = match &print.filament_id {
-        //     Some(filament_id) => filament_id,
-        //     None => return false,
-        // };
-
         // ignore if filament_id isn't ""
         if let Some(nozzle_diameter) = &print.nozzle_diameter {
             if print.filament_id.as_deref() == Some("") {
@@ -1328,7 +1285,6 @@ impl BambuPrinter {
         let full_push_status = print.ams.is_some() && (print.vt_tray.is_some() || print.vir_slot.is_some());
         let prev_state = if full_push_status && self.auto_restore_k && self.printer_was_disconnected {
             // TODO: To save memory (a few kb's, might be needed in the future) copy from ams_trays only the data requried and not entire tray
-            // Done: TODO: external - seems fine, since this is for X1C, so only one external
             Some((self.ams_trays().to_vec(), self.virt_trays()[0].clone(), self.nozzle_diameter(0).clone()))
         } else {
             None
@@ -1382,7 +1338,6 @@ impl BambuPrinter {
             }
         } else if let Some(v_tray) = &print.vt_tray {
             // this is older printers external slot
-            // Done: TODO: external - seems to be ok here, when two extruders they are in vit_slots and not here
             (vt_tray_change_made, removed_tag) = self.process_print_message__vt_tray(0, v_tray);
             if let Some(removed_tag) = removed_tag {
                 removed_tags.insert(254, removed_tag);
@@ -1392,18 +1347,15 @@ impl BambuPrinter {
             // Still, let's handle it just in case
             for (extruder_id, external_tray_id) in [(0u32, 255), (1u32, 254)] {
                 let new_vt_tray_detailed_ready_state = self.get_tray_detailed_ready_state(external_tray_id);
-                // Done: TODO: external (also line above)
                 let curr_vt_tray_detailed_ready_state = self.virt_trays()[extruder_id as usize].state;
                 self.update_virt_tray(0, |tray| tray.state = new_vt_tray_detailed_ready_state);
 
                 if curr_vt_tray_detailed_ready_state == TrayState::Loaded && new_vt_tray_detailed_ready_state != TrayState::Loaded {
-                    // Done: TODO: external - need to deal with two options
                     let mut vt_tray = self.virt_trays()[extruder_id as usize].clone();
                     let spool_id = vt_tray.meta_info.spool_id.take();
                     vt_tray.meta_info = TrayMetaInfo::default();
                     self.set_virt_tray(extruder_id, vt_tray);
                     if let Some(spool_id) = spool_id {
-                        // Done: TODO: external - need to deal with two options
                         removed_tags.insert(external_tray_id as usize, spool_id);
                     }
                 }
@@ -1415,7 +1367,6 @@ impl BambuPrinter {
             self.printer_was_disconnected = false;
             let mut triggered_k_restore_sequence = false;
             if let Some(prev_state) = prev_state {
-                // Done: TODO: external - this may be ok because it is X1 with  a single external slot
                 if self.ams_trays()[..] != prev_state.0 || self.virt_trays()[0] != prev_state.1 {
                     let spawner = self.app_config.borrow().framework.borrow().spawner;
                     spawner
@@ -1441,16 +1392,10 @@ impl BambuPrinter {
         (change_made, removed_tags)
     }
 
-    // Done: TODO: external - switch to Option here?
-    // Seems like ok because tray_xxx are stored per nozzle
     fn normalized_h2d_tray_xxx(h2d_tray_xxx: i32) -> i32 {
         // this returns normalized the h2d snow/star/spre to be compatible with older printers tray_now/tray_tar/tray_pre
         // this need to be called only on data from message
         // the self.tray_xxx are already normalized
-
-        // Note: to support also left external (value 255) can to use None for tray_xxx in case of empty, and 255 for the value for left tray
-        //       this affects several areas that use tray_xxx convention of 255 as None
-        //       or maybe because tray_xxx exist for both extruders, 254 can always be external (still nicer None, cleaner)
 
         let ams_id = h2d_tray_xxx >> 8;
         let tray_in_ams = h2d_tray_xxx & 0xFF; // maybe will need to change if ams
@@ -1468,7 +1413,6 @@ impl BambuPrinter {
         }
     }
 
-    // Done:  TODO: external - switch to Option here? No - it is per tray, so per tray 254 is external
     fn update_h2d_tray_xxx(curr_tray_xxx: &mut i32, message_sxxx: &i32, changed: &mut bool) {
         let new_tray_xxx = Self::normalized_h2d_tray_xxx(*message_sxxx);
         if new_tray_xxx != *curr_tray_xxx {
@@ -1477,7 +1421,6 @@ impl BambuPrinter {
         }
     }
 
-    // Done:  TODO: external - switch to Option here? No - it is per tray, so per tray 254 is external
     fn update_std_tray_xxx(curr_tray_xxx: &mut i32, message_tray_xxx: &Option<i32>, changed: &mut bool) {
         if let Some(new_tray_xxx) = message_tray_xxx {
             if new_tray_xxx != curr_tray_xxx {
@@ -1902,7 +1845,6 @@ impl BambuPrinter {
             slot_id = 0;
             original_tray_id = (ams_id * 4 + ams_tray_id) as i32; // seems like this is what Bambustudio is placing there (so 512 for first HT, others are assumed)
         } else {
-            // Done: TODO: external
             // external
             slot_id = 0;
             if self.num_extruders() == 1 {
@@ -1946,7 +1888,6 @@ impl BambuPrinter {
         self.publish_payload(payload);
     }
 
-    // Done: TODO: external (2) - is this correct? yes
     pub fn get_ams_info_index_for_tray(&self, tray_id: i32) -> Result<usize, String> {
         // tray_id: 0..15 (4xAMS), 16..23 (8 AMS-HT), 254, 255
         let ams_id = match tray_id {
@@ -3491,7 +3432,6 @@ pub async fn fix_k_on_restart(
             .chain(core::iter::once(&prev_virt_tray).map(|v| (254, v)))
         {
             let curr_tray = if id == 254 {
-                // Done: TODO: external - should be ok since for X1C
                 &bambu_borrow.virt_trays()[0]
             } else {
                 &bambu_borrow.ams_trays()[id]
