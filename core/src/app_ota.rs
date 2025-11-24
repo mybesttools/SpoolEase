@@ -38,7 +38,6 @@ struct AppOtaObserver {
 
 impl OtaObserver for AppOtaObserver {
     fn on_ota_start(&mut self) {
-        info!("on_ota_start");
         if self.update {
             self.view_model.borrow_mut().on_ota_start();
         } else {
@@ -50,12 +49,10 @@ impl OtaObserver for AppOtaObserver {
     }
 
     fn on_ota_status(&mut self, text: &str) {
-        info!("on_ota_status {text}");
         self.view_model.borrow_mut().on_ota_status(text);
     }
 
     fn on_ota_failed(&mut self, text: &str) {
-        info!("on_ota_failed {text}");
         self.view_model.borrow_mut().on_ota_failed(text);
         if self.notify_framework {
             self.framework.borrow_mut().notify_ota_failed(text);
@@ -63,7 +60,6 @@ impl OtaObserver for AppOtaObserver {
     }
 
     fn on_ota_completed(&mut self, text: &str) {
-        info!("on_ota_completed {text}");
         if self.update {
             self.view_model.borrow_mut().on_ota_completed(text);
         } else {
@@ -75,7 +71,6 @@ impl OtaObserver for AppOtaObserver {
     }
 
     fn on_ota_version_available(&mut self, version: &str, newer: bool) {
-        info!("on_ota_version_available {version} {newer}");
         self.version = version.to_string();
         self.newer = newer;
         if self.newer {
@@ -166,6 +161,7 @@ pub async fn app_ota_task(framework: Rc<RefCell<Framework>>, view_model: Rc<RefC
 
                     app_ota_observer.notify_framework = ota_item.product == AppOtaProduct::Console && ota_item.train == AppOtaTrain::Stable;
 
+                    info!("---- Checking available firmware for {:?}-{:?} ----", ota_item.product, ota_item.train);
                     run_ota(
                         ota_item.domain,
                         ota_item.path,
