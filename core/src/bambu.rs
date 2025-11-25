@@ -575,29 +575,52 @@ impl BambuPrinter {
             printer.borrow_mut().printer_name_dirty = false;
             printer.borrow_mut().force_store_state = false;
             let mut file_store = file_store.lock().await;
+
+            let undo_store = |code: i32| {
+                let mut printer_borrow = printer.borrow_mut();
+                printer_borrow.virt_trays_dirty |= virt_trays_dirty;
+                for (x, y) in printer_borrow.ams_trays_dirty.iter_mut().zip(&ams_trays_dirty) {
+                    *x |= *y
+                }
+                printer_borrow.extruders_dirty |= extruders_dirty;
+                printer_borrow.ams_exist_bits_dirty |= ams_exist_bits_dirty;
+                printer_borrow.tray_exist_bits_dirty |= tray_exist_bits_dirty;
+                printer_borrow.tray_read_done_bits_dirty |= tray_read_done_bits_dirty;
+                printer_borrow.calibrations_dirty |= calibrations_dirty;
+                printer_borrow.printer_name_dirty |= printer_name_dirty;
+                printer_borrow.force_store_state = true; // is is set to true in case we miss something or forget in the future
+                view_model.borrow().message_box(
+                    &format!("State Store Error ({code})"),
+                    "Unexpected Error Storing State, Will Retry",
+                    "Please report on Github/Discord !!!",
+                    crate::app::StatusType::Error,
+                    0,
+                );
+            };
             match file_store.create_write_file_str(&path, &printer_state_str).await {
-                Ok(_) => Ok(true),
-                Err(err) => {
-                    let mut printer_borrow = printer.borrow_mut();
-                    printer_borrow.virt_trays_dirty |= virt_trays_dirty;
-                    for (x, y) in printer_borrow.ams_trays_dirty.iter_mut().zip(&ams_trays_dirty) {
-                        *x |= *y
+                Ok(_) => {
+                    let verify_read_str = file_store.read_file_str(&path).await;
+                    match verify_read_str {
+                        Ok(verify_read_str) => {
+                            if verify_read_str == printer_state_str {
+                                info!("[{}] Store state verification passed", printer.borrow().printer_number);
+                                Ok(true)
+                            } else {
+                                undo_store(1);
+                                error!("[{}] During store state verification read data differ from written data", printer.borrow().printer_number);
+                                Err(String::from("Verification of state store failed"))
+                            }
+                        }
+                        Err(err) => {
+                            undo_store(2);
+                            error!("[{}] Failed to verify store printer restart state : {err}", printer.borrow().printer_number);
+                            Err(String::from("Error reading state store to verify : {err}"))
+                        }
                     }
-                    printer_borrow.extruders_dirty |= extruders_dirty;
-                    printer_borrow.ams_exist_bits_dirty |= ams_exist_bits_dirty;
-                    printer_borrow.tray_exist_bits_dirty |= tray_exist_bits_dirty;
-                    printer_borrow.tray_read_done_bits_dirty |= tray_read_done_bits_dirty;
-                    printer_borrow.calibrations_dirty |= calibrations_dirty;
-                    printer_borrow.printer_name_dirty |= printer_name_dirty;
-                    printer_borrow.force_store_state = true; // is is set to true in case we miss something or forget in the future
-                    error!("[{}] Failed to store printer restart state : {err}", printer_borrow.printer_number);
-                    view_model.borrow().message_box(
-                        "State Store Error",
-                        "Unexpected Error Storing State, Will Retry",
-                        "Please report on Github/Discord !!!",
-                        crate::app::StatusType::Error,
-                        0,
-                    );
+                }
+                Err(err) => {
+                    undo_store(3);
+                    error!("[{}] Failed to store printer restart state : {err}", printer.borrow().printer_number);
                     Err(String::from("Error storing state : {err}"))
                 }
             }
@@ -1042,7 +1065,7 @@ impl BambuPrinter {
     fn get_tray_active(&self) -> Option<i32> {
         let active_extruder = self.get_active_extruder()?;
         Self::get_common_tray_active(active_extruder, self.tray_now[active_extruder])
-    } 
+    }
 
     fn get_print_data_tray_active(print: &bambu_api::PrintData, current_tray_active: Option<i32>) -> Option<i32> {
         // the active tray, usually also printing, convention like tray_xxx fields.
@@ -1949,7 +1972,7 @@ impl BambuPrinter {
             let cmd = crate::bambu_api::AmsFilamentSettingCommand::new(
                 ams_id,
                 ams_tray_id, // here we need the tray_id within the specific ams (newer versions)
-                slot_id,            // slot number within ams
+                slot_id,     // slot number within ams
                 &filament.tray_info_idx,
                 setting_id,
                 &filament.tray_type,

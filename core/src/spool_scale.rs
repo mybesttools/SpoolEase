@@ -776,7 +776,7 @@ pub async fn spool_scale_task(
                                                     // log at most 200 characters
                                                     let idx = json.char_indices().nth(200).map(|(i, _)| i).unwrap_or(json.len());
                                                     let str_to_print: &str = &json[..idx];
-                                                    debug!("SpoolScale: Sent message to scale: {str_to_print}");
+                                                    debug!("SpoolScale: Sent message to scale: {str_to_print}{}", if str_to_print.len() < json.len() { "  ..." } else {""});
                                                 }
                                                 Err(send_to_scale_flush_err) => {
                                                     error!("SpoolScale: Error sending message payload {send_to_scale_flush_err:?}, disconnecting");
