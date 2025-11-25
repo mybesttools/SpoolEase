@@ -153,17 +153,17 @@ component Spool inherits Rectangle {
     }
 
     if tray-state.tagged: tag := Rectangle {
-        x: 0px;
-        y: 0px;
-        width: parent.width / 2;
+        x: 15px;
+        y: 2px;
+        width: parent.width - 2 * self.x;
         height: 30px;
-        background: green;
-        border-radius: 3px;
-        border-color: black;
+        background: lightgreen.darker(0.1);
+        border-radius: 15px;
+        border-color: darkgreen.darker(0.5);
         border-width: 1px;
         MyText {
             text: tray-state.spool-rec-id;
-            color: white;
+            color: black;
         }
     }
 
@@ -221,7 +221,7 @@ export component Trays {
 
             Rectangle {
                 background: @linear-gradient(180deg, #09009B 0%, #0000CA 39%, #001dff 100%);
-                if !is_ams : Text {
+                if !is_ams: Text {
                     text: root.title;
                     font-size: 20px;
                     color: white;
@@ -242,9 +242,11 @@ export component Trays {
                     }
                 }
                 if !is_ams: TouchArea {
-                  width: parent.width;
-                  height: parent.height;
-                  clicked => { root.title-clicked() }
+                    width: parent.width;
+                    height: parent.height;
+                    clicked => {
+                        root.title-clicked()
+                    }
                 }
             }
         }
