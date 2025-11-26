@@ -32,14 +32,13 @@ component SpoolDefinitionTagScannedPage inherits Rectangle {
             spacing: 8px;
 
             MyText {
-                width: parent.width;
                 wrap: word-wrap;
-                text: "The scanned tag is a \{AppState.new-tag-scan-definition-type} tag, and isn't linked to your inventory.";
+                text: "The scanned tag is \{AppState.new-tag-scan-definition-type} tag, and isn't linked to your inventory.";
                 color: black;
             }
 
             MyText {
-                text: "Import this tag’s data to the inventory as a new spool?";
+                text: "Import tag data to the inventory as a new spool?";
             }
 
             add-rec-yes := MyButton {
