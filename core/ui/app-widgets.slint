@@ -88,3 +88,43 @@ export component LabeledText inherits Rectangle {
         }
     }
 }
+
+
+export component TitledText inherits Rectangle {
+    callback clicked;
+    in-out property <bool> label-button: false;
+    in-out property <string> label;
+    in-out property <string> text;
+    in-out property <color> label-color: blue;
+    in-out property <color> text-color: black;
+    in-out property <TextWrap> text-wrap;
+    in-out property <length> vert-spacing;
+    VerticalLayout {
+        alignment: start;
+        spacing: vert-spacing;
+        thelabel := MyText {
+            horizontal-alignment: center;
+            text: label;
+            color: label-button ? black : label-color;
+        }
+
+        MyText {
+            horizontal-alignment: center;
+            text: text;
+            color: text-color;
+            wrap: text-wrap;
+        }
+    }
+
+    if label-button: MyButton {
+        z: -1;
+        x: thelabel.x - 4px;
+        y: thelabel.y - 4px;
+        width: thelabel.width - 1px; // for spacing of 5px (4+1) out of the 10px between elements
+        height: thelabel.height + 8px;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
