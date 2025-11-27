@@ -370,8 +370,13 @@ pub async fn generic_mqtt_task<
     let bambu_certs = [
         concat!(include_str!("./certs/bambulab.pem"), "\0").as_bytes(),
         concat!(include_str!("./certs/bambulab_p2s.pem"), "\0").as_bytes(),
+        concat!(include_str!("./certs/bambulab_h2c.pem"), "\0").as_bytes(),
     ];
     let mut bambu_cert_index = 0;
+
+    if printer_model == PrinterModel::H2C {
+        bambu_cert_index = 2;
+    }
 
     let mut socket_error_count = 0;
 
@@ -481,8 +486,8 @@ pub async fn generic_mqtt_task<
 
         if let Err(e) = session.connect().await {
             if matches!(e, TlsError::MbedTlsError(-9984)) {
-                if printer_model != PrinterModel::P2S || bambu_cert_index == 1 {
-                    // report error only after trying both certs
+                if printer_model != PrinterModel::P2S || (printer_model == PrinterModel::P2S && bambu_cert_index == 1) {
+                    // in case of P2S report error only after trying both certs
                     term_error!("[{}] Unexpected error during tls handshake {:?}", printer_log_id, e);
                 } else {
                     // P2S and first cert

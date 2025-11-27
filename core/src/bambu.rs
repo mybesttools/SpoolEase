@@ -781,6 +781,7 @@ impl BambuPrinter {
             "039" => PrinterModel::A1,
             "030" => PrinterModel::A1Mini,
             "22E" => PrinterModel::P2S,
+            "31B" => PrinterModel::H2C,
             _ => PrinterModel::Unknown,
         }
     }
@@ -799,6 +800,7 @@ impl BambuPrinter {
             PrinterModel::H2D => PrinterModelSeries::H2,
             PrinterModel::H2DPro => PrinterModelSeries::H2,
             PrinterModel::_H2S => PrinterModelSeries::H2,
+            PrinterModel::H2C => PrinterModelSeries::H2,
         }
     }
 
@@ -1804,12 +1806,12 @@ impl BambuPrinter {
 
     pub fn fetch_filament_calibrations(&self, nozzle_diameter: &str) {
         // Is this command also causing errors when printer is locked?
-        // if self.is_locked() {
-        //     return;
-        // }
+
         let cmd = crate::bambu_api::ExtrusionCaliGetCommand::new(nozzle_diameter);
         let payload = serde_json::to_string_pretty(&cmd).unwrap();
-        self.publish_payload(payload);
+        if !self.is_locked() {
+            self.publish_payload(payload);
+        }
     }
 
     pub async fn fetch_filament_calibrations_async(
@@ -1886,9 +1888,6 @@ impl BambuPrinter {
     }
 
     pub fn reset_tray(&mut self, tray_id: i32) {
-        if self.is_locked() {
-            return;
-        }
         let (ams_id, ams_tray_id, slot_id, original_tray_id) = self.get_quad_for_set_filament_from_tray_id(tray_id);
         let cmd = crate::bambu_api::AmsFilamentSettingCommand::new(
             ams_id,
@@ -1902,7 +1901,9 @@ impl BambuPrinter {
             0,
         );
         let payload = serde_json::to_string_pretty(&cmd).unwrap();
-        self.publish_payload(payload);
+        if !self.is_locked() {
+            self.publish_payload(payload);
+        }
 
         let extruder_id = self.get_extruder_id_for_tray(tray_id).unwrap_or_default();
         let cmd = crate::bambu_api::ExtrusionCaliSelCommand::new(
@@ -1914,7 +1915,9 @@ impl BambuPrinter {
             Some(-1),
         );
         let payload = serde_json::to_string_pretty(&cmd).unwrap();
-        self.publish_payload(payload);
+        if !self.is_locked() {
+            self.publish_payload(payload);
+        }
     }
 
     pub fn get_ams_info_index_for_tray(&self, tray_id: i32) -> Result<usize, String> {
@@ -1945,10 +1948,6 @@ impl BambuPrinter {
     }
 
     pub fn set_tray_filament(&mut self, tray_id: i32, full_spool_rec: &FullSpoolRecord, temp_min: u32, temp_max: u32) {
-        if self.is_locked() {
-            return;
-        }
-
         let (ams_id, ams_tray_id, slot_id, original_tray_id) = self.get_quad_for_set_filament_from_tray_id(tray_id);
 
         // setting_id can't be extracted from just tray information, it's available only if there is a cali_idx on the tray.
@@ -1983,7 +1982,9 @@ impl BambuPrinter {
                 filament.nozzle_temp_max,
             );
             let payload = serde_json::to_string_pretty(&cmd).unwrap();
-            self.publish_payload(payload);
+            if !self.is_locked() {
+                self.publish_payload(payload);
+            }
 
             let extruder_id = self.get_extruder_id_for_tray(tray_id).unwrap_or_default();
             let cmd = crate::bambu_api::ExtrusionCaliSelCommand::new(
@@ -1999,7 +2000,9 @@ impl BambuPrinter {
                 },
             );
             let payload = serde_json::to_string_pretty(&cmd).unwrap();
-            self.publish_payload(payload);
+            if !self.is_locked() {
+                self.publish_payload(payload);
+            }
 
             self.update_any_tray(tray_id as usize, |tray| {
                 tray.meta_info = TrayMetaInfo::default();
@@ -3367,6 +3370,7 @@ pub enum PrinterModel {
     A1,
     H2D,
     H2DPro,
+    H2C,
     _H2S,
 }
 
@@ -3433,9 +3437,6 @@ pub async fn fix_k_on_restart(
     prev_virt_tray: Tray,
     prev_nozzle: Option<String>,
 ) {
-    if bambu_printer.borrow().is_locked() {
-        return;
-    }
     Timer::after_secs(1).await;
     let printer_number = bambu_printer.borrow().printer_number;
     term_info!("[{}] Checking pressure advance (k) at printer startup", printer_number);
@@ -3518,7 +3519,10 @@ pub async fn fix_k_on_restart(
                         *set_tray,
                     );
                     let payload = serde_json::to_string_pretty(&cmd).unwrap();
-                    BambuPrinter::publish_payload_async(&printer_serial, printer_number, log_filter, write_packets.clone(), payload).await;
+
+                    if !bambu_printer.borrow().is_locked() {
+                        BambuPrinter::publish_payload_async(&printer_serial, printer_number, log_filter, write_packets.clone(), payload).await;
+                    }
                     Timer::after_millis(250).await;
                 }
             }
