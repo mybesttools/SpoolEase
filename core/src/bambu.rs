@@ -297,6 +297,9 @@ impl BambuPrinter {
         }
     }
     pub fn set_extruder_info(&mut self, extruder_id: u32, new_nozzle_info: &PrintDeviceNozzleInfo) -> bool {
+        if extruder_id !=0 && extruder_id != 1 {
+            return false;
+        }
         let new_extruder = Extruder {
             id: extruder_id,
             diameter: Some(format!("{:.1}", new_nozzle_info.diameter)),
@@ -1337,7 +1340,9 @@ impl BambuPrinter {
         let mut extruders_change_made = false;
         if let Some(nozzles) = print.device.as_ref().and_then(|d| d.nozzle.as_ref()) {
             for nozzle in &nozzles.info {
-                extruders_change_made |= self.set_extruder_info(nozzle.id as u32, nozzle);
+                if nozzle.id == 0 || nozzle.id == 1 {
+                    extruders_change_made |= self.set_extruder_info(nozzle.id as u32, nozzle);
+                }
             }
         } else if let Some(nozzle_diameter) = &print.nozzle_diameter {
             let old_nozzle_diameter = self.nozzle_diameter(0).clone();
