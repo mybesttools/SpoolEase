@@ -297,7 +297,7 @@ impl BambuPrinter {
         }
     }
     pub fn set_extruder_info(&mut self, extruder_id: u32, new_nozzle_info: &PrintDeviceNozzleInfo) -> bool {
-        if extruder_id !=0 && extruder_id != 1 {
+        if extruder_id != 0 && extruder_id != 1 {
             return false;
         }
         let new_extruder = Extruder {
@@ -472,23 +472,35 @@ impl BambuPrinter {
             }
             Timer::after_millis(100).await;
         }
-        {
+        Timer::after_millis(250).await;
+
+        let mut err_str = String::new();
+
+        for trial in 1..=3 {
             // in separate section for file_store to be release for later load
             let file_store = framework.borrow().file_store();
             let mut file_store = file_store.lock().await;
             match file_store.read_file_str(&path).await {
-                Ok(state_str) => match serde_json::from_str::<PrinterPersistentState>(&state_str) {
-                    Ok(printer_state) => {
-                        printer.borrow_mut().init_printer_persistent_state(printer_state, store);
-                        term_info!("[{}] Restored printer state from SDCard", printer_number);
-                        Ok(())
+                Ok(state_str) => {
+                    if state_str.trim().is_empty() {
+                        err_str = format!("[{printer_number}] Loaded empty state file {path} in trial {trial}");
+                        term_error!("{err_str}"); // will retry after timeout below
+                    } else {
+                        match serde_json::from_str::<PrinterPersistentState>(&state_str) {
+                            Ok(printer_state) => {
+                                printer.borrow_mut().init_printer_persistent_state(printer_state, store);
+                                term_info!("[{}] Restored printer state from SDCard", printer_number);
+                                return Ok(());
+                            }
+                            Err(err) => {
+                                err_str = format!("[{printer_number}] Failed to Parse Printer State File (Check Terminal for More Info)");
+                                term_error!("[{}] Failed to parse printer state in file {} : {}", printer_number, path, err);
+                                error!("[{printer_number} Printer state state file content: {state_str}]");
+                                return Err(err_str);
+                            }
+                        }
                     }
-                    Err(err) => {
-                        let err_str = format!("[{printer_number}] Failed to Parse Printer State File (Check Terminal for More Info)");
-                        term_error!("[{}] Failed to parse printer state in file {} : {}", printer_number, path, err);
-                        Err(err_str)
-                    }
-                },
+                }
                 Err(err) => {
                     term_error!(
                         "[{}] Can't read printer state file (ok, if first printer run) {} : {}",
@@ -496,10 +508,12 @@ impl BambuPrinter {
                         path,
                         err
                     );
-                    Ok(())
+                    return Ok(());
                 }
             }
+            Timer::after_millis(250).await;
         }
+        Err(err_str)
     }
 
     // Ok(true) - saved, Ok(false) nothing to save
@@ -600,6 +614,15 @@ impl BambuPrinter {
                     0,
                 );
             };
+            if printer_state_str.trim().is_empty() {
+                term_error!("[{}] Somehow stored state is an empty string", printer.borrow().printer_number);
+                view_model.borrow().message_box(
+                    "State Store Error", 
+                    &format!("[{}] Printer State to Store is Empty",printer.borrow().printer_number),
+                    "Please report on Github/Discord !!!",
+                    crate::app::StatusType::Error,
+                    0);
+            }
             match file_store.create_write_file_str(&path, &printer_state_str).await {
                 Ok(_) => {
                     let verify_read_str = file_store.read_file_str(&path).await;
@@ -610,13 +633,19 @@ impl BambuPrinter {
                                 Ok(true)
                             } else {
                                 undo_store(1);
-                                error!("[{}] During store state verification read data differ from written data", printer.borrow().printer_number);
+                                error!(
+                                    "[{}] During store state verification read data differ from written data",
+                                    printer.borrow().printer_number
+                                );
                                 Err(String::from("Verification of state store failed"))
                             }
                         }
                         Err(err) => {
                             undo_store(2);
-                            error!("[{}] Failed to verify store printer restart state : {err}", printer.borrow().printer_number);
+                            error!(
+                                "[{}] Failed to verify store printer restart state : {err}",
+                                printer.borrow().printer_number
+                            );
                             Err(String::from("Error reading state store to verify : {err}"))
                         }
                     }
