@@ -204,21 +204,25 @@ impl Store {
     }
 
     pub fn remove_tag_from_tag_id_index(&self, tag_id: &str) -> Option<String> {
-       let res = self.tag_id_index.borrow_mut().remove(tag_id);
-        for weak_observer in self.observers.borrow().iter() {
-            let observer = weak_observer.upgrade().unwrap();
-            observer.borrow().on_tag_removed();
+        let res = self.tag_id_index.borrow_mut().remove(tag_id);
+        if res.is_some() { // if was key previously (and now isn't) need to send an update on remove
+            for weak_observer in self.observers.borrow().iter() {
+                let observer = weak_observer.upgrade().unwrap();
+                observer.borrow().on_tag_removed();
+            }
         }
-       res
+        res
     }
 
-    pub fn insert_tag_to_tag_id_index(&self, tag_id: String, spool_id: String ) -> Option<String> {
+    pub fn insert_tag_to_tag_id_index(&self, tag_id: String, spool_id: String) -> Option<String> {
         let res = self.tag_id_index.borrow_mut().insert(tag_id, spool_id);
-        for weak_observer in self.observers.borrow().iter() {
-            let observer = weak_observer.upgrade().unwrap();
-            observer.borrow().on_tag_added();
+        if res.is_none() { // if was no key (and now there is) need to send an update on add
+            for weak_observer in self.observers.borrow().iter() {
+                let observer = weak_observer.upgrade().unwrap();
+                observer.borrow().on_tag_added();
+            }
         }
-       res
+        res
     }
 
     pub async fn add_spool(&self, mut spool_rec: SpoolRecord, spool_rec_ext: SpoolRecordExt) -> Result<String, StoreError> {
@@ -335,7 +339,7 @@ impl Store {
     }
 
     pub fn tags_in_store(&self) -> String {
-        let mut tags_in_store = String::with_capacity(self.tag_id_index.borrow().len() * (7+1) + 1);
+        let mut tags_in_store = String::with_capacity(self.tag_id_index.borrow().len() * (7 + 1) + 1);
         tags_in_store.push(','); // start with ","
         for tag in self.tag_id_index.borrow().keys() {
             tags_in_store.push_str(tag);
