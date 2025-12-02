@@ -101,8 +101,18 @@ pub enum StoreError {
 //     }
 // }
 
+// Non DMA version
+
+// type TheSpi = embedded_hal_bus::spi::ExclusiveDevice<
+//     esp_hal::spi::master::Spi<'static, esp_hal::Async>,
+//     esp_hal::gpio::Output<'static>,
+//     embedded_hal_bus::spi::NoDelay,
+// >;
+
+// DMA vers>n
+
 type TheSpi = embedded_hal_bus::spi::ExclusiveDevice<
-    esp_hal::spi::master::Spi<'static, esp_hal::Async>,
+    esp_hal::spi::master::SpiDmaBus<'static, esp_hal::Async>,
     esp_hal::gpio::Output<'static>,
     embedded_hal_bus::spi::NoDelay,
 >;

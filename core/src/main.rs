@@ -129,7 +129,7 @@ async fn main(spawner: Spawner) {
     heap_dram2_allocator!(64 * 1024);
 
     // Last, reserve from 'standard' area, if need additional memory for esp-wifi/esp-mbedtls, need to increase this
-    esp_alloc::heap_allocator!(156 * 1024);
+    esp_alloc::heap_allocator!(154 * 1024);
 
     spawner.spawn_heap(heap_stats_task()).ok();
 
@@ -271,6 +271,7 @@ async fn main(spawner: Spawner) {
         GPIO40: peripherals.GPIO40,
         GPIO41: peripherals.GPIO41,
         SPIx: peripherals.SPI3,
+        DMA_CHx: peripherals.DMA_CH2,
     };
 
     let display_orientation = mipidsi::options::Orientation::new()
