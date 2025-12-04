@@ -297,7 +297,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
                     let store = state.store;
                     let new_spool = SpoolRecord {
                         id: add_spool.id,
-                        tag_id: String::new(),
+                        tag_id: add_spool.tag_id,
                         material_type: add_spool.material,
                         material_subtype: add_spool.subtype,
                         color_name: add_spool.color_name,
@@ -789,6 +789,7 @@ encrypted_input!(DeleteSpoolDTO);
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct AddSpoolDTO {
+    pub tag_id: String,
     pub id: String,
     pub rgba: String,
     pub color_name: String,
