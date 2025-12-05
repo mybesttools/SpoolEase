@@ -432,10 +432,10 @@ pub async fn generic_mqtt_task<
                 //     ConnectError::NoRoute => (),
                 // }
                 if socket_error_count % 5 == 0 {
-                    term_error!("[{}] Unexpected error connecting socket, will retry {:?}", printer_log_id, e);
+                    term_error!("[{}] Error connecting to {remote_endpoint:?}, will retry {:?}", printer_log_id, e);
                 } else {
                     // to log we want every time
-                    //error!("[{}] Unexpected error connecting socket, will retry {:?}", printer_log_id, e);
+                    //error!("[{}] Error connecting to {remote_endpoint:?}, will retry {:?}", printer_log_id, e);
                 }
                 socket_error_count += 1;
                 Timer::after(Duration::from_millis(2000)).await;
