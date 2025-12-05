@@ -6,7 +6,7 @@ import { SpoolStaging } from "spoolstaging.slint";
 
 
 export component ControlPanelBase inherits HorizontalLayout {
-    in-out property <string> message-text;
+    in-out property <[string]> message-lines;
     in-out property <StatusType> message-type: StatusType.Normal;
     in-out property <color> message-color: black;
     in-out property <string> button1-text;
@@ -105,18 +105,22 @@ export component ControlPanelBase inherits HorizontalLayout {
             }
         }
 
-        Rectangle {
+        lines-rect := Rectangle {
             background: message-type == StatusType.Success ? green.brighter(1.0) : (message-type == StatusType.Error ? red : white);
             preferred-width: 480px;
             border-width: text-border-width;
             border-color: black;
-            Text {
-                vertical-alignment: center;
-                horizontal-alignment: center;
-                font-size: 20px;
-                wrap: word-wrap;
-                text: message-text;
-                color: message-color == black ? Utils.contrasting_color(parent.background) : message-color;
+            VerticalLayout {
+                alignment: center;
+                for message-text in message-lines: Window {
+                    preferred-height: 30px;
+                    if message-text != "": Text {
+                        horizontal-alignment: center;
+                        font-size: 20px;
+                        text: message-text;
+                        color: message-color == black ? Utils.contrasting_color(lines-rect.background) : message-color;
+                    }
+                }
             }
         }
     }
@@ -143,7 +147,7 @@ export component ControlPanelBase inherits HorizontalLayout {
 }
 
 export component Booting inherits ControlPanelBase {
-    message-text: "Booting";
+    message-lines: ["Booting"];
 }
 
 // export component ConnectingToPrinter inherits ControlPanelBase {
@@ -151,7 +155,7 @@ export component Booting inherits ControlPanelBase {
 // }
 
 export component BootFailed inherits ControlPanelBase {
-    message-text: "Boot Failed";
+    message-lines: ["Boot Failed"];
     message-type: StatusType.Error;
     button1-text: "Reboot";
     clicked1 => {
@@ -179,9 +183,11 @@ export component Ready inherits ControlPanelBase {
     }
 
     message-color: color-timer.color;
-    message-text: (AppState.spool-staging-state == SpoolStagingState.Empty ? "Scanning for Tagged Spool..." : "Load Spool or Rescan Tag") + 
-                  (AppState.available-printers.length > 1 ? "\n\n\{AppState.curr-printer}" : "") +
-                  (AppState.available-printers.length >= 1 && AppState.some-printer-connected ? "" : "\n\n- Connecting to Printer(s) -");
+    message-lines: [
+        AppState.spool-staging-state == SpoolStagingState.Empty ? "Scanning for Tagged Spool..." : "Load Spool or Rescan Tag",
+        AppState.available-printers.length > 1 ? "\{AppState.curr-printer}" : "",
+        AppState.available-printers.length >= 1 && AppState.some-printer-connected ? "" : "- Connecting to Printer(s) -"
+    ];
     button1-text: (AppState.spool-staging-state != SpoolStagingState.Empty) ? "Clear Staging" : "";
     button1-timeout: (AppState.spool-staging-state != SpoolStagingState.Empty) ? 60 : 0;
     clicked1() => {
@@ -196,7 +202,7 @@ export component Ready inherits ControlPanelBase {
 }
 
 export component TraySelect inherits ControlPanelBase {
-    message-text: "Press Slot to Configure";
+    message-lines: ["Press Slot to Configure"];
     // button1-text: "Clear Staging";
     button2-text: "Cancel";
     button2-timeout: 10;
@@ -209,7 +215,7 @@ export component TraySelect inherits ControlPanelBase {
 }
 
 export component OperationBase inherits ControlPanelBase {
-    message-text: AppState.user-message;
+    message-lines: [AppState.user-message];
     button2-text: "Cancel";
 }
 // TODO: No need for OperationBase and Reading sharing with Encoding the Operation Base
@@ -277,7 +283,7 @@ export component Reading inherits OperationBase {
 }
 
 export component PostAction inherits ControlPanelBase {
-    message-text: AppState.user-message;
+    message-lines: [AppState.user-message];
     message-type: AppState.user-message-type;
     button1-text: "Ok";
     button1-timeout: 10;
