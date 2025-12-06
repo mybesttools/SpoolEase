@@ -28,8 +28,9 @@ And most importantly, even though it’s an open-source project, it’s fun and 
 - [Flashing Web Site](https://www.spoolease.io)
 - [Discord Server](https://discord.gg/6brKUCERcQ)
 
-## Support the Project  
-If you find this project valuable, please boost the MakerWorld models and star the GitHub repo.
+## Show Your Appreciation  
+A **tremendous** amount of effort has gone into this project and continues to go in.  
+If you find it valuable or helpful, please **Boost** the 3D models on MakerWorld and ⭐ **Star** the GitHub repo.
 
 <div align="center">
   <a href="https://www.star-history.com/#yanshay/spoolease&Date">
