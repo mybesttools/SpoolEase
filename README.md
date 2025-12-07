@@ -14,10 +14,11 @@ It features:
 - Supports most common NFC tags - NTAG (recommended 215 and above) and Mifare Classic (with Mifare no support yet for virtual label feature)
 - Supports data import from and use of Bambu Lab filament RFID tags
 - Supports Bambu Lab X1, P1, A1, H2, P2 product lines with AMS-Lite, AMS, AMS2-Pro and AMS-HT
+- Supports multiple printers simultaneously (within resource limits)
 - More ...
 
 The system includes two products:  
-- **SpoolEase Console** – The main hub with display, handling NFC tag encoding, inventory tracking, printer setup, and AMS filament status. SpoolEase Console works independently and does not require SpoolEase Scale.  
+- **SpoolEase Console** – The main hub with a display, managing inventory, weight tracking, AMS/External slot configuration, and showing AMS/External filament status. It works independently, but some features require SpoolEase Scale, so using both is recommended.
 - **SpoolEase Scale** – Measures spool weight and feeds data to the Console. SpoolEase Scale depends on SpoolEase Console to operate.
 
 SpoolEase works well together with the [SpoolEase NFC tag holder](https://makerworld.com/en/models/2050083) that supports easily swappable NFC tag, material type and spool-id labels for spool reuse purpose.
