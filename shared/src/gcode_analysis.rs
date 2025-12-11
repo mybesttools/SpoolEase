@@ -96,8 +96,14 @@ impl GcodeFilamentCalc {
             let buffer_to_process = &taken_buffer[..=last_cr];
             let string_to_process = core::str::from_utf8(buffer_to_process)
                 .whatever_context("gcode isn't valid utf8")?;
-            for line in string_to_process.lines() {
-                let line = line.trim();
+            for full_line in string_to_process.lines() {
+                let line = full_line.trim();
+                // Remove comments after gcode (like ; )
+                let line = if !line.starts_with(';') {
+                    line.split_once(';').map(|(a, _)| a).unwrap_or(full_line)
+                } else {
+                    line
+                };
                 self.curr_gcode_line += 1;
                 // println!("// {}, {}", self.gcode_buffer_line, line);
                 if line.starts_with("; CHANGE_LAYER") {
@@ -147,7 +153,7 @@ impl GcodeFilamentCalc {
                                 }
                                 self.curr_filament_id = Some(filament_id);
                             } else {
-                                panic!("filament_id larger than u8");
+                                panic!("filament_id larger than u8 in '{full_line}'");
                             }
                         }
                     }
@@ -178,7 +184,7 @@ impl GcodeFilamentCalc {
                                     self.curr_extrusion_position = 0.0;
                                 }
                             } else {
-                                panic!("can't parse E")
+                                panic!("can't parse E in '{full_line}'")
                             }
                         }
                     }
