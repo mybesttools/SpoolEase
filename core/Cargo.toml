@@ -2,7 +2,7 @@
 name = "SpoolEase"
 homepage = "MyBestTools.net"
 version = "0.5.6"
-edition = "2026"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.84"
 
