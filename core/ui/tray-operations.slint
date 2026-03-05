@@ -3,6 +3,7 @@ import { AppBackend, AppState, ControlState, SpoolStagingState, SpoolScaleState,
 import { SpoolDisplay } from "spool-display.slint";
 import { SlotDisplay } from "slot-display.slint";
 import { Utils } from "utils.slint";
+import { Translations } from "translations.slint";
 
 
 enum TrayDisplayTab {
@@ -22,7 +23,7 @@ component TrayDisplayStep inherits Rectangle {
             height: 40px;
             MyButton {
                 type: ButtonType.RadioButton;
-                text: "Slot Information";
+                text: Translations.tr-slot-information;
                 pushed-background: AppState.trays-state[tray-index].filament.color;
                 text-color: Utils.contrasting_color(self.background);
                 pushed: root.tab == TrayDisplayTab.Slot;
@@ -33,7 +34,7 @@ component TrayDisplayStep inherits Rectangle {
 
             if spool-id != "": MyButton {
                 type: ButtonType.RadioButton;
-                text: "Spool \{spool-id} Information";
+                text: Translations.tr-spool-info-prefix + spool-id + Translations.tr-spool-info-suffix;
                 pushed: tab == TrayDisplayTab.Spool;
                 pushed-background: root.spool-display.color;
                 text-color: Utils.contrasting_color(self.background);
@@ -58,18 +59,18 @@ component TrayDisplayStep inherits Rectangle {
             height: 56px;
             MyButton {
                 visible: false;
-                text: "Unload";
+                text: Translations.tr-unload;
             }
 
             MyButton {
-                text: "More...";
+                text: Translations.tr-more;
                 clicked => {
                     more-clicked();
                 }
             }
 
             MyButton {
-                text: "Close";
+                text: Translations.tr-close;
                 clicked => {
                     AppState.control-state = ControlState.Ready;
                 }
@@ -84,7 +85,7 @@ component OperationSelectionStep inherits Rectangle {
 
     VerticalLayout {
         Title {
-            text: "Please Select Slot Operation";
+            text: Translations.tr-please-select-slot-operation;
         }
 
         GridLayout {
@@ -93,7 +94,7 @@ component OperationSelectionStep inherits Rectangle {
             Row {
                 MyButton {
                     enabled: AppState.trays-state[tray-index].spool_rec_id != "";
-                    text: "Untag Slot";
+                    text: Translations.tr-untag-slot;
                     clicked => {
                         AppBackend.untag-slot(AppState.trays-state[tray-index].id);
                         AppState.control-state = ControlState.Ready;
@@ -102,7 +103,7 @@ component OperationSelectionStep inherits Rectangle {
 
                 MyButton {
                     enabled: AppState.spool-staging-state != SpoolStagingState.Empty;
-                    text: "Configure from Staging";
+                    text: Translations.tr-configure-from-staging;
                     clicked => {
                         AppBackend.set-staging-to-tray(AppState.trays-state[tray-index].id);
                         AppState.control-state = ControlState.Ready;
@@ -110,7 +111,7 @@ component OperationSelectionStep inherits Rectangle {
                 }
 
                 MyButton {
-                    text: "Reset Slot";
+                    text: Translations.tr-reset-slot;
                     clicked => {
                         AppBackend.untag-slot(AppState.trays-state[tray-index].id);
                         AppBackend.reset-slot(AppState.trays-state[tray-index].id);
@@ -122,7 +123,7 @@ component OperationSelectionStep inherits Rectangle {
             Row {
                 MyButton {
                     enabled: AppState.trays-state[tray-index].spool_rec_id != "";
-                    text: "Reapply Tag";
+                    text: Translations.tr-reapply-tag;
                     clicked => {
                         AppBackend.configure-slot-with-spool-id(AppState.trays-state[tray-index].id,  AppState.trays-state[tray-index].spool_rec_id);
                         AppState.control-state = ControlState.Ready;
@@ -130,7 +131,7 @@ component OperationSelectionStep inherits Rectangle {
                 }
                 MyButton {
                     visible: false;
-                    text: "Unload Filament";
+                    text: Translations.tr-unload-filament;
                     clicked => {
                     }
                 }
@@ -143,7 +144,7 @@ component OperationSelectionStep inherits Rectangle {
         HorizontalLayout {
             MyButton {
                 height: 56px;
-                text: "Cancel";
+                text: Translations.tr-cancel;
                 clicked => {
                     AppState.control-state = ControlState.Ready;
                 }

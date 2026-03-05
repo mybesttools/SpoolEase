@@ -19,11 +19,13 @@ import { StagingOperations } from "staging-operations.slint";
 import { TrayOperations } from "tray-operations.slint";
 import { MessageBox } from "message-box.slint";
 import { AppOtaSelect } from "ota.slint";
+import { Translations } from "translations.slint";
 
 // reexport to rust
 
 export { FrameworkState, FrameworkBackend }
-export { AppState, AppBackend } 
+export { AppState, AppBackend }
+export { Translations } 
 
 export component AppWindow inherits Window {
     width: 480px;

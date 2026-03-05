@@ -1,6 +1,7 @@
 import { AppConsts, AppBackend, AppState, SpoolScaleState, SpoolStagingState  } from "app.slint";
 import { Utils } from "utils.slint";
 import { MyText, MyButton } from "framework/widgets.slint";
+import { Translations } from "translations.slint";
 
 export enum WeightDisplayContent {
   NetGross,
@@ -50,7 +51,7 @@ export component ScaleWeightDisplay inherits Rectangle {
     Text {
         color: Utils.contrasting_color(parent.background);
         font-size: 20px;
-        text: AppState.spool-scale-state == SpoolScaleState.Disconnected ? "Scale Disconnected" : AppState.spool-scale-state == SpoolScaleState.Uncalibrated ? "Scale Not Calibrated" : AppState.spool-scale-state == SpoolScaleState.Connected ? "Scale Connected" : AppState.spool-scale-state == SpoolScaleState.Loaded ? weight-display() : "";
+        text: AppState.spool-scale-state == SpoolScaleState.Disconnected ? Translations.tr-scale-disconnected : AppState.spool-scale-state == SpoolScaleState.Uncalibrated ? Translations.tr-scale-not-calibrated : AppState.spool-scale-state == SpoolScaleState.Connected ? Translations.tr-scale-connected : AppState.spool-scale-state == SpoolScaleState.Loaded ? weight-display() : "";
     }
 }
 

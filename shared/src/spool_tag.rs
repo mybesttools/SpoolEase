@@ -253,7 +253,11 @@ async fn nfc_task(
     let timer = crate::pn532_ext::Esp32TimerAsync::new();
 
     let mut pn532: pn532::Pn532<_, _, 64> = pn532::Pn532::new(interface, timer);
-    // pn532.wake_up().await.unwrap();
+    // Give PN532 time to power up fully before first communication
+    Timer::after(Duration::from_millis(500)).await;
+    pn532.wake_up().await.unwrap();
+    // Wait longer after initial wake_up to allow PN532 to stabilize
+    Timer::after(Duration::from_millis(500)).await;
 
     info!("Configuring pn532");
 
@@ -264,9 +268,9 @@ async fn nfc_task(
         if retry % 20 == 0 {
             if retry != 0 {
                 term_error!("Challenging PN532 Initialization ({})", retries);
+                pn532.wake_up().await.unwrap();
+                Timer::after(Duration::from_millis(300)).await;
             }
-            pn532.wake_up().await.unwrap();
-            Timer::after(Duration::from_millis(100)).await
         }
         if let Err(e) = pn532
             .process(

@@ -213,8 +213,142 @@ impl ViewModel {
         self.framework.borrow().undim_display();
     }
 
+    fn apply_translations(ui_weak: &slint::Weak<crate::app::AppWindow>, language: &str) {
+        let ui = ui_weak.unwrap();
+        let tr = ui.global::<crate::app::Translations>();
+        match language {
+            "pl" => {
+                tr.set_tr_ok("Ok".into());
+                tr.set_tr_cancel("Anuluj".into());
+                tr.set_tr_close("Zamknij".into());
+                tr.set_tr_more("Więcej...".into());
+                tr.set_tr_continue("Kontynuuj".into());
+                tr.set_tr_reboot("Uruchom ponownie".into());
+                tr.set_tr_booting("Uruchamianie".into());
+                tr.set_tr_boot_failed("Błąd uruchamiania".into());
+                tr.set_tr_scanning_for_tag("Skanowanie szpuli z tagiem...".into());
+                tr.set_tr_load_spool_or_rescan("Załaduj szpulę lub zeskanuj tag".into());
+                tr.set_tr_connecting_to_printers("- Łączenie z drukarką -".into());
+                tr.set_tr_clear_staging("Wyczyść kolejkę".into());
+                tr.set_tr_press_slot_to_configure("Naciśnij gniazdo, aby skonfigurować".into());
+                tr.set_tr_scale_disconnected("Waga rozłączona".into());
+                tr.set_tr_scale_not_calibrated("Waga nie skalibrowana".into());
+                tr.set_tr_scale_connected("Waga podłączona".into());
+                tr.set_tr_slot_information("Informacje o gnieździe".into());
+                tr.set_tr_spool_info_prefix("Szpula ".into());
+                tr.set_tr_spool_info_suffix(" - Informacje".into());
+                tr.set_tr_unload("Rozładuj".into());
+                tr.set_tr_please_select_slot_operation("Wybierz operację gniazda".into());
+                tr.set_tr_untag_slot("Odznacz gniazdo".into());
+                tr.set_tr_configure_from_staging("Konfiguruj z kolejki".into());
+                tr.set_tr_reset_slot("Resetuj gniazdo".into());
+                tr.set_tr_reapply_tag("Ponownie przypisz tag".into());
+                tr.set_tr_unload_filament("Rozładuj filament".into());
+                tr.set_tr_quick_weight("Szybkie ważenie".into());
+                tr.set_tr_configure_slot("Konfiguruj gniazdo".into());
+                tr.set_tr_please_select_staging_operation("Wybierz operację".into());
+                tr.set_tr_configure_slot_manually("Konfiguruj gniazdo ręcznie".into());
+                tr.set_tr_advanced_weight("Zaawansowane ważenie".into());
+                tr.set_tr_encode_tag("Zakoduj tag".into());
+                tr.set_tr_unlink_tag("Odepnij tag".into());
+                tr.set_tr_erase_tag("Wyczyść tag".into());
+                tr.set_tr_mark_as_dried("Oznacz jako wysuszony".into());
+                tr.set_tr_mark_used_up("Oznacz jako zużyty".into());
+                tr.set_tr_then_select_weight_update("Wybierz sposób aktualizacji wagi:".into());
+                tr.set_tr_used_keep_full_weight("Używany\n\nZachowaj pełną wagę".into());
+                tr.set_tr_used_simple("Używany".into());
+                tr.set_tr_full_unused("Pełny/nieużywany\n\nUstaw pełną wagę".into());
+                tr.set_tr_used_clear_new("Używany\n\nWyczyść pełną wagę".into());
+                tr.set_tr_update_weight("Aktualizuj wagę".into());
+                tr.set_tr_new_tag_scanned("Zeskanowano nowy tag".into());
+                tr.set_tr_new_def_tag_scanned_prefix("Nowy tag ".into());
+                tr.set_tr_new_def_tag_scanned_suffix(" zeskanowany".into());
+                tr.set_tr_scanned_tag_not_linked_prefix("Zeskanowany tag ".into());
+                tr.set_tr_scanned_tag_not_linked_suffix(" nie jest powiązany z twoim inwentarzem.".into());
+                tr.set_tr_def_tag_data_imported_prefix("".into());
+                tr.set_tr_def_tag_data_imported_middle(" - dane tagu zaimportowane jako szpula ID: ".into());
+                tr.set_tr_def_tag_data_imported_suffix(".".into());
+                tr.set_tr_please_choose_action("Wybierz akcję:".into());
+                tr.set_tr_please_choose_how_to_proceed("Wybierz sposób kontynuacji:".into());
+                tr.set_tr_import_tag_to_inventory("Zaimportować dane tagu do inwentarza jako nową szpulę?".into());
+                tr.set_tr_yes_import("Tak, importuj dane jako nowy rekord szpuli".into());
+                tr.set_tr_no_ignore("Nie, ignoruj dane".into());
+                tr.set_tr_filament_est_needs_weight("Szacowanie filamentu wymaga wagi pustej szpuli.".into());
+                tr.set_tr_what_spool_type("Jaki typ szpuli jest używany z tym tagiem?".into());
+                tr.set_tr_low_temp("Niska temp. (≤ 70°C) / Jasnoszary (~250g)".into());
+                tr.set_tr_high_temp("Wysoka temp. (≤ 90°C) / Ciemnoszary (~260g)".into());
+                tr.set_tr_other_manual("Inne (można wprowadzić ręcznie później)".into());
+                tr.set_tr_link_tag_to_untagged_spool("Przypisz tag do nieoznaczonej szpuli".into());
+                tr.set_tr_link_tag_recent_prefix("Przypisz tag do ostatnio dodanej szpuli ID: ".into());
+                tr.set_tr_link_tag_imported_prefix("Przypisz tag do zaimportowanej szpuli ID: ".into());
+                tr.set_tr_please_select_spool_id("Wybierz ID szpuli do powiązania".into());
+                tr.set_tr_early_version_tag("Tag starszej wersji SpoolEase".into());
+                tr.set_tr_this_tag_earlier_version("Zeskanowany tag pochodzi ze starszej wersji SpoolEase i nie ma go w inwentarzu.".into());
+                tr.set_tr_add_spool_to_inventory("Dodaj dane szpuli do inwentarza".into());
+                tr.set_tr_erase_tag_without_data("Wyczyść tag, aby używać bez danych".into());
+                tr.set_tr_tag_linked_success("Tag pomyślnie powiązany ze szpulą".into());
+                tr.set_tr_linking_succeeded_measure_weight("Tag powiązany, zmierz wagę".into());
+                tr.set_tr_now_measure_weight("Dobry moment na pomiar wagi szpuli,\nPołóż ją na wadze.".into());
+                tr.set_tr_tag_imported_to_spool_prefix("Informacje tagu zaimportowane do szpuli ".into());
+                tr.set_tr_tag_imported_to_spool_suffix("".into());
+                tr.set_tr_def_tag_imported_prefix("".into());
+                tr.set_tr_def_tag_imported_suffix(" - Informacje tagu zaimportowane".into());
+                tr.set_tr_imported_data_may_be_incomplete("Zaimportowane dane mogą być niekompletne lub niedokładne.".into());
+                tr.set_tr_please_review_spool_record("Sprawdź rekord szpuli w aplikacji inwentarza.".into());
+                tr.set_tr_scale_calibration_prefix("Kalibracja wagi - ".into());
+                tr.set_tr_calibration_status_calibrated("Skalibrowana".into());
+                tr.set_tr_calibration_status_uncalibrated("Nieskalibrowana".into());
+                tr.set_tr_calib_step1("1. Usuń wszystko z tacy, następnie".into());
+                tr.set_tr_press_tare("Naciśnij Tarę".into());
+                tr.set_tr_calib_step2("2. Połóż przedmiot o znanej wadze (~1kg) na wadze, wprowadź jego wagę i naciśnij Ok.".into());
+                tr.set_tr_or_cancel("lub... Anuluj".into());
+                tr.set_tr_calibration_weight("Waga kalibracyjna".into());
+                tr.set_tr_scale_not_available("Waga niedostępna".into());
+                tr.set_tr_trying_to_connect_scale("Łączenie z wagą...".into());
+                tr.set_tr_connected_to_scale("Połączono z wagą".into());
+                tr.set_tr_scales_on_network("Wagi w sieci (zamknij i otwórz ponownie)".into());
+                tr.set_tr_calibrate_scale("Kalibruj wagę".into());
+                tr.set_tr_scale_information("Informacje o wadze".into());
+                tr.set_tr_language_settings("Język / Language".into());
+                tr.set_tr_ota_title("Aktualizacja oprogramowania przez sieć".into());
+                tr.set_tr_installed("Zainstalowane".into());
+                tr.set_tr_stable("Stabilna".into());
+                tr.set_tr_update_to("Aktualizuj do\n".into());
+                tr.set_tr_restart_device("Uruchom ponownie urządzenie".into());
+                tr.set_tr_reset_wifi("Resetuj dane WiFi (Flash) i uruchom ponownie".into());
+                tr.set_tr_reset_fixed_key("Resetuj klucz bezpieczeństwa (jeśli ustawiony)".into());
+                tr.set_tr_check_update_firmware("Sprawdź i zaktualizuj oprogramowanie".into());
+                tr.set_tr_filament_information("Informacje o filamencie".into());
+                tr.set_tr_weight_label("Na etykiecie".into());
+                tr.set_tr_weight_empty("Puste".into());
+                tr.set_tr_weight_full("Pełne".into());
+                tr.set_tr_weight_net("Netto".into());
+                tr.set_tr_weight_gross("Brutto".into());
+                tr.set_tr_label_note("Notatka:".into());
+                tr.set_tr_label_in_slicer("W slicerze:".into());
+                tr.set_tr_label_color("Kolor:".into());
+                tr.set_tr_label_temps("Temp.: ".into());
+                tr.set_tr_label_pa("PA(K):".into());
+                tr.set_tr_label_weights("Wagi:".into());
+                tr.set_tr_staging("Kolejka".into());
+                tr.set_tr_scanned("Zeskanowano".into());
+                tr.set_tr_encoded("Zakodowano".into());
+                tr.set_tr_unloaded("Rozładowano".into());
+                tr.set_tr_updates_available("Aktualizacje\ndostępne".into());
+                tr.set_tr_beta_updates_available("Aktualizacje Beta\ndostępne".into());
+                tr.set_tr_select_printer("Wybierz drukarkę".into());
+                tr.set_tr_default("(Domyślna)".into());
+            }
+            _ => { /* English defaults already set in Slint */ }
+        }
+    }
+
     pub fn init_only_if_sdcard_init_ok(&mut self) {
         self.store.start(self.view_model.clone().unwrap());
+
+        // Apply saved language translations to UI
+        let language = self.app_config.borrow().language.clone();
+        Self::apply_translations(&self.ui_weak, &language);
 
         // Initialize Printers ///////////////////////////
 
@@ -655,6 +789,16 @@ impl ViewModel {
             .unwrap()
             .global::<crate::app::AppBackend>()
             .on_ota_update_firmware(move |product, train| moved_view_model.borrow().ui_ota_update_firmware(&product, &train));
+
+        let moved_ui = self.ui_weak.clone();
+        let moved_app_config = self.app_config.clone();
+        self.ui_weak
+            .unwrap()
+            .global::<crate::app::AppBackend>()
+            .on_set_language(move |language| {
+                ViewModel::apply_translations(&moved_ui, language.as_str());
+                moved_app_config.borrow_mut().set_language(language.to_string()).ok();
+            });
     }
 
     fn perform_select_printer(
@@ -1037,13 +1181,20 @@ impl ViewModel {
             (SharedString::new(), 0, 0, "")
         };
 
-        let color_name = if color_code.len() >= 6 {
-            let color = u32::from_str_radix(&color_code[..6], 16).unwrap() + 0xFF000000; // the plus 0xFF at the end is fo add alpha
-            let color = slint::Color::from_argb_encoded(color);
-            let color_name_info = get_color_name(color.red(), color.green(), color.blue());
-            color_name_info.0
-        } else {
-            ""
+        let color_name = {
+            let code = color_code.trim_start_matches('#');
+            if code.len() >= 6 {
+                match u32::from_str_radix(&code[..6], 16) {
+                    Ok(c) => {
+                        let color = slint::Color::from_argb_encoded(c + 0xFF000000);
+                        let color_name_info = get_color_name(color.red(), color.green(), color.blue());
+                        color_name_info.0
+                    }
+                    Err(_) => "",
+                }
+            } else {
+                ""
+            }
         };
 
         let brand = if !slicer_name.is_empty() {
@@ -1150,11 +1301,16 @@ impl ViewModel {
             Default::default()
         };
 
-        let color = if record.color_code.len() >= 6 {
-            let color = u32::from_str_radix(&record.color_code[..6], 16).unwrap() + 0xFF000000; // the plus 0xFF at the end is fo add alpha
-            slint::Color::from_argb_encoded(color)
-        } else {
-            slint::Color::default()
+        let color = {
+            let code = record.color_code.trim_start_matches('#');
+            if code.len() >= 6 {
+                match u32::from_str_radix(&code[..6], 16) {
+                    Ok(c) => slint::Color::from_argb_encoded(c + 0xFF000000),
+                    Err(_) => slint::Color::default(),
+                }
+            } else {
+                slint::Color::default()
+            }
         };
 
         UiSpoolRecordDisplay {
@@ -1223,11 +1379,16 @@ impl ViewModel {
             Default::default()
         };
 
-        let color = if record.color_code.len() >= 6 {
-            let color = u32::from_str_radix(&record.color_code[..6], 16).unwrap() + 0xFF000000; // the plus 0xFF at the end is fo add alpha
-            slint::Color::from_argb_encoded(color)
-        } else {
-            slint::Color::default()
+        let color = {
+            let code = record.color_code.trim_start_matches('#');
+            if code.len() >= 6 {
+                match u32::from_str_radix(&code[..6], 16) {
+                    Ok(c) => slint::Color::from_argb_encoded(c + 0xFF000000),
+                    Err(_) => slint::Color::default(),
+                }
+            } else {
+                slint::Color::default()
+            }
         };
 
         UiSpoolRecordDisplay {
@@ -1302,8 +1463,12 @@ impl ViewModel {
             let mut ui_tray = trays_state.row_data(tray_row).unwrap().clone();
             ui_tray.spool_state = crate::app::UiTrayState::from(&curr_tray.state);
             if let bambu::Filament::Known(filament_info) = &curr_tray.filament {
-                let color = u32::from_str_radix(&filament_info.tray_color[..6], 16).unwrap() + 0xFF000000; // the plus at the end is fo add alpha
-                ui_tray.filament.color = slint::Color::from_argb_encoded(color);
+                let code = filament_info.tray_color.trim_start_matches('#');
+                if code.len() >= 6 {
+                    if let Ok(c) = u32::from_str_radix(&code[..6], 16) {
+                        ui_tray.filament.color = slint::Color::from_argb_encoded(c + 0xFF000000);
+                    }
+                }
                 ui_tray.filament.material = slint::SharedString::from(&filament_info.tray_type);
                 ui_tray.filament.state = crate::app::UiFilamentState::Known;
             } else {

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpoolEase – Web Resources</title>
+  <style>
+    body { font-family: sans-serif; max-width: 700px; margin: 3rem auto; padding: 0 1rem; }
+    code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+    pre  { background: #f0f0f0; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+    h1 { color: #1565c0; }
+    a  { color: #1565c0; }
+  </style>
+</head>
+<body>
+  <h1>SpoolEase – GitHub Pages</h1>
+  <p>This page hosts static web assets for the <a href="https://github.com/mybesttools/SpoolEase">SpoolEase</a> firmware project.</p>
+
+  <h2>Assets</h2>
+  <ul>
+    <li><a href="translate.js"><code>translate.js</code></a> – Inventory editor UI translator (Polish + future languages)</li>
+  </ul>
+
+  <h2>Adding a translation</h2>
+  <p>Edit <code>docs/translate.js</code> in the repository and add a new key under <code>TRANSLATIONS</code>:</p>
+  <pre>
+TRANSLATIONS = {
+  pl: { 'Filters': 'Filtry', ... },
+  de: { 'Filters': 'Filter', ... },  // ← new language
+};</pre>
+  <p>Commit and push to <code>main</code>; GitHub Actions will deploy automatically.</p>
+</body>
+</html>

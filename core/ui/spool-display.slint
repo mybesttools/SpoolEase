@@ -3,6 +3,7 @@ import { AppBackend, AppState, ControlState, UiTray, UiSpoolRecord, UiSpoolRecor
 import { Utils } from "utils.slint";
 import { FrameworkState, Log } from "framework/framework.slint";
 import { LabeledText, TitledText } from "app-widgets.slint";
+import { Translations } from "translations.slint";
 
 
 component LabeledInfo inherits LabeledText {
@@ -11,14 +12,14 @@ component LabeledInfo inherits LabeledText {
 
 export component ViewTitle inherits Title {
     horizontal-alignment: center;
-    text: "Filament Information";
+    text: Translations.tr-filament-information;
 }
 
 export component ViewButtons inherits HorizontalLayout {
     MyButton {
         horizontal-stretch: 1;
         height: 56px;
-        text: "Close";
+        text: Translations.tr-close;
         clicked => {
             AppState.control-state = ControlState.Ready;
         }
@@ -44,31 +45,31 @@ component WeightsDisplay inherits Rectangle {
         padding: 0px;
         TitledText {
             vert-spacing: vert-spacing;
-            label: "Label";
+            label: Translations.tr-weight-label;
             text: weight-label;
         }
 
         TitledText {
             vert-spacing: vert-spacing;
-            label: "Empty";
+            label: Translations.tr-weight-empty;
             text: weight-empty;
         }
 
         TitledText {
             vert-spacing: vert-spacing;
-            label: "Full";
+            label: Translations.tr-weight-full;
             text: weight-full;
         }
 
         TitledText {
             vert-spacing: vert-spacing;
-            label: "Net";
+            label: Translations.tr-weight-net;
             text: weight-net;
         }
 
         TitledText {
             vert-spacing: vert-spacing;
-            label: "Gross";
+            label: Translations.tr-weight-gross;
             text: weight-gross;
         }
     }
@@ -88,7 +89,7 @@ export component SpoolDisplay inherits Rectangle {
             vertical-stretch: 0;
             background: spool-display.color;
             text-color: Utils.contrasting_color(self.background);
-            text: title == "" ? "Spool \{spool-display.spool-record.id} Information" : title;
+            text: title == "" ? Translations.tr-spool-info-prefix + spool-display.spool-record.id + Translations.tr-spool-info-suffix : title;
         }
 
         VerticalLayout {
@@ -107,14 +108,14 @@ export component SpoolDisplay inherits Rectangle {
 
             LabeledInfo {
                 vertical-stretch: mode == SpoolDisplayMode.ImportTagDefinition ? 2 : 1;
-                label: "Note:";
+                label: Translations.tr-label-note;
                 text: spool-display.spool-record.note;
                 text-wrap: mode == SpoolDisplayMode.ImportTagDefinition ? word-wrap : no-wrap;
             }
 
             LabeledInfo {
                 vertical-stretch: 1;
-                label: "In Slicer:";
+                label: Translations.tr-label-in-slicer;
                 text: spool-display.slicer-filament-name;
             }
 
@@ -123,19 +124,19 @@ export component SpoolDisplay inherits Rectangle {
                 alignment: space-between;
                 LabeledInfo {
                     horizontal-stretch: 1;
-                    label: "Color:";
+                    label: Translations.tr-label-color;
                     text: "\{spool-display.spool-record.color-code}";
                 }
 
                 if mode != SpoolDisplayMode.ImportTagDefinition: LabeledInfo {
-                    label: "Temps: ";
+                    label: Translations.tr-label-temps;
                     text: "\{spool-display.temp-min}°C - \{spool-display.temp-max}°C";
                 }
             }
 
             if mode != SpoolDisplayMode.ImportTagDefinition: LabeledInfo {
                 vertical-stretch: 1;
-                label: "PA(K):";
+                label: Translations.tr-label-pa;
                 text: spool-display.pa-line1;
             }
 
@@ -144,7 +145,7 @@ export component SpoolDisplay inherits Rectangle {
                 VerticalLayout {
                     LabeledInfo {
                         width: 90px;
-                        label: "Weights:";
+                        label: Translations.tr-label-weights;
                         text: "";
                     }
                 }

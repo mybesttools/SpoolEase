@@ -2,6 +2,7 @@ import { MyButton } from "widgets.slint";
 import { FrameworkState, FrameworkBackend, OtaState, WebConfigState, ResetWifiCredentialsState, ResetFixedSecurityKeyState, RestartDeviceState } from "framework.slint";
 import { Title, LeftTab } from "widgets.slint";
 import { AppBackend } from "../app.slint";
+import { Translations } from "../translations.slint";
 import { StandardListView } from "std-widgets.slint";
 
 export component MyText inherits Text {
@@ -37,28 +38,28 @@ export component WebConfigButton inherits SettingsButton {
 }
 
 export component RestartDeviceButton inherits SettingsButton {
-    text: "Restart Device";
+    text: Translations.tr-restart-device;
     clicked => {
         FrameworkState.restart-device-state = RestartDeviceState.UserInput;
     }
 }
 
 export component ResetWifiCredentialsButton inherits SettingsButton {
-    text: "Reset Wifi Credentials (Flash) and Restart";
+    text: Translations.tr-reset-wifi;
     clicked => {
         FrameworkState.reset-wifi-credentials-state = ResetWifiCredentialsState.UserInput;
     }
 }
 
 export component ResetFixedKeyButton inherits SettingsButton {
-    text: "Reset Fixed Security Key (If set)";
+    text: Translations.tr-reset-fixed-key;
     clicked => {
         FrameworkState.reset-fixed-security-key-state = ResetFixedSecurityKeyState.UserInput;
     }
 }
 
 export component OtaButton inherits SettingsButton {
-    text: "Check & Update Firmware Over Network";// + (FrameworkState.ota-info.newer ? " to \{FrameworkState.ota-info.version}" : "");
+    text: Translations.tr-check-update-firmware;// + (FrameworkState.ota-info.newer ? " to \{FrameworkState.ota-info.version}" : "");
     clicked => {
         FrameworkState.ota-state = OtaState.Checking;
         FrameworkState.ota-clear-message();

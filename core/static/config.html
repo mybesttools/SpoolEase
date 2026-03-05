@@ -9,6 +9,10 @@
   </head>
   <body>
     <h1>SpoolEase Configuration</h1>
+    <div style="text-align: center; margin-bottom: 20px;">
+      <a href="/spools" style="display: inline-block; padding: 10px 20px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 4px; margin: 0 5px;">Spool Inventory Editor</a>
+      <a href="/inventory" style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px; margin: 0 5px;">Inventory (External)</a>
+    </div>
     <h3 style="text-align: center;">Most configurations require device restart</h3>
 
     <!-- Security Key Section -->
@@ -472,6 +476,16 @@ ProtoPasta 500g - Cardboard - 84g,84"
       >
         Restart Device
       </button>
+
+      <button
+        id="format-sdcard"
+        type="button"
+        class="apply-btn"
+        onclick="formatSDCard()"
+        disabled
+      >
+        SD Card Help
+      </button>
     </div>
 
     <script type="module">
@@ -561,6 +575,7 @@ ProtoPasta 500g - Cardboard - 84g,84"
             document.getElementById("ota-request").disabled = true;
             document.getElementById("ota-status-update").disabled = true;
             document.getElementById("restart-device").disabled = true;
+            document.getElementById("format-sdcard").disabled = true;
             return;
           } else if (response.ok) {
             document.getElementById("security-key-feedback").textContent = "Security Key validated";
@@ -568,6 +583,7 @@ ProtoPasta 500g - Cardboard - 84g,84"
             document.getElementById("ota-request").disabled = false;
             document.getElementById("ota-status-update").disabled = false;
             document.getElementById("restart-device").disabled = false;
+            document.getElementById("format-sdcard").disabled = false;
           }
         } catch (error) {
           document.getElementById("security-key-feedback").textContent =
@@ -605,11 +621,15 @@ ProtoPasta 500g - Cardboard - 84g,84"
 
       async function fetchInitialSectionConfig(section) {
         try {
+          console.log(`Fetching ${section} configuration...`);
           const response = await fetch(`${urlPrefix}/api/${section}-config`); // Replace with actual endpoint
           if (!response.ok) throw new Error(`Error: ${response.statusText}`);
           const encryptedText = await response.text();
+          console.log(`Received encrypted ${section} data, length:`, encryptedText.length);
           const decryptedText = decrypt(encryptionKey, encryptedText);
+          console.log(`Decrypted ${section} data:`, decryptedText);
           const data = JSON.parse(decryptedText);
+          console.log(`Parsed ${section} configuration:`, data);
 
           // Populate WiFi credentials
           return data;
@@ -683,6 +703,41 @@ ProtoPasta 500g - Cardboard - 84g,84"
         alert(
           "Device restarted. Reactivate Web Config from device and refresh page to continue configuration",
         );
+      }
+
+      // Function to check SD card status and show formatting instructions
+      async function formatSDCard() {
+        const button = document.getElementById("format-sdcard");
+        button.disabled = true;
+        button.textContent = "Checking...";
+        
+        try {
+          const data = { confirm: true };
+          const fetchResponse = await sendData("/api/format-sdcard", data);
+          
+          if (!fetchResponse.ok) {
+            throw new Error(`Error: ${fetchResponse.statusText}`);
+          }
+          
+          const encryptedText = await fetchResponse.text();
+          const decryptedText = decrypt(encryptionKey, encryptedText);
+          const response = JSON.parse(decryptedText);
+          
+          // Format message for display - preserve line breaks
+          const message = response.message.replace(/\\n/g, '\n');
+          
+          if (response.success) {
+            alert(message);
+          } else {
+            // Show instructions in alert (will handle line breaks)
+            alert(message);
+          }
+        } catch (error) {
+          alert("Error checking SD card: " + error.message);
+        } finally {
+          button.disabled = false;
+          button.textContent = "SD Card Help";
+        }
       }
 
       // Function to collect WiFi settings and send them as JSON
@@ -1430,6 +1485,20 @@ ProtoPasta 500g - Cardboard - 84g,84"
           urlPrefix = "http://consoledev.local";
         }
       });
+    </script>
+
+    <!-- Floating language selector -->
+    <div id="se-lang" style="position:fixed;bottom:0;right:0;z-index:9999;background:rgba(30,30,30,0.88);border-radius:8px 0 0 0;padding:6px 10px;display:flex;gap:8px;align-items:center;">
+      <span style="color:#aaa;font-size:12px;">&#127760;</span>
+      <a id="se-lang-en" href="/api/language?lang=en&next=/config" style="color:#fff;text-decoration:none;font-size:13px;font-family:sans-serif;padding:2px 8px;border-radius:4px;">EN</a>
+      <a id="se-lang-pl" href="/api/language?lang=pl&next=/config" style="color:#fff;text-decoration:none;font-size:13px;font-family:sans-serif;padding:2px 8px;border-radius:4px;">PL</a>
+    </div>
+    <script>
+      fetch('/api/locale').then(r => r.json()).then(d => {
+        const active = d.language || 'en';
+        const el = document.getElementById('se-lang-' + active);
+        if (el) { el.style.background = '#2196F3'; el.style.fontWeight = 'bold'; }
+      }).catch(() => {});
     </script>
   </body>
 </html>

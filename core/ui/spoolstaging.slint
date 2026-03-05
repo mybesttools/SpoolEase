@@ -1,6 +1,7 @@
 import { MyText, MyButton } from "framework/widgets.slint";
 import { AppState, AppConsts, AppBackend, SpoolStagingState, ControlState, SpoolScaleState } from "app.slint";
-import { Utils } from "utils.slint"; 
+import { Utils } from "utils.slint";
+import { Translations } from "translations.slint";
 import { FrameworkState } from "framework/framework.slint";
 
 export component SpoolStaging inherits Window {
@@ -13,7 +14,7 @@ export component SpoolStaging inherits Window {
             height: 30px;
             Text {
                 color: white; // Utils.contrasting_color(parent.background); // entered manually white because this cause a panic in slint for some reason
-                text: AppState.spool-staging-state == SpoolStagingState.Empty ? "Staging" : AppState.spool-staging-state == SpoolStagingState.Scanned ? "Scanned" : AppState.spool-staging-state == SpoolStagingState.Encoded ? "Encoded" : "Unloaded";
+                text: AppState.spool-staging-state == SpoolStagingState.Empty ? Translations.tr-staging : AppState.spool-staging-state == SpoolStagingState.Scanned ? Translations.tr-scanned : AppState.spool-staging-state == SpoolStagingState.Encoded ? Translations.tr-encoded : Translations.tr-unloaded;
                 font-size: 20px;
             }
 
@@ -76,7 +77,7 @@ export component SpoolStaging inherits Window {
                     horizontal-alignment: center;
                     vertical-alignment: center;
 
-                    text: AppState.stable-firmware-updates-available() ? "Updates\nAvailable" : "Beta\nUpdates\nAvailable";
+                    text: AppState.stable-firmware-updates-available() ? Translations.tr-updates-available : Translations.tr-beta-updates-available;
                 }
             }
 

@@ -666,12 +666,20 @@ impl BambuPrinter {
 
     pub fn printer_state_file_path(printer_serial: &str) -> String {
         let len = printer_serial.len();
+        if len < 11 {
+            // For shorter serials, use the full serial as the file name
+            return format!("/state/{printer_serial}/startup.jsn");
+        }
         let file_ext = &printer_serial[len - 3..];
         let file_name = &printer_serial[len - 11..len - 3];
         format!("/state/{file_name}.{file_ext}/startup.jsn")
     }
     pub fn printer_state_path_for_file(&self, file: &str) -> String {
         let len = self.printer_serial.len();
+        if len < 11 {
+            // For shorter serials, use the full serial as the directory name
+            return format!("/state/{}/{file}", self.printer_serial);
+        }
         let file_ext = &self.printer_serial[len - 3..];
         let file_name = &self.printer_serial[len - 11..len - 3];
         format!("/state/{file_name}.{file_ext}/{file}")

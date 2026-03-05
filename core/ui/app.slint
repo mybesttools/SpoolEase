@@ -151,6 +151,7 @@ export global AppBackend {
     callback configure-slot-with-spool-id(tray-id: int, spool-id: string);
     callback ota-check-firmwares();
     callback ota-update-firmware(product: string, train: string);
+    callback set-language(language: string);
 }
 
 export enum NewScannedTagType {

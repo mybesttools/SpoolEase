@@ -33,9 +33,26 @@ use shared::gcode_analysis_task::Fetch3mf;
 
 use crate::app_config::{AppConfig, DefaultPrinterConfig, PrinterConfig, PrintersConfig, ScaleConfig, FILAMENT_BRAND_NAMES, SPOOLS_CATALOG};
 use crate::bambu::KInfo;
+
 use crate::spool_record::{SpoolRecord, SpoolRecordExt};
 use crate::store::{BackupMeta, FileMeta, Store};
 use crate::view_model::ViewModel;
+
+const INVENTORY_HTML_TEMPLATE: &str = include_str!("../static/inventory/index.html");
+
+fn build_inventory_html(language: &str) -> String {
+    // Floating language selector injected before </body>.
+    // Clicking a language button navigates to /api/language?lang=XX which sets the language and
+    // redirects back, so the page reloads with the updated <html lang> attribute.
+    let active_en = if language == "en" { r#"background:#2196F3;font-weight:bold;"# } else { "" };
+    let active_pl = if language == "pl" { r#"background:#2196F3;font-weight:bold;"# } else { "" };
+    let selector = format!(
+        r##"<div id="se-lang" style="position:fixed;bottom:0;right:0;z-index:9999;background:rgba(30,30,30,0.88);border-radius:8px 0 0 0;padding:6px 10px;display:flex;gap:8px;align-items:center;"><span style="color:#aaa;font-size:12px;">&#127760;</span><a href="/api/language?lang=en" style="color:#fff;text-decoration:none;font-size:13px;font-family:sans-serif;padding:2px 8px;border-radius:4px;{active_en}">EN</a><a href="/api/language?lang=pl" style="color:#fff;text-decoration:none;font-size:13px;font-family:sans-serif;padding:2px 8px;border-radius:4px;{active_pl}">PL</a></div></body>"##
+    );
+    INVENTORY_HTML_TEMPLATE
+        .replace(r#"lang="en""#, &format!(r#"lang="{language}""#))
+        .replace("</body>", &selector)
+}
 
 #[derive(Clone)]
 pub struct ConsoleAppState {
@@ -256,6 +273,38 @@ impl AppWithStateBuilder for NestedAppBuilder {
         );
 
         let router = router.route(
+            "/api/format-sdcard",
+            post(
+                async move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>, format_req: FormatSDCardDTO| {
+                    let response = if !format_req.confirm {
+                        FormatSDCardResponse {
+                            success: false,
+                            message: "Confirmation required".to_string(),
+                        }
+                    } else {
+                        let framework = state.0.app_config.borrow().framework.clone();
+                        let file_store = framework.borrow().file_store();
+                        let file_store = file_store.lock().await;
+                        
+                        if !file_store.card_installed {
+                            FormatSDCardResponse {
+                                success: false,
+                                message: "No SD card detected. Format card with MBR partition table and FAT32 filesystem. Mac: Use Disk Utility with 'Master Boot Record' scheme. Windows: Use FAT32. Then restart device.".to_string(),
+                            }
+                        } else {
+                            // Card is detected and working
+                            FormatSDCardResponse {
+                                success: true,
+                                message: "SD card is detected and working correctly. No formatting needed.".to_string(),
+                            }
+                        }
+                    };
+                    encrypt(&key.borrow(), &serde_json::to_string(&response).unwrap_or_default())
+                },
+            ),
+        );
+
+        let router = router.route(
             "/api/spools",
             get(
                 async move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>| match state.0.store.query_spools() {
@@ -301,7 +350,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
                         material_type: add_spool.material,
                         material_subtype: add_spool.subtype,
                         color_name: add_spool.color_name,
-                        color_code: add_spool.rgba,
+                        color_code: add_spool.rgba.trim_start_matches('#').to_uppercase(),
                         note: add_spool.note,
                         brand: add_spool.brand,
                         weight_advertised: if add_spool.label_weight == 0 {
@@ -341,31 +390,31 @@ impl AppWithStateBuilder for NestedAppBuilder {
                             Ok(new_id) => match store.query_spools() {
                                 Some(csv) => {
                                     state.view_model.borrow_mut().recently_added_spool_id = Some(new_id.clone());
-                                    AddSpoolDTOResponse { id: new_id, csv }.encrypt(&key.borrow())
+                                    AddSpoolDTOResponse { success: true, id: new_id, csv, error: None }.encrypt(&key.borrow())
                                 }
                                 None => {
-                                    error!("Failed to generate response to spoole query");
-                                    "".to_string()
+                                    error!("Failed to generate response to spool query");
+                                    AddSpoolDTOResponse { success: false, id: String::new(), csv: String::new(), error: Some("Failed to query spools".to_string()) }.encrypt(&key.borrow())
                                 }
                             },
                             Err(err) => {
                                 error!("Failed to add spool : {err}");
-                                err.to_string()
+                                AddSpoolDTOResponse { success: false, id: String::new(), csv: String::new(), error: Some(err.to_string()) }.encrypt(&key.borrow())
                             }
                         }
                     } else {
                         let id = new_spool.id.clone();
                         match store.edit_spool_from_web(new_spool, add_spool.k_info).await {
                             Ok(_) => match store.query_spools() {
-                                Some(csv) => AddSpoolDTOResponse { id, csv }.encrypt(&key.borrow()),
+                                Some(csv) => AddSpoolDTOResponse { success: true, id, csv, error: None }.encrypt(&key.borrow()),
                                 None => {
-                                    error!("Failed to generate response to spoole query");
-                                    "".to_string()
+                                    error!("Failed to generate response to spool query");
+                                    AddSpoolDTOResponse { success: false, id: String::new(), csv: String::new(), error: Some("Failed to query spools".to_string()) }.encrypt(&key.borrow())
                                 }
                             },
                             Err(err) => {
                                 error!("Failed to edit spool : {err}");
-                                err.to_string()
+                                AddSpoolDTOResponse { success: false, id: String::new(), csv: String::new(), error: Some(err.to_string()) }.encrypt(&key.borrow())
                             }
                         }
                     }
@@ -461,23 +510,58 @@ impl AppWithStateBuilder for NestedAppBuilder {
 
         // Web App //
 
+        #[derive(serde::Deserialize)]
+        struct LanguageQueryParam {
+            lang: String,
+            next: Option<String>,
+        }
+
+        // GET /api/language?lang=en  or  ?lang=pl  (optional: &next=/config)
+        // No security key required – language is not sensitive.
+        // Sets the language on the device and redirects back to `next` (default: /inventory).
         let router = router.route(
-            "/inventory",
-            get_service(picoserve::response::File::with_content_type_and_headers(
-                "text/html",
-                include_bytes_gz!("static/inventory/index.html"),
-                &[("Content-Encoding", "gzip")],
-            )),
+            "/api/language",
+            get(move |picoserve::extract::Query(LanguageQueryParam { lang, next }), state: State<ConsoleAppState>| {
+                ready({
+                    let lang = if lang == "pl" { "pl".to_string() } else { "en".to_string() };
+                    state.0.app_config.borrow_mut().set_language(lang).ok();
+                    let redirect = next.unwrap_or_else(|| "/inventory".to_string());
+                    HtmlStringResponse::new(
+                        format!(r#"<!doctype html><script>location.replace('{redirect}');</script>"#),
+                    )
+                })
+            }),
         );
 
-        // let router = router.route(
-        //     "/inventory.js",
-        //     get_service(picoserve::response::File::with_content_type_and_headers(
-        //         "application/javascript; charset=utf-8",
-        //         include_bytes!("../static/inventory/inventory.js.gz"),
-        //         &[("Content-Encoding", "gzip")],
-        //     )),
-        // );
+        let router = router.route(
+            "/api/locale",
+            get(move |state: State<ConsoleAppState>| {
+                ready({
+                    let language = state.0.app_config.borrow().language.clone();
+                    format!(r#"{{"language":"{language}"}}"#)
+                })
+            }),
+        );
+
+        let router = router.route(
+            "/inventory",
+            get(move |state: State<ConsoleAppState>| {
+                ready({
+                    let language = state.0.app_config.borrow().language.clone();
+                    HtmlStringResponse::new(build_inventory_html(&language))
+                })
+            }),
+        );
+
+        let router = router.route(
+            "/spools",
+            get(move |state: State<ConsoleAppState>| {
+                ready({
+                    let language = state.0.app_config.borrow().language.clone();
+                    HtmlStringResponse::new(build_inventory_html(&language))
+                })
+            }),
+        );
 
         let router = router.route(
             "/api/store-backup",
@@ -516,17 +600,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
             ),
         );
 
-        // #[allow(clippy::let_and_return)]
-        // let router = router.route(
-        //     "/style.css",
-        //     get_service(picoserve::response::File::with_content_type_and_headers(
-        //         "text/css",
-        //         include_bytes!("../static/inventory/style.css.gz"),
-        //         &[("Content-Encoding", "gzip")],
-        //     )),
-        // );
-
-        router
+       router
     }
 }
 
@@ -764,22 +838,7 @@ impl From<&ScaleConfig> for ScaleConfigDTO {
     }
 }
 
-// #[derive(serde::Deserialize, serde::Serialize, Default, Debug)]
-// pub struct EncodeInfoDTO {
-//     pub tray_id: i32,
-//     pub id: String,
-//     pub tag_id: String,
-//     pub color_code: String,
-//     pub color_name: String,
-//     pub material: String,
-//     pub filament_subtype: String,
-//     pub slicer_filament: String,
-//     pub brand: String,
-//     pub weight_advertised: i32,
-//     pub weight_core: i32,
-//     pub note: String,
-// }
-// encrypted_input!(EncodeInfoDTO);
+
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct DeleteSpoolDTO {
@@ -807,8 +866,10 @@ encrypted_input!(AddSpoolDTO);
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct AddSpoolDTOResponse {
+    pub success: bool,
     pub id: String,
     pub csv: String,
+    pub error: Option<String>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -856,6 +917,18 @@ pub struct GetSpoolKInfoDTOResponse {
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct GetSpoolsInPrintersResponse {
     pub spools: HashMap<String, String>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct FormatSDCardDTO {
+    pub confirm: bool,
+}
+encrypted_input!(FormatSDCardDTO);
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct FormatSDCardResponse {
+    pub success: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

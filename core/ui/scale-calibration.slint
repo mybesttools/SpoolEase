@@ -1,6 +1,7 @@
 import { MyButton, Title } from "framework/widgets.slint";
 import { NumPad } from "numpad.slint";
 import { AppBackend, AppState, SpoolScaleState } from "app.slint";
+import { Translations } from "translations.slint";
 
 export component ScaleCalibration inherits VerticalLayout {
         callback ok-clicked;
@@ -8,8 +9,8 @@ export component ScaleCalibration inherits VerticalLayout {
 
         my-title:= Title {
           height: 40px;
-          property <string> calibration-status:AppState.spool-scale-state == SpoolScaleState.Uncalibrated ? "Uncalibrated (\{AppState.spool-scale-raw-data})" : "Calibrated";
-          text: "Scale Calibration - \{calibration-status}";
+          property <string> calibration-status: AppState.spool-scale-state == SpoolScaleState.Uncalibrated ? (Translations.tr-calibration-status-uncalibrated + " (\{AppState.spool-scale-raw-data})") : Translations.tr-calibration-status-calibrated;
+          text: Translations.tr-scale-calibration-prefix + calibration-status;
         }
         HorizontalLayout {
             Rectangle {
@@ -25,13 +26,13 @@ export component ScaleCalibration inherits VerticalLayout {
                       width: parent.width;
                       font-size: 20px;
                         horizontal-alignment: left;
-                        text: "1.Remove anything from the tray, then";
+                        text: Translations.tr-calib-step1;
                         wrap: word-wrap;
                     }
                   }
                   MyButton {
                       height: (root.height - my-title.height) / 5;
-                      text: "Press Tare";
+                      text: Translations.tr-press-tare;
                       clicked => {
                          AppBackend.calibrate-scale(0);
                       }
@@ -42,13 +43,13 @@ export component ScaleCalibration inherits VerticalLayout {
                       width: parent.width;
                       font-size: 20px;
                         horizontal-alignment: left;
-                        text: "2.Place an item of a known weight (~1kg) on the scale, type its weight and press Ok.";
+                        text: Translations.tr-calib-step2;
                         wrap: word-wrap;
                     }
                   }
                   MyButton {
                       height: (root.height - my-title.height) / 5;
-                      text: "or... Cancel";
+                      text: Translations.tr-or-cancel;
                       clicked => { root.cancel-clicked(); }
                   }
                 }
@@ -56,7 +57,7 @@ export component ScaleCalibration inherits VerticalLayout {
 
             numpad := NumPad {
                 height: root.height - my-title.height;
-                title: "Calibration Weight";
+                title: Translations.tr-calibration-weight;
                 ok-clicked => { 
                   root.ok-clicked(); 
                   AppBackend.calibrate-scale(self.number);
