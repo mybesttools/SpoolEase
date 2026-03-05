@@ -34,7 +34,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ~/.rustup/toolchains/esp
+            ~/.rustup/toolchains/esp1
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin/espup
@@ -52,9 +52,15 @@ jobs:
       - name: Install espup (if not cached)
         run: |
           command -v espup || cargo install espup --locked
-          [ -d "$HOME/.rustup/toolchains/esp" ] || espup install
-          source "$HOME/export-esp.sh"
-          XTENSA_BIN=$(dirname "$(which xtensa-esp32s3-elf-gcc)")
+          # rust-toolchain.toml uses channel "esp1", so register under that name
+          [ -d "$HOME/.rustup/toolchains/esp1" ] || espup install --name esp1
+          # espup may write export-esp.sh or export-esp1.sh depending on version
+          for f in "$HOME/export-esp1.sh" "$HOME/export-esp.sh"; do
+            [ -f "$f" ] && source "$f" && break
+          done
+          # Persist LLVM/Clang vars so subsequent steps pick them up (PATH is handled separately)
+          env | grep -E '^(LIBCLANG_PATH|CLANG_PATH|LIBCLANG_BIN_PATH)=' >> "$GITHUB_ENV"
+          XTENSA_BIN=$(find "$HOME/.rustup/toolchains/esp1" -name "xtensa-esp32s3-elf-gcc" | head -1 | xargs dirname)
           echo "$XTENSA_BIN" >> "$GITHUB_PATH"
 
       - name: Install espflash (if not cached)
@@ -65,9 +71,7 @@ jobs:
       # ------------------------------------------------------------------
       - name: Build SpoolEase firmware (release)
         working-directory: core
-        run: |
-          source "$HOME/export-esp.sh"
-          cargo build --release
+        run: cargo build --release
 
       # ------------------------------------------------------------------
       # Package: create a single merged flash image at offset 0x0000
@@ -76,7 +80,6 @@ jobs:
       - name: Create merged flash image
         working-directory: core
         run: |
-          source "$HOME/export-esp.sh"
           espflash save-image \
             --chip esp32s3 \
             --flash-size 16mb \
