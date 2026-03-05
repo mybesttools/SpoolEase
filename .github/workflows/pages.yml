@@ -1,10 +1,8 @@
-name: Deploy to GitHub Pages
+name: Build firmware & Deploy GitHub Pages
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'docs/**'
   workflow_dispatch:
 
 permissions:
@@ -17,19 +15,94 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build-and-deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------------------
+      # Toolchain cache: ~/.rustup/toolchains/esp  +  Cargo registry  +
+      #                  build cache under core/target
+      # Key changes when Cargo.lock or rust-toolchain.toml change.
+      # ------------------------------------------------------------------
+      - name: Cache ESP Rust toolchain & build artefacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup/toolchains/esp
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/espup
+            ~/.cargo/bin/espflash
+            core/target
+          key: esp32s3-${{ hashFiles('core/Cargo.lock', 'core/rust-toolchain.toml') }}
+          restore-keys: |
+            esp32s3-
+
+      # ------------------------------------------------------------------
+      # espup: installs the Xtensa Rust fork + LLVM toolchain into
+      #        ~/.rustup/toolchains/esp  and writes ~/export-esp.sh
+      # Skip if the toolchain directory already exists (cache hit).
+      # ------------------------------------------------------------------
+      - name: Install espup (if not cached)
+        run: |
+          command -v espup || cargo install espup --locked
+          [ -d "$HOME/.rustup/toolchains/esp" ] || espup install
+          source "$HOME/export-esp.sh"
+          XTENSA_BIN=$(dirname "$(which xtensa-esp32s3-elf-gcc)")
+          echo "$XTENSA_BIN" >> "$GITHUB_PATH"
+
+      - name: Install espflash (if not cached)
+        run: command -v espflash || cargo install espflash --locked
+
+      # ------------------------------------------------------------------
+      # Build
+      # ------------------------------------------------------------------
+      - name: Build SpoolEase firmware (release)
+        working-directory: core
+        run: |
+          source "$HOME/export-esp.sh"
+          cargo build --release
+
+      # ------------------------------------------------------------------
+      # Package: create a single merged flash image at offset 0x0000
+      # (bootloader + partition table + app, ready for esp-web-tools)
+      # ------------------------------------------------------------------
+      - name: Create merged flash image
+        working-directory: core
+        run: |
+          source "$HOME/export-esp.sh"
+          espflash save-image \
+            --chip esp32s3 \
+            --flash-size 16mb \
+            --flash-mode dio \
+            --flash-freq 80mhz \
+            --partition-table partitions.csv \
+            --merge \
+            target/xtensa-esp32s3-none-elf/release/SpoolEase \
+            ../docs/firmware/SpoolEase-flash.bin
+
+      - name: Stamp firmware version into manifest
+        working-directory: core
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed -E 's/version = "(.+)"/\1/')
+          jq --arg v "$VERSION" '.version = $v' ../docs/firmware/manifest.json \
+            > /tmp/manifest.json
+          mv /tmp/manifest.json ../docs/firmware/manifest.json
+          echo "Firmware version: $VERSION"
+
+      # ------------------------------------------------------------------
+      # Deploy docs/ (including freshly built firmware/) to GitHub Pages
+      # ------------------------------------------------------------------
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload artifact
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/

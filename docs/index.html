@@ -16,18 +16,20 @@
   <h1>SpoolEase – GitHub Pages</h1>
   <p>This page hosts static web assets for the <a href="https://github.com/mybesttools/SpoolEase">SpoolEase</a> firmware project.</p>
 
-  <h2>Assets</h2>
-  <ul>
-    <li><a href="translate.js"><code>translate.js</code></a> – Inventory editor UI translator (Polish + future languages)</li>
-  </ul>
+  <h2>Web Installer</h2>
+  <p><a href="flash.html"><strong>🧵 Flash SpoolEase firmware →</strong></a></p>
+  <p>Uses the Web Serial API (Chrome / Edge desktop) to flash firmware directly from the browser. No software installation needed.</p>
+  <p>Firmware is built automatically by GitHub Actions on every push to <code>main</code> and deployed here. The pipeline:</p>
+  <ol>
+    <li>Installs the Xtensa ESP32-S3 Rust toolchain via <code>espup</code></li>
+    <li>Runs <code>cargo build --release</code> in <code>core/</code></li>
+    <li>Runs <code>espflash save-image --merge</code> to produce a single flat binary (<code>SpoolEase-flash.bin</code> at offset <code>0x0000</code>)</li>
+    <li>Stamps the version from <code>Cargo.toml</code> into <code>docs/firmware/manifest.json</code></li>
+    <li>Deploys <code>docs/</code> (including the freshly built binary) to GitHub Pages</li>
+  </ol>
+  <p>No manual binary copying required. Just push code changes to <code>main</code>.</p>
 
-  <h2>Adding a translation</h2>
-  <p>Edit <code>docs/translate.js</code> in the repository and add a new key under <code>TRANSLATIONS</code>:</p>
-  <pre>
-TRANSLATIONS = {
-  pl: { 'Filters': 'Filtry', ... },
-  de: { 'Filters': 'Filter', ... },  // ← new language
-};</pre>
-  <p>Commit and push to <code>main</code>; GitHub Actions will deploy automatically.</p>
+  <h2>Adding a language</h2>
+  <p>Translations are embedded directly in the firmware HTML (see <code>core/src/web_app.rs</code> — <code>build_inventory_html()</code> and <code>translate_script()</code>). To add a new language, add its translation table there, add it to the language selector bar and <code>/api/language</code> whitelist, then rebuild and flash.</p>
 </body>
 </html>

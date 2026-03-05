@@ -41,17 +41,36 @@ use crate::view_model::ViewModel;
 const INVENTORY_HTML_TEMPLATE: &str = include_str!("../static/inventory/index.html");
 
 fn build_inventory_html(language: &str) -> String {
-    // Floating language selector injected before </body>.
-    // Clicking a language button navigates to /api/language?lang=XX which sets the language and
-    // redirects back, so the page reloads with the updated <html lang> attribute.
-    let active_en = if language == "en" { r#"background:#2196F3;font-weight:bold;"# } else { "" };
-    let active_pl = if language == "pl" { r#"background:#2196F3;font-weight:bold;"# } else { "" };
+    // ── Language selector bar ─────────────────────────────────────────────
+    let style_btn = r#"color:#fff;text-decoration:none;font-size:13px;font-family:sans-serif;padding:2px 8px;border-radius:4px;"#;
+    let style_active = "background:#2196F3;font-weight:bold;";
+    let en_s = if language == "en" { style_active } else { "" };
+    let nl_s = if language == "nl" { style_active } else { "" };
+    let pl_s = if language == "pl" { style_active } else { "" };
     let selector = format!(
-        r##"<div id="se-lang" style="position:fixed;bottom:0;right:0;z-index:9999;background:rgba(30,30,30,0.88);border-radius:8px 0 0 0;padding:6px 10px;display:flex;gap:8px;align-items:center;"><span style="color:#aaa;font-size:12px;">&#127760;</span><a href="/api/language?lang=en" style="color:#fff;text-decoration:none;font-size:13px;font-family:sans-serif;padding:2px 8px;border-radius:4px;{active_en}">EN</a><a href="/api/language?lang=pl" style="color:#fff;text-decoration:none;font-size:13px;font-family:sans-serif;padding:2px 8px;border-radius:4px;{active_pl}">PL</a></div></body>"##
+        r##"<div id="se-lang" style="position:fixed;bottom:0;right:0;z-index:9999;background:rgba(30,30,30,0.88);border-radius:8px 0 0 0;padding:6px 10px;display:flex;gap:8px;align-items:center;"><span style="color:#aaa;font-size:12px;">&#127760;</span><a href="/api/language?lang=en" style="{style_btn}{en_s}">EN</a><a href="/api/language?lang=nl" style="{style_btn}{nl_s}">NL</a><a href="/api/language?lang=pl" style="{style_btn}{pl_s}">PL</a></div>"##
     );
+
+    // ── Inline translation script ─────────────────────────────────────────
+    // Injected only for non-English languages. The script is self-contained:
+    // no network requests, no external dependencies. It uses a MutationObserver
+    // to translate text nodes as the React app renders/re-renders.
+    let trans_script = match language {
+        "pl" => translate_script(r#"{"Inventory":"Inwentarz","Filters":"Filtry","Clear Filters":"Wyczyść filtry","Clear":"Wyczyść","(Enter keywords (comma-separated, may include spaces)":"(Wpisz słowa kluczowe rozdzielone przecinkami)","(Comma-seperated keywords)":"(Słowa kluczowe rozdzielone przecinkami)","Material:":"Materiał:","Subtype:":"Podtyp:","Color Name:":"Nazwa koloru:","Brand:":"Marka:","Note:":"Notatka:","Color:":"Kolor:","Location:":"Lokalizacja:","Unused:":"Nieużywana:","Weight:":"Waga:","Label:":"Etykieta:","Min:":"Min:","Max:":"Max:","All":"Wszystkie","Unused":"Nieużywana","Used":"Używana","Unspecified":"Nieokreślona","Added":"Dodano","Color":"Kolor","Brand":"Marka","Slicer Filament":"Filament (slicer)","Location":"Lokalizacja","Label":"Etykieta","Net":"Netto","Gross":"Brutto","Material":"Materiał","Subtype":"Podtyp","Note":"Notatka","Actions":"Akcje","Columns":"Kolumny","Add Spool":"Dodaj szpulę","Edit Spool":"Edytuj szpulę","Add Similar":"Dodaj podobną","Add New":"Dodaj nową","Save":"Zapisz","Cancel":"Anuluj","Close":"Zamknij","Refresh":"Odśwież","Add":"Dodaj","Color Name":"Nazwa koloru","Hex Color":"Kolor hex","Label Weight":"Waga etykiety","Core Weight":"Waga rdzenia","Current Weight":"Aktualna waga","Slicer Filament Code":"Kod filamentu (slicer)","Full Unused":"W pełni nieużywana","Delete Spool":"Usuń szpulę","Are you sure you want to delete":"Czy na pewno chcesz usunąć","spool":"szpulę","Yes, Delete":"Tak, usuń","NOOO !!!":"Nie!!!","Security Key:":"Klucz bezpieczeństwa:","Enter Security Key":"Wprowadź klucz bezpieczeństwa","Material is required":"Materiał jest wymagany","Label W. Required":"Wymagana waga etykiety","Invalid hex color format":"Nieprawidłowy format koloru hex","✅ Spool Added":"✅ Szpula dodana","✅ Spool Updated":"✅ Szpula zaktualizowana","❌ Failed to Add Spool":"❌ Nie udało się dodać szpuli","❌ Failed to Update Spool":"❌ Nie udało się zaktualizować szpuli","❌ Failed to Update Encode Information":"❌ Nie udało się zaktualizować informacji","Nozzle Type:":"Typ dyszy:","Standard":"Standardowa","High Flow":"Przepływ zwiększony","Not in printer":"Nie w drukarce","Add This Pressure Advance Setting?":"Dodać to ustawienie Pressure Advance?","Printer:":"Drukarka:","Extruder ID:":"Ekstruder ID:","Nozzle:":"Dysza:","Column Configuration":"Konfiguracja kolumn","Reset to Default":"Przywróć domyślne","Apply":"Zastosuj","Discard":"Odrzuć","e.g. PLA, PETG":"np. PLA, PETG","Loading\u2026":"Ładowanie\u2026","No spools found.":"Nie znaleziono szpul."}"#),
+        "nl" => translate_script(r#"{"Inventory":"Inventaris","Filters":"Filters","Clear Filters":"Filters wissen","Clear":"Wissen","(Enter keywords (comma-separated, may include spaces)":"(Voer trefwoorden in (kommagescheiden, spaties toegestaan)","(Comma-seperated keywords)":"(Kommagescheiden trefwoorden)","Material:":"Materiaal:","Subtype:":"Subtype:","Color Name:":"Kleurnaam:","Brand:":"Merk:","Note:":"Notitie:","Color:":"Kleur:","Location:":"Locatie:","Unused:":"Ongebruikt:","Weight:":"Gewicht:","Label:":"Label:","Min:":"Min:","Max:":"Max:","All":"Alle","Unused":"Ongebruikt","Used":"Gebruikt","Unspecified":"Niet opgegeven","Added":"Toegevoegd","Color":"Kleur","Brand":"Merk","Slicer Filament":"Slicer filament","Location":"Locatie","Label":"Label","Net":"Netto","Gross":"Bruto","Material":"Materiaal","Subtype":"Subtype","Note":"Notitie","Actions":"Acties","Columns":"Kolommen","Add Spool":"Spoel toevoegen","Edit Spool":"Spoel bewerken","Add Similar":"Vergelijkbare toevoegen","Add New":"Nieuwe toevoegen","Save":"Opslaan","Cancel":"Annuleren","Close":"Sluiten","Refresh":"Vernieuwen","Add":"Toevoegen","Color Name":"Kleurnaam","Hex Color":"Hex kleur","Label Weight":"Labelgewicht","Core Weight":"Kerngewicht","Current Weight":"Huidig gewicht","Slicer Filament Code":"Slicer filamentcode","Full Unused":"Volledig ongebruikt","Delete Spool":"Spoel verwijderen","Are you sure you want to delete":"Weet u zeker dat u wilt verwijderen","spool":"spoel","Yes, Delete":"Ja, verwijderen","NOOO !!!":"NEEEE!!!","Security Key:":"Beveiligingssleutel:","Enter Security Key":"Voer beveiligingssleutel in","Material is required":"Materiaal is vereist","Label W. Required":"Labelgewicht vereist","Invalid hex color format":"Ongeldig hex kleurformaat","✅ Spool Added":"✅ Spoel toegevoegd","✅ Spool Updated":"✅ Spoel bijgewerkt","❌ Failed to Add Spool":"❌ Spoel toevoegen mislukt","❌ Failed to Update Spool":"❌ Spoel bijwerken mislukt","❌ Failed to Update Encode Information":"❌ Encode-informatie bijwerken mislukt","Nozzle Type:":"Nozzletype:","Standard":"Standaard","High Flow":"Hoge doorstroming","Not in printer":"Niet in printer","Add This Pressure Advance Setting?":"Deze Pressure Advance-instelling toevoegen?","Printer:":"Printer:","Extruder ID:":"Extruder ID:","Nozzle:":"Nozzle:","Column Configuration":"Kolomconfiguratie","Reset to Default":"Standaard herstellen","Apply":"Toepassen","Discard":"Verwerpen","e.g. PLA, PETG":"bijv. PLA, PETG","Loading\u2026":"Laden\u2026","No spools found.":"Geen spoelen gevonden."}"#),
+        _ => String::new(),
+    };
+
     INVENTORY_HTML_TEMPLATE
         .replace(r#"lang="en""#, &format!(r#"lang="{language}""#))
-        .replace("</body>", &selector)
+        .replace("</body>", &format!("{trans_script}<script>window.SE_LANG='{language}';</script>{selector}</body>"))
+}
+
+/// Wraps a JSON translation table string in the minimal MutationObserver engine.
+fn translate_script(table_json: &str) -> String {
+    format!(
+        r#"<script>(function(){{var T={table_json};function tr(n){{var o=n.textContent,t=o.trim();if(!t)return;if(T[t]!==undefined){{n.textContent=o.replace(t,T[t]);return;}}for(var k in T){{if(k.length>3&&o.includes(k)){{n.textContent=o.split(k).join(T[k]);return;}}}}}}function walk(r){{var w=document.createTreeWalker(r,NodeFilter.SHOW_TEXT,{{acceptNode:function(n){{var p=n.parentElement;return p&&p.tagName!=="SCRIPT"&&p.tagName!=="STYLE"&&p.tagName!=="INPUT"&&p.tagName!=="TEXTAREA"?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;}}}});var n;while(n=w.nextNode())tr(n);}}function start(){{var a=document.getElementById("app");if(!a){{setTimeout(start,100);return;}}walk(a);var p=false;new MutationObserver(function(){{if(p)return;p=true;requestAnimationFrame(function(){{walk(a);p=false;}});}}).observe(a,{{childList:true,subtree:true}});;}}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",start);else start();}})();</script>"#
+    )
 }
 
 #[derive(Clone)]
@@ -523,7 +542,7 @@ impl AppWithStateBuilder for NestedAppBuilder {
             "/api/language",
             get(move |picoserve::extract::Query(LanguageQueryParam { lang, next }), state: State<ConsoleAppState>| {
                 ready({
-                    let lang = if lang == "pl" { "pl".to_string() } else { "en".to_string() };
+                    let lang = match lang.as_str() { "pl" => "pl", "nl" => "nl", _ => "en" }.to_string();
                     state.0.app_config.borrow_mut().set_language(lang).ok();
                     let redirect = next.unwrap_or_else(|| "/inventory".to_string());
                     HtmlStringResponse::new(
