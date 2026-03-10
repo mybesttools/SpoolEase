@@ -3,6 +3,7 @@ import { MyButton } from "framework/widgets.slint";
 import { AppConsts, AppBackend, AppState, StatusType, ControlState, SpoolScaleState, SpoolStagingState } from "app.slint";
 import { Utils } from "utils.slint";
 import { SpoolStaging } from "spoolstaging.slint";
+import { Translations } from "translations.slint";
 
 
 export component ControlPanelBase inherits HorizontalLayout {
@@ -101,7 +102,7 @@ export component ControlPanelBase inherits HorizontalLayout {
             Text {
                 color: Utils.contrasting_color(parent.background);
                 font-size: 20px;
-                text: AppState.spool-scale-state == SpoolScaleState.Disconnected ? "Scale Disconnected" : AppState.spool-scale-state == SpoolScaleState.Uncalibrated ? "Scale Not Calibrated" : AppState.spool-scale-state == SpoolScaleState.Connected ? "Scale Connected" : AppState.spool-scale-state == SpoolScaleState.Loaded ? weight-display() : "";
+                text: AppState.spool-scale-state == SpoolScaleState.Disconnected ? Translations.tr-scale-disconnected : AppState.spool-scale-state == SpoolScaleState.Uncalibrated ? Translations.tr-scale-not-calibrated : AppState.spool-scale-state == SpoolScaleState.Connected ? Translations.tr-scale-connected : AppState.spool-scale-state == SpoolScaleState.Loaded ? weight-display() : "";
             }
         }
 
@@ -147,7 +148,7 @@ export component ControlPanelBase inherits HorizontalLayout {
 }
 
 export component Booting inherits ControlPanelBase {
-    message-lines: ["Booting"];
+    message-lines: [Translations.tr-booting];
 }
 
 // export component ConnectingToPrinter inherits ControlPanelBase {
@@ -155,9 +156,9 @@ export component Booting inherits ControlPanelBase {
 // }
 
 export component BootFailed inherits ControlPanelBase {
-    message-lines: ["Boot Failed"];
+    message-lines: [Translations.tr-boot-failed];
     message-type: StatusType.Error;
-    button1-text: "Reboot";
+    button1-text: Translations.tr-reboot;
     clicked1 => {
         FrameworkBackend.reset-device();
     }
@@ -184,11 +185,11 @@ export component Ready inherits ControlPanelBase {
 
     message-color: color-timer.color;
     message-lines: [
-        AppState.spool-staging-state == SpoolStagingState.Empty ? "Scanning for Tagged Spool..." : "Load Spool or Rescan Tag",
+        AppState.spool-staging-state == SpoolStagingState.Empty ? (AppState.tag-reader-available ? Translations.tr-scanning-for-tag : Translations.tr-tag-reader-unavailable) : Translations.tr-load-spool-or-rescan,
         AppState.available-printers.length > 1 ? "\{AppState.curr-printer}" : "",
-        AppState.available-printers.length >= 1 && AppState.some-printer-connected ? "" : "- Connecting to Printer(s) -"
+        AppState.available-printers.length >= 1 && AppState.some-printer-connected ? "" : Translations.tr-connecting-to-printers
     ];
-    button1-text: (AppState.spool-staging-state != SpoolStagingState.Empty) ? "Clear Staging" : "";
+    button1-text: (AppState.spool-staging-state != SpoolStagingState.Empty) ? Translations.tr-clear-staging : "";
     button1-timeout: (AppState.spool-staging-state != SpoolStagingState.Empty) ? 60 : 0;
     clicked1() => {
         AppBackend.clear-staging();
@@ -202,9 +203,9 @@ export component Ready inherits ControlPanelBase {
 }
 
 export component TraySelect inherits ControlPanelBase {
-    message-lines: ["Press Slot to Configure"];
+    message-lines: [Translations.tr-press-slot-to-configure];
     // button1-text: "Clear Staging";
-    button2-text: "Cancel";
+    button2-text: Translations.tr-cancel;
     button2-timeout: 10;
     // clicked1() => {
     //     AppBackend.clear-staging();
@@ -216,7 +217,7 @@ export component TraySelect inherits ControlPanelBase {
 
 export component OperationBase inherits ControlPanelBase {
     message-lines: [AppState.user-message];
-    button2-text: "Cancel";
+    button2-text: Translations.tr-cancel;
 }
 // TODO: No need for OperationBase and Reading sharing with Encoding the Operation Base
 // Need just Encoding and Reading, share maybe only the user-message, or maybe some alternative to that in form of state
@@ -285,7 +286,7 @@ export component Reading inherits OperationBase {
 export component PostAction inherits ControlPanelBase {
     message-lines: [AppState.user-message];
     message-type: AppState.user-message-type;
-    button1-text: "Ok";
+    button1-text: Translations.tr-ok;
     button1-timeout: 10;
     clicked1 => {
         AppState.control-state = ControlState.Ready;

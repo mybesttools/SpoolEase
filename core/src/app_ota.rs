@@ -29,6 +29,7 @@ pub enum AppOtaRequest {
 
 struct AppOtaObserver {
     update: bool,
+    language: alloc::string::String,
     view_model: Rc<RefCell<ViewModel>>,
     framework: Rc<RefCell<Framework>>,
     pub version: String,
@@ -41,7 +42,9 @@ impl OtaObserver for AppOtaObserver {
         if self.update {
             self.view_model.borrow_mut().on_ota_start();
         } else {
-            self.view_model.borrow_mut().on_ota_status("Checking for firmware");
+            self.view_model.borrow_mut().on_ota_status(
+                crate::translations::tr_rust(&self.language, "ota_checking_firmware")
+            );
         }
         // if self.notify_framework {
         //     self.framework.borrow_mut().notify_ota_start();
@@ -49,7 +52,13 @@ impl OtaObserver for AppOtaObserver {
     }
 
     fn on_ota_status(&mut self, text: &str) {
-        self.view_model.borrow_mut().on_ota_status(text);
+        // Translate key identifiers coming from the OTA library
+        let translated = if text.starts_with("ota_") {
+            crate::translations::tr_rust(&self.language, text)
+        } else {
+            text
+        };
+        self.view_model.borrow_mut().on_ota_status(translated);
     }
 
     fn on_ota_failed(&mut self, text: &str) {
@@ -63,7 +72,9 @@ impl OtaObserver for AppOtaObserver {
         if self.update {
             self.view_model.borrow_mut().on_ota_completed(text);
         } else {
-            self.view_model.borrow_mut().on_ota_status("Processing firmware information");
+            self.view_model.borrow_mut().on_ota_status(
+                crate::translations::tr_rust(&self.language, "ota_processing_firmware")
+            );
         }
         // if self.notify_framework {
         //     self.framework.borrow_mut().notify_ota_completed(text);
@@ -144,8 +155,10 @@ pub async fn app_ota_task(framework: Rc<RefCell<Framework>>, view_model: Rc<RefC
         let ota_request = receiver.receive().await;
         match ota_request {
             AppOtaRequest::CheckOta => {
+                let language = view_model.borrow().get_language();
                 let mut app_ota_observer = AppOtaObserver {
                     update: false,
+                    language,
                     view_model: view_model.clone(),
                     framework: framework.clone(),
                     version: String::new(),
@@ -179,8 +192,10 @@ pub async fn app_ota_task(framework: Rc<RefCell<Framework>>, view_model: Rc<RefC
                 view_model.borrow().update_firmware_versions(&ota_info);
             }
             AppOtaRequest::Update { product, train } => {
+                let language = view_model.borrow().get_language();
                 let mut app_ota_observer = AppOtaObserver {
                     update: true,
+                    language,
                     view_model: view_model.clone(),
                     framework: framework.clone(),
                     version: String::new(),

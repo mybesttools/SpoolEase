@@ -1,4 +1,5 @@
 import { ListView } from "std-widgets.slint";
+import { Translations } from "../translations.slint";
 
 export component MyText inherits Text {
     font-size: 20px;
@@ -459,7 +460,7 @@ export component WizardButtons inherits HorizontalLayout {
 
     height: 56px;
     MyButton {
-        text: "◀ Back";
+        text: Translations.tr-btn-back;
         clicked => {
             back-clicked();
         }
@@ -467,7 +468,7 @@ export component WizardButtons inherits HorizontalLayout {
     }
 
     MyButton {
-        text: next-text == "" ? (last-page ? "✓ Finish" : "Next ▶") : next-text;
+        text: next-text == "" ? (last-page ? Translations.tr-btn-finish : Translations.tr-btn-next) : next-text;
         enabled: next-enabled;
         clicked => {
             next-clicked();
@@ -475,7 +476,7 @@ export component WizardButtons inherits HorizontalLayout {
     }
 
     MyButton {
-        text: cancel-text == "" ? "× Cancel" : cancel-text;
+        text: cancel-text == "" ? Translations.tr-btn-cancel-x : cancel-text;
         enabled: cancel-enabled;
         clicked => {
             cancel-clicked();

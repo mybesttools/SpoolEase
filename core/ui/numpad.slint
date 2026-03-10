@@ -1,4 +1,5 @@
 import { MyButton, MyText } from "framework/widgets.slint";
+import { Translations } from "translations.slint";
 
 
 export component Display inherits Rectangle {
@@ -143,7 +144,7 @@ export component NumPad inherits Rectangle {
 
         HorizontalLayout {
             NumButton {
-                text: "Del";
+                text: Translations.tr-numpad-del;
                 key-pressed(digit) => {
                     root.number = floor(root.number / 10);
                     display-error = "";
@@ -158,7 +159,7 @@ export component NumPad inherits Rectangle {
             }
 
             NumButton {
-                text: ok-visible ? "Ok" : "";
+                text: ok-visible ? Translations.tr-ok : "";
                 key-pressed(digit) => {
                     if ok-visible {
                         root.ok-clicked();

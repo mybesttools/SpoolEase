@@ -6,10 +6,166 @@
 		<meta name="color-scheme" content="light dark" />
 		<title>Inventory</title>
     <link rel="icon" type="image/png" href="https://bin.spoolease.io/bins/0.5/inventory/favicon-48x48.png" sizes="48x48">
+    <script>
+      // Persist the security key across refreshes via sessionStorage.
+      // The SPA reads #sk=<key> from the URL hash; we cache it so it
+      // survives a page refresh (which would otherwise clear the hash).
+      (function () {
+        const params = new URLSearchParams(location.hash.slice(1));
+        const sk = params.get('sk');
+        if (sk) {
+          sessionStorage.setItem('spoolease_sk', sk);
+        } else {
+          const cached = sessionStorage.getItem('spoolease_sk');
+          if (cached) {
+            params.set('sk', cached);
+            location.replace('#' + params.toString());
+          }
+        }
+      })();
+    </script>
 		<script type="module" crossorigin src="https://bin.spoolease.io/bins/0.5/inventory/inventory-0.5.0.js"></script>
 		<link rel="stylesheet" crossorigin href="https://bin.spoolease.io/bins/0.5/inventory/style-0.5.0.css">
 	</head>
 	<body>
 		<div id="app"></div>
-	</body>
+
+    <!-- CSV Import / Export toolbar -->
+    <input type="file" id="se-csv-input" accept=".csv" style="display:none" />
+    <div id="se-csv-bar" style="position:fixed;bottom:0;left:0;z-index:9999;background:rgba(30,30,30,0.88);border-radius:0 8px 0 0;padding:6px 10px;display:flex;gap:8px;align-items:center;">
+      <span style="color:#aaa;font-size:12px;">CSV</span>
+      <button id="se-import-btn" style="font-size:12px;padding:2px 8px;border-radius:4px;border:none;background:#2196F3;color:#fff;cursor:pointer;" disabled>⬆ Import</button>
+      <button id="se-export-btn" style="font-size:12px;padding:2px 8px;border-radius:4px;border:none;background:#4CAF50;color:#fff;cursor:pointer;" disabled>⬇ Export</button>
+      <span id="se-csv-status" style="color:#aaa;font-size:11px;"></span>
+    </div>
+
+    <script type="module">
+      import { default as wasm, derive_key, encrypt, decrypt } from "/pkg/device_wasm.js";
+
+      // CSV import/export columns (user-facing format)
+      const HEADERS = ['id','brand','material','subtype','color_name','rgba','label_weight','core_weight','note','slicer_filament','full_unused','tag_id'];
+
+      // Internal CSV column indices (serde field order of SpoolRecord)
+      const INT = { id:0, material_type:2, material_subtype:3, color_name:4, color_code:5, note:6, brand:7,
+                    weight_advertised:8, weight_core:9, slicer_filament:12, added_full:15, tag_id:1 };
+
+      function csvParseLine(line) {
+        const fields = []; let cur = ''; let inQ = false;
+        for (let i = 0; i < line.length; i++) {
+          const c = line[i];
+          if (inQ) { if (c === '"' && line[i+1] === '"') { cur += '"'; i++; } else if (c === '"') { inQ = false; } else { cur += c; } }
+          else if (c === '"') { inQ = true; }
+          else if (c === ',') { fields.push(cur); cur = ''; }
+          else { cur += c; }
+        }
+        fields.push(cur);
+        return fields;
+      }
+      function csvEscape(v) {
+        v = String(v ?? '');
+        return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      }
+
+      function internalCsvToRows(raw) {
+        return raw.split('\n').filter(l => l.trim()).map(csvParseLine);
+      }
+
+      function internalRowToExport(r) {
+        return {
+          id: r[INT.id] ?? '', brand: r[INT.brand] ?? '', material: r[INT.material_type] ?? '',
+          subtype: r[INT.material_subtype] ?? '', color_name: r[INT.color_name] ?? '',
+          rgba: r[INT.color_code] ?? '', label_weight: r[INT.weight_advertised] ?? '',
+          core_weight: r[INT.weight_core] ?? '', note: r[INT.note] ?? '',
+          slicer_filament: r[INT.slicer_filament] ?? '', full_unused: r[INT.added_full] ?? '',
+          tag_id: r[INT.tag_id] ?? '',
+        };
+      }
+
+      async function getKey() {
+        const sk = sessionStorage.getItem('spoolease_sk') || '';
+        return derive_key(sk, 'example_salt');
+      }
+
+      function setStatus(msg, colour) {
+        const el = document.getElementById('se-csv-status');
+        el.textContent = msg;
+        el.style.color = colour || '#aaa';
+      }
+
+      // ---- Export ----
+      async function doExport() {
+        setStatus('Fetching…', '#aaa');
+        try {
+          const key = await getKey();
+          const resp = await fetch('/api/spools');
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const raw = decrypt(key, await resp.text());
+          const rows = internalCsvToRows(raw);
+          if (!rows.length) { setStatus('No spools to export', '#f90'); return; }
+          const lines = [HEADERS.join(',')];
+          for (const r of rows) {
+            const obj = internalRowToExport(r);
+            lines.push(HEADERS.map(h => csvEscape(obj[h])).join(','));
+          }
+          const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'spoolease-inventory.csv';
+          a.click();
+          setStatus('Exported ' + rows.length + ' spools', '#4CAF50');
+        } catch(e) { setStatus('Export failed: ' + e.message, '#f44'); }
+      }
+
+      // ---- Import ----
+      async function doImport(file) {
+        const text = await file.text();
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) { setStatus('CSV empty or header only', '#f90'); return; }
+        const headerRow = csvParseLine(lines[0]).map(h => h.trim().toLowerCase());
+        const getCol = (row, name) => { const i = headerRow.indexOf(name); return i >= 0 ? (row[i] ?? '').trim() : ''; };
+        const rows = lines.slice(1).map(csvParseLine);
+        let ok = 0, fail = 0;
+        setStatus('Importing 0/' + rows.length + '…', '#aaa');
+        try {
+          const key = await getKey();
+          for (const r of rows) {
+            const dto = {
+              id:               getCol(r, 'id'),
+              tag_id:           getCol(r, 'tag_id'),
+              rgba:             getCol(r, 'rgba').replace('#',''),
+              color_name:       getCol(r, 'color_name'),
+              material:         getCol(r, 'material'),
+              subtype:          getCol(r, 'subtype'),
+              brand:            getCol(r, 'brand'),
+              core_weight:      parseInt(getCol(r, 'core_weight')) || 0,
+              label_weight:     parseInt(getCol(r, 'label_weight')) || 0,
+              note:             getCol(r, 'note'),
+              slicer_filament:  getCol(r, 'slicer_filament'),
+              full_unused:      getCol(r, 'full_unused') || '',
+              k_info:           null,
+            };
+            try {
+              const resp = await fetch('/api/spools/add-edit', { method: 'POST', headers: { 'Content-Type': 'application/text' }, body: encrypt(key, JSON.stringify(dto)) });
+              const result = JSON.parse(decrypt(key, await resp.text()));
+              if (result.success) { ok++; } else { fail++; console.warn('Import row failed:', result.error); }
+            } catch(e) { fail++; console.warn('Import row error:', e); }
+            setStatus('Importing ' + (ok+fail) + '/' + rows.length + '…', '#aaa');
+          }
+          setStatus('Done: ' + ok + ' added, ' + fail + ' failed', fail ? '#f90' : '#4CAF50');
+          if (ok) window.location.reload();
+        } catch(e) { setStatus('Import failed: ' + e.message, '#f44'); }
+      }
+
+      // Init
+      await wasm();
+      const importBtn = document.getElementById('se-import-btn');
+      const exportBtn = document.getElementById('se-export-btn');
+      const fileInput = document.getElementById('se-csv-input');
+      importBtn.disabled = false;
+      exportBtn.disabled = false;
+      exportBtn.addEventListener('click', doExport);
+      importBtn.addEventListener('click', () => { fileInput.value=''; fileInput.click(); });
+      fileInput.addEventListener('change', () => { if (fileInput.files[0]) doImport(fileInput.files[0]); });
+    </script>
+  </body>
 </html>

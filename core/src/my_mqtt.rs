@@ -378,7 +378,11 @@ pub async fn generic_mqtt_task<
         bambu_cert_index = 2;
     }
 
-    let mut socket_error_count = 0;
+    let mut connection_attempt = 0;
+    let mut retry_cycle = 0;
+    const MAX_ATTEMPTS_PER_CYCLE: u32 = 3;
+    const RETRY_DELAY_MS: u64 = 2000;
+    const LONG_RETRY_DELAY_SECS: u64 = 5 * 60; // 5 minutes
 
     'establish_communication: loop {
         Framework::wait_for_wifi(&framework).await;
@@ -400,49 +404,65 @@ pub async fn generic_mqtt_task<
         let embassy_net::IpAddress::Ipv4(addr) = endpoint.addr else { todo!() }; // Ipv6 should not happen
         let octets = addr.octets();
 
-        if socket_error_count % (15*5) == 0 {
+        // Log connection attempt
+        if connection_attempt == 0 || retry_cycle % 10 == 0 {
             term_info!(
-                "[{}] Connecting to Printer at {}.{}.{}.{}:{}",
+                "[{}] Connecting to Printer at {}.{}.{}.{}:{} (cycle {})",
                 printer_log_id,
                 octets[0],
                 octets[1],
                 octets[2],
                 octets[3],
-                port
+                port,
+                retry_cycle
             );
-        } else if socket_error_count % 15 == 0 {
+        } else {
             info!(
-                "[{}] Connecting to Printer at {}.{}.{}.{}:{}",
+                "[{}] Connecting to Printer at {}.{}.{}.{}:{} (attempt {}/{})",
                 printer_log_id,
                 octets[0],
                 octets[1],
                 octets[2],
                 octets[3],
-                port
+                port,
+                connection_attempt + 1,
+                MAX_ATTEMPTS_PER_CYCLE
             );
         }
 
         match socket.connect(remote_endpoint).await {
             Ok(()) => (),
             Err(e) => {
-                // match e {
-                //     ConnectError::InvalidState | ConnectError::ConnectionReset => {
-                //     }
-                //     ConnectError::TimedOut => (),
-                //     ConnectError::NoRoute => (),
-                // }
-                if socket_error_count % (15*5) == 0 {
-                    term_error!("[{}] Error connecting to {remote_endpoint:?}, will retry ({:?})", printer_log_id, e);
-                } else if socket_error_count % 15 == 0{
-                    // to log we want every time
-                    error!("[{}] Error connecting to {remote_endpoint:?}, will retry ({:?})", printer_log_id, e);
+                connection_attempt += 1;
+                
+                if connection_attempt >= MAX_ATTEMPTS_PER_CYCLE {
+                    // Failed all 3 attempts, wait 5 minutes before next cycle
+                    term_error!(
+                        "[{}] Failed to connect after {} attempts ({:?}). Waiting {} minutes before retry...",
+                        printer_log_id,
+                        MAX_ATTEMPTS_PER_CYCLE,
+                        e,
+                        LONG_RETRY_DELAY_SECS / 60
+                    );
+                    connection_attempt = 0;
+                    retry_cycle += 1;
+                    Timer::after(Duration::from_secs(LONG_RETRY_DELAY_SECS)).await;
+                } else {
+                    // Still have attempts left, wait 2 seconds
+                    error!(
+                        "[{}] Error connecting to {remote_endpoint:?} (attempt {}/{}), retrying in {} seconds... ({:?})",
+                        printer_log_id,
+                        connection_attempt,
+                        MAX_ATTEMPTS_PER_CYCLE,
+                        RETRY_DELAY_MS / 1000,
+                        e
+                    );
+                    Timer::after(Duration::from_millis(RETRY_DELAY_MS)).await;
                 }
-                socket_error_count += 1;
-                Timer::after(Duration::from_millis(2000)).await;
                 continue;
             }
         }
-        socket_error_count = 0;
+        // Successfully connected TCP socket (do not reset retry counters yet)
 
         term_info!("[{}] Connected to Printer {}", printer_log_id, printer_name);
 
@@ -475,8 +495,30 @@ pub async fn generic_mqtt_task<
         ) {
             Ok(tls_starter) => tls_starter,
             Err(e) => {
-                term_error!("[{}] Error establishing TLS Connection {:?}", printer_log_id, e);
-                Timer::after(Duration::from_millis(500)).await;
+                connection_attempt += 1;
+                
+                if connection_attempt >= MAX_ATTEMPTS_PER_CYCLE {
+                    term_error!(
+                        "[{}] Failed to create TLS session after {} attempts ({:?}). Waiting {} minutes before retry...",
+                        printer_log_id,
+                        MAX_ATTEMPTS_PER_CYCLE,
+                        e,
+                        LONG_RETRY_DELAY_SECS / 60
+                    );
+                    connection_attempt = 0;
+                    retry_cycle += 1;
+                    Timer::after(Duration::from_secs(LONG_RETRY_DELAY_SECS)).await;
+                } else {
+                    error!(
+                        "[{}] Error creating TLS session (attempt {}/{}), retrying in {} seconds... ({:?})",
+                        printer_log_id,
+                        connection_attempt,
+                        MAX_ATTEMPTS_PER_CYCLE,
+                        RETRY_DELAY_MS / 1000,
+                        e
+                    );
+                    Timer::after(Duration::from_millis(RETRY_DELAY_MS)).await;
+                }
                 continue;
             }
         };
@@ -485,6 +527,8 @@ pub async fn generic_mqtt_task<
         info!("[{printer_log_id}] Printer model is {printer_model:?}");
 
         if let Err(e) = session.connect().await {
+            connection_attempt += 1;
+            
             if matches!(e, TlsError::MbedTlsError(-9984)) {
                 if printer_model != PrinterModel::P2S || (printer_model == PrinterModel::P2S && bambu_cert_index == 1) {
                     // in case of P2S report error only after trying both certs
@@ -500,7 +544,27 @@ pub async fn generic_mqtt_task<
             } else {
                term_error!("[{}] Unexpected error during tls handshake {:?}", printer_log_id, e);
             }
-            Timer::after(Duration::from_millis(500)).await;
+            
+            if connection_attempt >= MAX_ATTEMPTS_PER_CYCLE {
+                term_error!(
+                    "[{}] Failed TLS handshake after {} attempts. Waiting {} minutes before retry...",
+                    printer_log_id,
+                    MAX_ATTEMPTS_PER_CYCLE,
+                    LONG_RETRY_DELAY_SECS / 60
+                );
+                connection_attempt = 0;
+                retry_cycle += 1;
+                Timer::after(Duration::from_secs(LONG_RETRY_DELAY_SECS)).await;
+            } else {
+                error!(
+                    "[{}] TLS handshake failed (attempt {}/{}), retrying in {} seconds...",
+                    printer_log_id,
+                    connection_attempt,
+                    MAX_ATTEMPTS_PER_CYCLE,
+                    RETRY_DELAY_MS / 1000
+                );
+                Timer::after(Duration::from_millis(RETRY_DELAY_MS)).await;
+            }
             continue;
         }
 
@@ -510,11 +574,37 @@ pub async fn generic_mqtt_task<
         let mut my_mqtt = MyMqtt::new(session, write_timeout);
 
         if let Err(e) = my_mqtt.connect(keep_alive_secs, username, password.as_deref()).await {
-            // any point in retrying mqtt connect ?
-            term_error!("[{}] Unexpected error during mqtt connect {:?}", printer_log_id, e);
-            Timer::after(Duration::from_millis(500)).await;
+            connection_attempt += 1;
+            
+            if connection_attempt >= MAX_ATTEMPTS_PER_CYCLE {
+                term_error!(
+                    "[{}] Failed MQTT connect after {} attempts ({:?}). Waiting {} minutes before retry...",
+                    printer_log_id,
+                    MAX_ATTEMPTS_PER_CYCLE,
+                    e,
+                    LONG_RETRY_DELAY_SECS / 60
+                );
+                connection_attempt = 0;
+                retry_cycle += 1;
+                Timer::after(Duration::from_secs(LONG_RETRY_DELAY_SECS)).await;
+            } else {
+                error!(
+                    "[{}] MQTT connect error (attempt {}/{}), retrying in {} seconds... ({:?})",
+                    printer_log_id,
+                    connection_attempt,
+                    MAX_ATTEMPTS_PER_CYCLE,
+                    RETRY_DELAY_MS / 1000,
+                    e
+                );
+                Timer::after(Duration::from_millis(RETRY_DELAY_MS)).await;
+            }
             continue;
         }
+        
+        // Fully connected, reset retry counters
+        connection_attempt = 0;
+        retry_cycle = 0;
+        
         term_info!("[{}] MQTT connection with Printer established", printer_log_id);
 
         let publisher = read_packets.immediate_publisher();

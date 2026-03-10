@@ -1,6 +1,7 @@
 import { Title, MyText, MyButton, WizardButtons } from "framework/widgets.slint";
 import { ScaleWeightDisplay } from "app-widgets.slint";
 import { AppBackend, AppState } from "app.slint";
+import { Translations } from "translations.slint";
 
 enum UpdateWeightSelect {
   None,
@@ -58,7 +59,7 @@ export component UpdateWeightPage inherits Rectangle {
 
                     MyText {
                         width: parent.width;
-                        text: "Then select how to update weight(s):";
+                        text: Translations.tr-then-select-weight-update;
                     }
 
                     HorizontalLayout {
@@ -67,7 +68,7 @@ export component UpdateWeightPage inherits Rectangle {
                         height: 86px;
                         used := MyButton {
                             type: RadioButton;
-                            text: weight-new != 0 ? "Used\n\nKeep Full Weight" : "Used";
+                            text: weight-new != 0 ? Translations.tr-used-keep-full-weight : Translations.tr-used-simple;
                             pushed: update-weight-select == UpdateWeightSelect.UsedKeepNew;
                             clicked => {
                                 root.pressed(UpdateWeightSelect.UsedKeepNew);
@@ -76,7 +77,7 @@ export component UpdateWeightPage inherits Rectangle {
 
                         unused := MyButton {
                             type: RadioButton;
-                            text: "Full/Unused\n\nSet Full Weight";
+                            text: Translations.tr-full-unused;
                             pushed: update-weight-select == UpdateWeightSelect.Unused;
                             clicked => {
                                 root.pressed(UpdateWeightSelect.Unused);
@@ -85,7 +86,7 @@ export component UpdateWeightPage inherits Rectangle {
 
                         if weight-new != 0: clear-new-weight := MyButton {
                             type: RadioButton;
-                            text: "Used\n\nClear Full Weight";
+                            text: Translations.tr-used-clear-new;
                             pushed: update-weight-select == UpdateWeightSelect.UsedClearNew;
                             clicked => {
                                 root.pressed(UpdateWeightSelect.UsedClearNew);
@@ -100,7 +101,7 @@ export component UpdateWeightPage inherits Rectangle {
             back-enabled: true;
             next-enabled: scale-display.stable-weight && update-weight-select != UpdateWeightSelect.None;
             cancel-enabled: true;
-            next-text: "Update Weight";
+            next-text: Translations.tr-update-weight;
             cancel-clicked => {
                 root.cancel-clicked();
             }

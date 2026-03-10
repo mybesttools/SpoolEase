@@ -1,7 +1,7 @@
 [package]
 name = "SpoolEase"
-homepage = "SpoolEase.io"
-version = "0.5.5-b.4"
+homepage = "MyBestTools.net"
+version = "0.5.6"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.84"
@@ -36,6 +36,8 @@ edge-ws = { git = "https://github.com/yanshay/edge-net", branch = "yanshay_updat
 [build-dependencies]
 slint-build = "=1.11.0"
 walkdir = "2.5.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [dependencies]
 #TODO: Important - lock to specific tag when released

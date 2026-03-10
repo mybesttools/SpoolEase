@@ -3,7 +3,9 @@ import { AppBackend, AppState, ControlState, SpoolStagingState, SpoolScaleState,
 import { SpoolDisplay } from "spool-display.slint";
 import { Utils } from "utils.slint";
 import { ScaleWeightDisplay } from "app-widgets.slint";
+import { Translations } from "translations.slint";
 import { UpdateWeightPage } from "common-operations.slint";
+import { Translations } from "translations.slint";
 
 component SpoolDisplayStep inherits Rectangle {
     callback more-clicked();
@@ -18,28 +20,28 @@ component SpoolDisplayStep inherits Rectangle {
             height: 56px;
             if AppState.spool-scale-state != SpoolScaleState.NotAvailable: MyButton {
                 enabled: AppState.spool-staging-state != SpoolStagingState.Empty && AppState.is-scale-usable-now();
-                text: "Quick Weight";
+                text: Translations.tr-quick-weight;
                 clicked => {
                     AppBackend.set-spool-weight(spool-display.spool-record.id, AppState.spool-scale-weight, -1, false);
                 }
             }
 
             if AppState.spool-scale-state == SpoolScaleState.NotAvailable: MyButton {
-                text: "Configure Slot";
+                text: Translations.tr-configure-slot;
                 clicked => {
                     AppState.control-state = ControlState.TraySelect;
                 }
             }
 
             MyButton {
-                text: "More...";
+                text: Translations.tr-more;
                 clicked => {
                     AppState.staging-operation-page = StagingOperationsPage.OperationSelection;
                 }
             }
 
             MyButton {
-                text: "Close";
+                text: Translations.tr-close;
                 clicked => {
                     AppState.prompt-select-tray();
                 }
@@ -52,7 +54,7 @@ component OperationSelectionStep inherits Rectangle {
     background: white;
     VerticalLayout {
         Title {
-            text: "Please Select Staging Operation";
+            text: Translations.tr-please-select-staging-operation;
         }
 
         GridLayout {
@@ -60,7 +62,7 @@ component OperationSelectionStep inherits Rectangle {
             spacing: 5px;
             Row {
                 MyButton {
-                    text: "Configure Slot Manually";
+                    text: Translations.tr-configure-slot-manually;
                     clicked => {
                         AppState.control-state = ControlState.TraySelect;
                     }
@@ -68,7 +70,7 @@ component OperationSelectionStep inherits Rectangle {
 
                 MyButton {
                     enabled: AppState.spool-staging-state != SpoolStagingState.Empty && AppState.is-scale-usable-now();
-                    text: "Advanced Weight";
+                    text: Translations.tr-advanced-weight;
                     clicked => {
                         AppState.prev-staging-operation-page = AppState.staging-operation-page;
                         AppState.staging-operation-page = StagingOperationsPage.UpdateWeight;
@@ -76,7 +78,7 @@ component OperationSelectionStep inherits Rectangle {
                 }
 
                 MyButton {
-                    text: "Clear Staging";
+                    text: Translations.tr-clear-staging;
                     clicked => {
                         AppBackend.clear-staging();
                         AppState.control-state = ControlState.Ready;
@@ -86,21 +88,21 @@ component OperationSelectionStep inherits Rectangle {
 
             Row {
                 MyButton {
-                    text: "Encode Tag";
+                    text: Translations.tr-encode-tag;
                     clicked => {
                         AppState.encode-start();
                     }
                 }
 
                 MyButton {
-                    text: "Unlink Tag";
+                    text: Translations.tr-unlink-tag;
                     clicked => {
                         AppBackend.unlink-spool-from-tag(AppState.spool-staging-info.spool-record.id)
                     }
                 }
 
                 MyButton {
-                    text: "Erase Tag";
+                    text: Translations.tr-erase-tag;
                     clicked => {
                         AppState.erase-tag-by-spool-id-start(AppState.spool-staging-info.spool-record.id)
                     }
@@ -111,7 +113,7 @@ component OperationSelectionStep inherits Rectangle {
                 MyButton {
                     visible: false;
                     enabled: false;
-                    text: "Mark as Dried";
+                    text: Translations.tr-mark-as-dried;
                 }
 
                 MyButton {
@@ -119,7 +121,7 @@ component OperationSelectionStep inherits Rectangle {
                     // used up should clear the weights/fill the used, and mark it as used etc.
                     visible: false;
                     enabled: false;
-                    text: "Mark Used-Up";
+                    text: Translations.tr-mark-used-up;
                 }
             }
         }
@@ -127,7 +129,7 @@ component OperationSelectionStep inherits Rectangle {
         HorizontalLayout {
             MyButton {
                 height: 56px;
-                text: "Cancel";
+                text: Translations.tr-cancel;
                 clicked => {
                     AppState.control-state = ControlState.Ready;
                 }
@@ -143,8 +145,8 @@ export component StagingOperations {
     }
     if AppState.staging-operation-page == StagingOperationsPage.OperationSelection: OperationSelectionStep { }
     if AppState.staging-operation-page == StagingOperationsPage.UpdateWeight: UpdateWeightPage {
-        title: "Update Spool \{spool-display.spool-record.id} Weight";
-        user-prompt: "Please place the spool on the scale:";
+        title: Translations.tr-update-spool-weight-pre + spool-display.spool-record.id + Translations.tr-update-spool-weight-post;
+        user-prompt: Translations.tr-please-place-spool;
         weight-current: spool-display.spool-record.weight-current;
         weight-new: spool-display.spool-record.weight-new;
         spool-id: spool-display.spool-record.id;

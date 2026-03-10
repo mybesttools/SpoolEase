@@ -26,6 +26,7 @@ const SCALE_CONFIG_KEY: &str = "_scale_"; // for backwards compatibility
 // const PREVIOUSLY_USED_CORES_CONFIG_KEY: &str = "prev_cores";
 const USER_CORES_CONFIG_KEY: &str = "user_cores";
 const CUSTOM_FILAMENTS_CONFIG_KEY: &str = "custom_filaments";
+const LANGUAGE_CONFIG_KEY: &str = "language";
 
 fn serialize_option_ipv4<S>(ip: &Option<Ipv4Address>, serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -113,6 +114,7 @@ pub struct AppConfig {
     // pub previously_used_cores: Option<String>,
     pub custom_filaments: Option<String>,
     pub root_redirect: String,
+    pub language: String,
 }
 
 impl AppConfig {
@@ -154,6 +156,7 @@ impl AppConfig {
             // previously_used_cores: None,
             custom_filaments: None,
             root_redirect: "/config".to_string(),
+            language: "en".to_string(),
         }
     }
 
@@ -202,6 +205,11 @@ impl AppConfig {
         let config = self.framework.borrow_mut().fetch(String::from(CUSTOM_FILAMENTS_CONFIG_KEY));
         if let Ok(custom_filaments) = config {
             self.custom_filaments = custom_filaments;
+        }
+
+        let config = self.framework.borrow_mut().fetch(String::from(LANGUAGE_CONFIG_KEY));
+        if let Ok(Some(language)) = config {
+            self.language = language;
         }
 
         let config = self.framework.borrow_mut().fetch(String::from(SCALE_CONFIG_KEY));
@@ -289,9 +297,13 @@ impl AppConfig {
         Some(
             self.framework.borrow().initialization_ok()
                 && matches!(self.config_processed_ok, Some(true))
-                && matches!(self.pn532_ok, Some(true))
+                // pn532 is optional hardware — missing reader doesn't fail boot
                 && !self.missing_configs(log),
         )
+    }
+
+    pub fn is_pn532_available(&self) -> bool {
+        matches!(self.pn532_ok, Some(true))
     }
 
     #[allow(dead_code)]
@@ -390,6 +402,12 @@ impl AppConfig {
 
     pub fn set_redirect_web_to_config(&mut self) {
         self.root_redirect = "/config".to_string();
+    }
+
+    pub fn set_language(&mut self, language: String) -> Result<(), sequential_storage::Error<esp_storage::FlashStorageError>> {
+        self.framework.borrow().store(LANGUAGE_CONFIG_KEY.to_string(), language.clone())?;
+        self.language = language;
+        Ok(())
     }
 
     pub fn is_scale_available(&self) -> bool {

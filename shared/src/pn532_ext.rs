@@ -81,9 +81,7 @@ where
     let num_pages = (buf.len() + 3) / 4; // complement to include partial data on last page
 
     let end_time = Instant::now() + timeout;
-    let last_err;
 
-    /*'single_write:*/
     let mut data_to_write = [0u8; 4];
     for page_offset in 0..num_pages {
         let page_byte_offset = page_offset * 4;
@@ -93,25 +91,36 @@ where
             data_to_write[n..].fill(0);
         }
 
-        if Instant::now() > end_time {
-            error!("Tag read timeout error");
-            return Err(Error::Pn532Error(pn532::Error::TimeoutResponse)); // using the Pn532Error, not sure if good practice
-        }
-        let res = pn532
-            .process(
-                &pn532::Request::ntag_write(
-                    page + u8::try_from(page_offset).unwrap(),
-                    &data_to_write,
-                ),
-                1,
-                end_time - Instant::now(),
-            )
-            .await?;
-        if res[0] != 0x00 {
-            // first byte signals if read was ok
+        const MAX_PAGE_WRITE_RETRIES: usize = 3;
+        let mut last_err = 0u8;
+        let mut write_ok = false;
+        for attempt in 0..=MAX_PAGE_WRITE_RETRIES {
+            if attempt > 0 {
+                warn!("Retrying NFC write of page {} (attempt {})", page as usize + page_offset, attempt);
+                Timer::after_millis(50).await;
+            }
+            if Instant::now() > end_time {
+                error!("Tag write timeout error");
+                return Err(Error::Pn532Error(pn532::Error::TimeoutResponse));
+            }
+            let res = pn532
+                .process(
+                    &pn532::Request::ntag_write(
+                        page + u8::try_from(page_offset).unwrap(),
+                        &data_to_write,
+                    ),
+                    1,
+                    end_time - Instant::now(),
+                )
+                .await?;
+            if res[0] == 0x00 {
+                write_ok = true;
+                break;
+            }
             last_err = res[0];
-            trace!("Error {} during NFC write of page {page_offset}", last_err);
-            // continue 'retries; retries on write might be causing tag bricking? or was it a faulty PN532?
+            trace!("Error {} during NFC write of page {}", last_err, page as usize + page_offset);
+        }
+        if !write_ok {
             return Err(Error::Pn532ExtError(last_err));
         }
     }
@@ -189,6 +198,7 @@ where
                 "Error {} during NFC read of 4 pages starting at {page}, retrying",
                 last_err
             );
+            Timer::after_millis(20).await; // Brief pause to let RF field settle before retry
             continue;
         }
 

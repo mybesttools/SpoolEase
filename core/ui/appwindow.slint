@@ -19,11 +19,13 @@ import { StagingOperations } from "staging-operations.slint";
 import { TrayOperations } from "tray-operations.slint";
 import { MessageBox } from "message-box.slint";
 import { AppOtaSelect } from "ota.slint";
+import { Translations } from "translations.slint";
 
 // reexport to rust
 
 export { FrameworkState, FrameworkBackend }
-export { AppState, AppBackend } 
+export { AppState, AppBackend }
+export { Translations } 
 
 export component AppWindow inherits Window {
     width: 480px;
@@ -128,7 +130,7 @@ export component AppWindow inherits Window {
 
                     external := Trays {
                         is_ams: false;
-                        title: AppState.num-extruders == 1 ? "External" : AppState.displayed-extruder == 0 ? "Ext Right" : "Ext Left";
+                        title: AppState.num-extruders == 1 ? Translations.tr-external : AppState.displayed-extruder == 0 ? Translations.tr-ext-right : Translations.tr-ext-left;
                         tray_numbers: [AppState.displayed-extruder];
                         trays-state: AppState.trays-state;
                         title-clicked => { 
@@ -198,7 +200,7 @@ export component AppWindow inherits Window {
         dialog-text: AppState.message-box-text;
         dialog-text2: AppState.message-box-text2;
         dialog-background: AppState.message-box-type == StatusType.Success ? green.brighter(1.0) : AppState.message-box-type == StatusType.Error ? red : skyblue;
-        dialog-button-text: "Ok" + (AppState.message-box-timeout != 0 ? " (\{AppState.message-box-timeout})" : "");
+        dialog-button-text: Translations.tr-ok + (AppState.message-box-timeout != 0 ? " (\{AppState.message-box-timeout})" : "");
         clicked => {
             AppState.hide-message-box();
         }
@@ -213,5 +215,16 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
+
+    // Hidden element to force Slint to embed glyphs for all non-ASCII characters
+    // used in translations (Polish, German, Dutch, etc.).  Without this, Slint's
+    // software-renderer pre-rasteriser only sees ASCII and renders diacritics as blanks.
+    Rectangle {
+        visible: false;
+        width: 0px; height: 0px;
+        Text { text: "°ÄßäïóöüąćęŁłńŚśŹźż—…≤✅❌"; font-size: 20px; }
+        Text { text: "°ÄßäïóöüąćęŁłńŚśŹźż—…≤✅❌"; font-size: 32px; }
+        Text { text: "°ÄßäïóöüąćęŁłńŚśŹźż—…≤✅❌"; font-size: 60px; }
     }
 }

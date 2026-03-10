@@ -9,38 +9,43 @@
   </head>
   <body>
     <h1>SpoolEase Configuration</h1>
+    <div style="text-align: center; margin-bottom: 20px;">
+      <a href="/spools" id="spools-nav-link" style="display: inline-block; padding: 10px 20px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 4px; margin: 0 5px;">Spool Inventory Editor</a>
+    </div>
     <h3 style="text-align: center;">Most configurations require device restart</h3>
 
     <!-- Security Key Section -->
     <div class="section" id="security-section">
       <h2 class="section-title">Security Key</h2>
-      <p>IMPORTANT: A security key is required to configure the settings below.
-         You can find it in the settings screen beneath the terminal and main screens.
-         If it’s not visible, swipe vertically on the SpoolEase console display to reveal it.</p>
-      <div id="verify-key-section">
+      <p>IMPORTANT: A security key is required to configure the settings below.</p>
+      <p>You can find it in the settings screen beneath the terminal and main screens.</p>
+      <p>If it's not visible, swipe vertically on the SpoolEase console display to reveal it.</p>
+      <form id="verify-key-section" onsubmit="applyKeyFetchConfigs(); return false;" autocomplete="on">
+        <!-- Hidden username field so browsers treat this as a login form and offer to save credentials -->
+        <input type="text" id="login-username" name="username" value="SpoolEase" autocomplete="username" style="display:none" readonly />
         <div class="form-row">
           <label for="security-key"
             >Key: * <span>Fill and verify key before configuring</span></label
           >
           <input
-            type="text"
+            type="password"
             id="security-key"
+            name="password"
             placeholder="Enter security key"
-            autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off"
+            autocomplete="current-password" spellcheck="false"
           />
         </div>
 
         <button
           id="verify-key-button"
-          type="button"
+          type="submit"
           class="secondary apply-btn"
-          onclick="applyKeyFetchConfigs()"
           disabled
         >
           Verify Key & Load Config
         </button>
         <label class="feedback-label" id="security-key-feedback"></label>
-      </div>
+      </form>
       <div id="set-fixed-key-section">
         <div class="form-row" style="margin-top: 20px">
           <label for="fixed-security-key"
@@ -49,10 +54,10 @@
             ></label
           >
           <input
-            type="text"
+            type="password"
             id="fixed-security-key"
             placeholder="Enter fixed security key"
-            autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off"
+            autocomplete="new-password" spellcheck="false"
           />
         </div>
 
@@ -302,7 +307,7 @@
       <h2 class="section-title">Custom Slicer Filaments</h2>
 
       <div class="form-row">
-        <div style="display: flex; align-items: center; gap: 10px;>
+        <div style="display: flex; align-items: center; gap: 10px;">
             <label for="custom-filaments-text"
               >Custom Filaments CSV:</label
             >
@@ -472,6 +477,16 @@ ProtoPasta 500g - Cardboard - 84g,84"
       >
         Restart Device
       </button>
+
+      <button
+        id="format-sdcard"
+        type="button"
+        class="apply-btn"
+        onclick="formatSDCard()"
+        disabled
+      >
+        SD Card Help
+      </button>
     </div>
 
     <script type="module">
@@ -495,10 +510,27 @@ ProtoPasta 500g - Cardboard - 84g,84"
       document.body.style.display = "block";
 
       const secKeyOnUrl = getHashParam('sk');
-      if (secKeyOnUrl) {
-        document.getElementById("security-key").value = secKeyOnUrl;
+      const secKeyCached = sessionStorage.getItem('spoolease_sk');
+      const secKeyToUse = secKeyOnUrl || secKeyCached || "";
+      if (secKeyToUse) {
+        document.getElementById("security-key").value = secKeyToUse;
         applyKeyFetchConfigs();
       }
+
+      // Keep the spools nav link in sync with the current security key,
+      // and cache the key in sessionStorage so it survives page navigation.
+      function updateSpoolsNavLink() {
+        const key = document.getElementById("security-key").value.trim();
+        const link = document.getElementById("spools-nav-link");
+        link.href = key ? `/spools#sk=${encodeURIComponent(key)}` : "/spools";
+        if (key) {
+          sessionStorage.setItem('spoolease_sk', key);
+        } else {
+          sessionStorage.removeItem('spoolease_sk');
+        }
+      }
+      document.getElementById("security-key").addEventListener("input", updateSpoolsNavLink);
+      updateSpoolsNavLink();
     </script>
     <script>
       async function sendData(inurl, data, retries = 5) {
@@ -525,12 +557,12 @@ ProtoPasta 500g - Cardboard - 84g,84"
           const encryptedText = await response.text();
           const decryptedText = decrypt(encryptionKey, encryptedText);
           const result = JSON.parse(decryptedText);
-          alert(`Settings applied successfully, restart is required!!!`);
+          alert(seT('cfg_settings_applied', 'Settings applied successfully, restart is required!!!'));
           if (applyButton) {
             applyButton.disabled = true;
           }
         } catch (error) {
-          alert(`Failed to apply settings: ${error.message}`);
+          alert(seT('cfg_settings_failed', 'Failed to apply settings') + ': ' + error.message);
         }
       }
 
@@ -557,28 +589,30 @@ ProtoPasta 500g - Cardboard - 84g,84"
           document.getElementById("scale-apply").disabled = true;
           document.getElementById("spools-apply").disabled = true;
           if (response.status == 400) {
-            document.getElementById("security-key-feedback").textContent = "Security Key is incorrect";
+            document.getElementById("security-key-feedback").textContent = seT('cfg_sk_incorrect', 'Security Key is incorrect');
             document.getElementById("ota-request").disabled = true;
             document.getElementById("ota-status-update").disabled = true;
             document.getElementById("restart-device").disabled = true;
+            document.getElementById("format-sdcard").disabled = true;
             return;
           } else if (response.ok) {
-            document.getElementById("security-key-feedback").textContent = "Security Key validated";
+            document.getElementById("security-key-feedback").textContent = seT('cfg_sk_validated', 'Security Key validated');
             document.getElementById("verify-key-button").disabled = true;
             document.getElementById("ota-request").disabled = false;
             document.getElementById("ota-status-update").disabled = false;
             document.getElementById("restart-device").disabled = false;
+            document.getElementById("format-sdcard").disabled = false;
           }
         } catch (error) {
           document.getElementById("security-key-feedback").textContent =
-            `Failed to check key, try again (${error.message})`;
+            seT('cfg_sk_check_failed', 'Failed to check key, try again') + ' (' + error.message + ')';
           return;
         }
         try {
           await fetchSectionConfigs();
         } catch (error) {
           document.getElementById("security-key-feedback").textContent +=
-            " but Failed to Load Configs";
+            ' ' + seT('cfg_failed_load_configs', 'but Failed to Load Configs');
         }
       }
 
@@ -605,11 +639,15 @@ ProtoPasta 500g - Cardboard - 84g,84"
 
       async function fetchInitialSectionConfig(section) {
         try {
+          console.log(`Fetching ${section} configuration...`);
           const response = await fetch(`${urlPrefix}/api/${section}-config`); // Replace with actual endpoint
           if (!response.ok) throw new Error(`Error: ${response.statusText}`);
           const encryptedText = await response.text();
+          console.log(`Received encrypted ${section} data, length:`, encryptedText.length);
           const decryptedText = decrypt(encryptionKey, encryptedText);
+          console.log(`Decrypted ${section} data:`, decryptedText);
           const data = JSON.parse(decryptedText);
+          console.log(`Parsed ${section} configuration:`, data);
 
           // Populate WiFi credentials
           return data;
@@ -638,12 +676,10 @@ ProtoPasta 500g - Cardboard - 84g,84"
       }
 
       function requestOta() {
-        if (confirm("Do you want to upgrade firmware now?")) {
+        if (confirm(seT('cfg_ota_confirm', 'Do you want to upgrade firmware now?'))) {
           const data = { request: "Update" };
           sendData("/api/ota-request", data, 1);
-          alert(
-            "Request to start network upgrade sent, press [Updat Status] to see progress",
-          );
+          alert(seT('cfg_ota_upgrade_sent', 'Request to start network upgrade sent, press [Updat Status] to see progress'));
         }
       }
 
@@ -680,9 +716,42 @@ ProtoPasta 500g - Cardboard - 84g,84"
       function restartDevice() {
         const data = {};
         sendData("/api/reset-device", data, 1);
-        alert(
-          "Device restarted. Reactivate Web Config from device and refresh page to continue configuration",
-        );
+        alert(seT('cfg_device_restarted', 'Device restarted. Reactivate Web Config from device and refresh page to continue configuration'));
+      }
+
+      // Function to check SD card status and show formatting instructions
+      async function formatSDCard() {
+        const button = document.getElementById("format-sdcard");
+        button.disabled = true;
+        button.textContent = seT('cfg_checking', 'Checking...');
+        
+        try {
+          const data = { confirm: true };
+          const fetchResponse = await sendData("/api/format-sdcard", data);
+          
+          if (!fetchResponse.ok) {
+            throw new Error(`Error: ${fetchResponse.statusText}`);
+          }
+          
+          const encryptedText = await fetchResponse.text();
+          const decryptedText = decrypt(encryptionKey, encryptedText);
+          const response = JSON.parse(decryptedText);
+          
+          // Format message for display - preserve line breaks
+          const message = response.message.replace(/\\n/g, '\n');
+          
+          if (response.success) {
+            alert(message);
+          } else {
+            // Show instructions in alert (will handle line breaks)
+            alert(message);
+          }
+        } catch (error) {
+          alert(seT('cfg_sdcard_error', 'Error checking SD card') + ': ' + error.message);
+        } finally {
+          button.disabled = false;
+          button.textContent = seT('cfg_sdcard_btn', 'SD Card Help');
+        }
       }
 
       // Function to collect WiFi settings and send them as JSON
@@ -1084,7 +1153,7 @@ ProtoPasta 500g - Cardboard - 84g,84"
         printerForm.classList.add("default");
         const defaultBtn = printerForm.querySelector(".default-btn");
         defaultBtn.classList.add("active");
-        defaultBtn.textContent = "Default Printer";
+        defaultBtn.textContent = seT('cfg_default_printer', 'Default Printer');
 
         defaultPrinter = id;
       }
@@ -1124,7 +1193,7 @@ ProtoPasta 500g - Cardboard - 84g,84"
 
           if (hasIPValue && !ipFilled) {
             form.querySelector(".ip-error").textContent =
-              "All IP fields must be filled";
+              seT('cfg_ip_all_fields', 'All IP fields must be filled');
             form.querySelector(".ip-error").style.display = "block";
             isValid = false;
           }
@@ -1141,9 +1210,7 @@ ProtoPasta 500g - Cardboard - 84g,84"
 
       function generatePrinterData() {
         if (!validatePrinterForms()) {
-          alert(
-            "Please fix the printer validation errors before applying settings.",
-          );
+          alert(seT('cfg_printer_validation_errors', 'Please fix the printer validation errors before applying settings.'));
           return null;
         }
 
@@ -1249,7 +1316,7 @@ ProtoPasta 500g - Cardboard - 84g,84"
       function applySpoolsSettings() {
         const spools = document.getElementById("spools-text").value;
         if (!validateCSV(spools, /^.*$/, /^\d{1,4}$/)) {
-          alert("Invalid spools information");
+          alert(seT('cfg_invalid_spools', 'Invalid spools information'));
           return;
         }
         const applyButton = document.getElementById("spools-apply");
@@ -1298,7 +1365,7 @@ ProtoPasta 500g - Cardboard - 84g,84"
       function applyFilamentsSettings() {
         const custom_filaments = document.getElementById("custom-filaments-text").value;
         if (!validateCSV5(custom_filaments, /^.*$/, /^.*$/, /^\d+$/, /^\d+$/, /^.*$/)) {
-          alert("Invalid custom filaments information");
+          alert(seT('cfg_invalid_filaments', 'Invalid custom filaments information'));
           return;
         }
         const applyButton = document.getElementById("filaments-apply");
@@ -1430,6 +1497,74 @@ ProtoPasta 500g - Cardboard - 84g,84"
           urlPrefix = "http://consoledev.local";
         }
       });
+    </script>
+
+    <!-- Client-side translation: fetches /api/web-translations and applies to the page -->
+    <script>
+      window._seT = {};
+      window.seT = function(k, fb) { return window._seT[k] || fb || k; };
+      (function(){
+        function applyTranslations(T) {
+          if (!T || Object.keys(T).length === 0) return;
+          window._seT = T;
+          function tr(n) {
+            var o = n.textContent, t = o.trim();
+            if (!t) return;
+            if (T[t] !== undefined) { n.textContent = o.replace(t, T[t]); return; }
+            for (var k in T) { if (k.length > 3 && o.includes(k)) { n.textContent = o.split(k).join(T[k]); return; } }
+          }
+          function walk(r) {
+            var w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT, {
+              acceptNode: function(n) {
+                var p = n.parentElement;
+                return p && p.tagName !== 'SCRIPT' && p.tagName !== 'STYLE' &&
+                       p.tagName !== 'INPUT' && p.tagName !== 'TEXTAREA'
+                  ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+              }
+            });
+            var n;
+            while ((n = w.nextNode())) tr(n);
+          }
+          function start() {
+            walk(document.body);
+            var p = false;
+            new MutationObserver(function() {
+              if (p) return;
+              p = true;
+              requestAnimationFrame(function() { walk(document.body); p = false; });
+            }).observe(document.body, { childList: true, subtree: true });
+          }
+          if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+          else start();
+        }
+        fetch('/api/web-translations')
+          .then(function(r) { return r.json(); })
+          .then(applyTranslations)
+          .catch(function(){});
+      })();
+    </script>
+
+    <!-- Floating language selector (built dynamically from /api/languages + /api/locale) -->
+    <div id="se-lang" style="position:fixed;bottom:0;right:0;z-index:9999;background:rgba(30,30,30,0.88);border-radius:8px 0 0 0;padding:6px 10px;display:flex;gap:8px;align-items:center;">
+      <span style="color:#aaa;font-size:12px;">&#127760;</span>
+    </div>
+    <script>
+      (function(){
+        var bar = document.getElementById('se-lang');
+        var sBtn = 'color:#fff;text-decoration:none;font-size:13px;font-family:sans-serif;padding:2px 8px;border-radius:4px;';
+        var sActive = 'background:#2196F3;font-weight:bold;';
+        Promise.all([fetch('/api/languages').then(function(r){return r.json();}), fetch('/api/locale').then(function(r){return r.json();})])
+          .then(function(results){
+            var langs = results[0], active = (results[1].language || 'en');
+            langs.forEach(function(l){
+              var a = document.createElement('a');
+              a.href = '/api/language?lang=' + l.code + '&next=/config';
+              a.style.cssText = sBtn + (l.code === active ? sActive : '');
+              a.textContent = l.label;
+              bar.appendChild(a);
+            });
+          }).catch(function(){});
+      })();
     </script>
   </body>
 </html>

@@ -1,0 +1,127 @@
+name: Build firmware & Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # Toolchain cache: ~/.rustup/toolchains/esp  +  Cargo registry  +
+      #                  build cache under core/target
+      # Key changes when Cargo.lock or rust-toolchain.toml change.
+      # ------------------------------------------------------------------
+      - name: Cache ESP Rust toolchain & build artefacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup/toolchains/esp1
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/espup
+            ~/.cargo/bin/espflash
+            core/target
+          key: esp32s3-${{ hashFiles('core/Cargo.lock', 'core/rust-toolchain.toml') }}
+          restore-keys: |
+            esp32s3-
+
+      # ------------------------------------------------------------------
+      # espup: installs the Xtensa Rust fork + LLVM toolchain into
+      #        ~/.rustup/toolchains/esp  and writes ~/export-esp.sh
+      # Skip if the toolchain directory already exists (cache hit).
+      # ------------------------------------------------------------------
+      - name: Install espup (if not cached)
+        run: |
+          command -v espup || cargo install espup --locked
+          # rust-toolchain.toml uses channel "esp1", so register under that name
+          [ -d "$HOME/.rustup/toolchains/esp1" ] || espup install --name esp1
+          # espup may write export-esp.sh or export-esp1.sh depending on version
+          for f in "$HOME/export-esp1.sh" "$HOME/export-esp.sh"; do
+            [ -f "$f" ] && source "$f" && break
+          done
+          # Persist LLVM/Clang vars so subsequent steps pick them up (PATH is handled separately)
+          env | grep -E '^(LIBCLANG_PATH|CLANG_PATH|LIBCLANG_BIN_PATH)=' >> "$GITHUB_ENV"
+          XTENSA_BIN=$(find "$HOME/.rustup/toolchains/esp1" -name "xtensa-esp32s3-elf-gcc" | head -1 | xargs dirname)
+          echo "$XTENSA_BIN" >> "$GITHUB_PATH"
+
+      - name: Install espflash (if not cached)
+        run: command -v espflash || cargo install espflash --locked
+
+      # ------------------------------------------------------------------
+      # Build
+      # ------------------------------------------------------------------
+      - name: Build SpoolEase firmware (release)
+        working-directory: core
+        run: cargo build --release
+
+      # ------------------------------------------------------------------
+      # Package: create a single merged flash image at offset 0x0000
+      # (bootloader + partition table + app, ready for esp-web-tools)
+      # ------------------------------------------------------------------
+      - name: Create merged flash image
+        working-directory: core
+        run: |
+          espflash save-image \
+            --chip esp32s3 \
+            --flash-size 16mb \
+            --flash-mode dio \
+            --flash-freq 80mhz \
+            --partition-table partitions.csv \
+            --merge \
+            target/xtensa-esp32s3-none-elf/release/SpoolEase \
+            ../docs/firmware/SpoolEase-flash.bin
+
+      - name: Stamp firmware version into manifests
+        working-directory: core
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed -E 's/version = "(.+)"/\1/')
+          echo "Firmware version: $VERSION"
+
+          # Upgrade manifest: keeps existing NVS settings, no erase
+          jq --arg v "$VERSION" '.version = $v' ../docs/firmware/manifest.json \
+            > /tmp/manifest.json
+          mv /tmp/manifest.json ../docs/firmware/manifest.json
+
+          # Fresh-install manifest: erases NVS, uses Improv Wi-Fi to configure in browser
+          jq --arg v "$VERSION" '
+            .version = $v |
+            .new_install_prompt_erase = true |
+            .improv = true |
+            .new_install_improv_wait_time = 30
+          ' ../docs/firmware/manifest.json \
+            > ../docs/firmware/manifest-new.json
+          echo "Manifests stamped."
+
+      # ------------------------------------------------------------------
+      # Deploy docs/ (including freshly built firmware/) to GitHub Pages
+      # ------------------------------------------------------------------
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

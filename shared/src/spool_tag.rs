@@ -253,7 +253,11 @@ async fn nfc_task(
     let timer = crate::pn532_ext::Esp32TimerAsync::new();
 
     let mut pn532: pn532::Pn532<_, _, 64> = pn532::Pn532::new(interface, timer);
-    // pn532.wake_up().await.unwrap();
+    // Give PN532 time to power up fully before first communication
+    Timer::after(Duration::from_millis(500)).await;
+    pn532.wake_up().await.unwrap();
+    // Wait longer after initial wake_up to allow PN532 to stabilize
+    Timer::after(Duration::from_millis(500)).await;
 
     info!("Configuring pn532");
 
@@ -264,9 +268,9 @@ async fn nfc_task(
         if retry % 20 == 0 {
             if retry != 0 {
                 term_error!("Challenging PN532 Initialization ({})", retries);
+                pn532.wake_up().await.unwrap();
+                Timer::after(Duration::from_millis(300)).await;
             }
-            pn532.wake_up().await.unwrap();
-            Timer::after(Duration::from_millis(100)).await
         }
         if let Err(e) = pn532
             .process(
@@ -316,6 +320,22 @@ async fn nfc_task(
         term_error!("Failed to communicate with Tag Reader");
         spool_tag_rc.borrow().notify_pn532_status(false);
         return;
+    }
+
+    // RFConfiguration item 5 (MaxRetries): set MxRtyPassiveActivation to 0xFF (unlimited).
+    // Default is 0x07 - the chip gives up after 7 RF-layer retries, which is too few for
+    // tags slightly out of range. 0xFF means it retries until the software timeout fires.
+    // MxRtyATR and MxRtyPSL are left at defaults (0xFF, 0x01).
+    let rf_config_max_retries = pn532::requests::Request::new(
+        pn532::requests::Command::RFConfiguration,
+        [0x05u8, 0xFF, 0x01, 0xFF],
+    );
+    match pn532
+        .process(&rf_config_max_retries, 0, embassy_time::Duration::from_millis(200))
+        .await
+    {
+        Ok(_) => info!("PN532 RF MaxRetries set to unlimited"),
+        Err(e) => warn!("Could not set PN532 RF MaxRetries: {:?}", e),
     }
 
     info!("Entering wait for tag loop in nfc task");
@@ -506,20 +526,70 @@ async fn nfc_task(
                                 URL_SAFE_NO_PAD.encode(last_seen_tag.as_ref().unwrap().uid());
                             let final_tag_text =
                                 write_tag_reuest.text.replace(TAG_PLACEHOLDER, &tag_uid);
-                            match nfc::write_ndef_url_record(
+                            let cookie = write_tag_reuest.cookie.clone();
+
+                            // Try writing up to (1 + MAX_WRITE_RETRIES) times.  Each retry
+                            // re-issues INLIST to re-run the ISO 14443 initialisation sequence,
+                            // which resets the tag's internal RF communication state — equivalent
+                            // to briefly moving the tag away and back.
+                            const MAX_WRITE_RETRIES: usize = 3;
+                            let mut write_result = nfc::write_ndef_url_record(
                                 &mut pn532,
                                 &final_tag_text,
-                                Duration::from_secs(2),
+                                Duration::from_secs(5),
                             )
-                            .await
-                            {
+                            .await;
+                            for retry in 1..=MAX_WRITE_RETRIES {
+                                if write_result.is_ok() {
+                                    break;
+                                }
+                                warn!("Tag write attempt {} failed, resetting tag state and retrying", retry);
+                                // InDeselect puts the tag into HALT state, then InSelect wakes it
+                                // via WUPA - this resets the tag's NFC state machine (~50ms) without
+                                // releasing and re-scanning, so we can't accidentally lock onto a
+                                // different tag.
+                                Timer::after_millis(100).await;
+                                let desel_ok = pn532
+                                    .process(
+                                        &pn532::Request::DESELECT_TAG_1,
+                                        1,
+                                        Duration::from_millis(200),
+                                    )
+                                    .await
+                                    .is_ok();
+                                if !desel_ok {
+                                    warn!("Deselect failed, tag likely moved away");
+                                    break;
+                                }
+                                Timer::after_millis(50).await;
+                                let sel_ok = pn532
+                                    .process(
+                                        &pn532::Request::SELECT_TAG_1,
+                                        1,
+                                        Duration::from_millis(500),
+                                    )
+                                    .await
+                                    .is_ok();
+                                if !sel_ok {
+                                    warn!("Re-select failed, tag likely moved away");
+                                    break;
+                                }
+                                write_result = nfc::write_ndef_url_record(
+                                    &mut pn532,
+                                    &final_tag_text,
+                                    Duration::from_secs(5),
+                                )
+                                .await;
+                            }
+
+                            match write_result {
                                 Ok(_num_bytes_written) => {
                                     debug!("Wrote {} to tag", final_tag_text);
                                     spool_tag_rc
                                         .borrow()
                                         .notify_tag_status(Status::WriteSuccess(
                                             final_tag_text,
-                                            write_tag_reuest.cookie.clone(),
+                                            cookie,
                                         ));
                                     curr_operation_with_tag =
                                         Some(TagOperation::ReadTag(ReadTagRequest {}));
@@ -676,7 +746,44 @@ async fn nfc_task(
                                 ));
                                 continue;
                             }
-                            match nfc::erase_ndef_tag(&mut pn532, Duration::from_secs(2)).await {
+                            const MAX_ERASE_RETRIES: usize = 3;
+                            let mut erase_result =
+                                nfc::erase_ndef_tag(&mut pn532, Duration::from_secs(5)).await;
+                            for retry in 1..=MAX_ERASE_RETRIES {
+                                if erase_result.is_ok() {
+                                    break;
+                                }
+                                warn!("Tag erase attempt {} failed, resetting tag state and retrying", retry);
+                                Timer::after_millis(100).await;
+                                let desel_ok = pn532
+                                    .process(
+                                        &pn532::Request::DESELECT_TAG_1,
+                                        1,
+                                        Duration::from_millis(200),
+                                    )
+                                    .await
+                                    .is_ok();
+                                if !desel_ok {
+                                    warn!("Deselect failed, tag likely moved away");
+                                    break;
+                                }
+                                Timer::after_millis(50).await;
+                                let sel_ok = pn532
+                                    .process(
+                                        &pn532::Request::SELECT_TAG_1,
+                                        1,
+                                        Duration::from_millis(500),
+                                    )
+                                    .await
+                                    .is_ok();
+                                if !sel_ok {
+                                    warn!("Re-select failed, tag likely moved away");
+                                    break;
+                                }
+                                erase_result =
+                                    nfc::erase_ndef_tag(&mut pn532, Duration::from_secs(5)).await;
+                            }
+                            match erase_result {
                                 Ok(()) => {
                                     spool_tag_rc
                                         .borrow()

@@ -1,6 +1,7 @@
 import { FrameworkState, OtaState, Log } from "framework/framework.slint";
 import { SelectorOption } from "framework/widgets.slint";
 import { SelectorOptionsList } from "framework/widgets.slint";
+import { Translations } from "translations.slint";
 // Types
 
 export enum UiTrayState { Unknown, Empty, Spool, Reading, Ready, Loading, Unloading, Loaded }
@@ -151,6 +152,7 @@ export global AppBackend {
     callback configure-slot-with-spool-id(tray-id: int, spool-id: string);
     callback ota-check-firmwares();
     callback ota-update-firmware(product: string, train: string);
+    callback set-language(language: string);
 }
 
 export enum NewScannedTagType {
@@ -182,6 +184,11 @@ export enum StagingOperationsPage {
   SpoolDisplay,
   OperationSelection,
   UpdateWeight,
+}
+
+export struct LanguageOption {
+    code: string,
+    name: string,
 }
 
 export struct Firmwares {
@@ -225,6 +232,7 @@ export global AppState {
     in-out property <StatusType> message-box-type;
     in-out property <int> message-box-timeout;
 
+    in-out property <[LanguageOption]> available-languages;
     in-out property <[UiTray]> trays-state: self.empty-trays-state();
     in-out property <bool> select-printer: false;
     in-out property <ControlState> control-state: ControlState.Booting;
@@ -232,6 +240,7 @@ export global AppState {
         self.stop-highlight-trays();
     }
     in-out property <bool> some-printer-connected: false;
+    in-out property <bool> tag-reader-available: true;
 
     // Global state variables for New Tag Scan Control-State
     in-out property <NewScannedTagType> new-tag-scan-tag-type; // Simple or Definition
@@ -383,21 +392,21 @@ export global AppState {
     public function read-tag-found() {
         if self.control-state == ControlState.Ready {
             self.control-state = ControlState.Reading;
-            self.user-message = "Tag to Read Found,\nReading ...";
+            self.user-message = Translations.tr-tag-reading;
             self.user-message-type = StatusType.Normal;
         }
     }
     public function read-tag-failed(err-txt: string) {
         if self.control-state == ControlState.Reading {
             self.control-state = ControlState.PostAction;
-            self.user-message = "Scanning Tag Failed\n\{err-txt}";
+            self.user-message = Translations.tr-scanning-tag-failed + "\n" + err-txt;
             self.user-message-type = StatusType.Error;
         }
     }
     public function read-tag-succeeded(ui-spool-info: UiSpoolRecordDisplay, final-step: bool) {
         self.spool-staging-state = SpoolStagingState.Scanned;
         self.spool-staging-info = ui-spool-info;
-        self.user-message = "Tag Scanned to Staging";
+        self.user-message = Translations.tr-tag-scanned-to-staging;
         self.user-message-type = StatusType.Success;
         start-highlight-tray(999);
         if final-step {
@@ -409,7 +418,7 @@ export global AppState {
         self.spool-staging-state = SpoolStagingState.Unloaded;
         self.spool-staging-info = ui-spool-info;
         self.control-state = ControlState.PostAction;
-        self.user-message = "Tag Unloaded to Staging";
+        self.user-message = Translations.tr-tag-unloaded-to-staging;
         self.user-message-type = StatusType.Normal;
         start-highlight-tray(999);
     }
@@ -442,43 +451,43 @@ export global AppState {
     // TODO: names are ok, but should be changed for encoding a spool-id
     public function encode-tag-found() {
         self.control-state = ControlState.Encoding;
-        self.user-message = "Tag Found, Encoding ...";
+        self.user-message = Translations.tr-tag-found-encoding;
         self.user-message-type = StatusType.Normal;
     }
 
     public function erase-tag-found() {
         self.control-state = ControlState.Erasing;
-        self.user-message = "Tag Found, Erasing ...";
+        self.user-message = Translations.tr-tag-found-erasing;
         self.user-message-type = StatusType.Normal;
     }
 
     public function encoding-failure(err-txt: string) {
         // this is just a termporary failure, not final, can still try placing tag to encode, so NOT PostAction
-        self.user-message = "Encoding Tag Error\n\{err-txt}";
+        self.user-message = Translations.tr-encoding-tag-error + "\n" + err-txt;
         self.user-message-type = StatusType.Error;
     }
 
     public function erasing-failure(err-txt: string) {
         // this is just a termporary failure, not final, can still try placing tag to encode, so NOT PostAction
-        self.user-message = "Erasing Tag Error\n\{err-txt}";
+        self.user-message = Translations.tr-erasing-tag-error + "\n" + err-txt;
         self.user-message-type = StatusType.Error;
     }
 
     public function encoding-succeeded() {
         self.control-state = ControlState.PostAction;
-        self.user-message = "Encoding Succeeded";
+        self.user-message = Translations.tr-encoding-succeeded;
         self.user-message-type = StatusType.Success;
     }
 
     public function erasing-succeeded() {
         self.control-state = ControlState.PostAction;
-        self.user-message = "Erasing Succeeded";
+        self.user-message = Translations.tr-erasing-succeeded;
         self.user-message-type = StatusType.Success;
     }
 
     public function tray-update-failed(printer: string, configured-entity: string, err-txt: string) {
         self.control-state = ControlState.PostAction;
-        self.user-message = "Failed to Configure\n\{configured-entity}\n\{err-txt}";
+        self.user-message = Translations.tr-failed-to-configure + "\n" + configured-entity + "\n" + err-txt;
         self.user-message-type = StatusType.Error;
     }
 
@@ -486,7 +495,7 @@ export global AppState {
     // tray-id is the tray number inside the AMS (in HT all are 0) or 254/255 for external
     public function tray-update-succeeded(printer: string, configured-entity: string, tray-id: int) {
         self.control-state = ControlState.PostAction;
-        self.user-message = "Configured Successfully\n\{configured-entity}";
+        self.user-message = Translations.tr-configured-successfully + "\n" + configured-entity;
         self.user-message-type = StatusType.Success;
         start-highlight-tray(tray-id);
         if printer != self.curr-printer {
@@ -536,7 +545,7 @@ export global AppState {
     // Called from UI in case of UI timeout, can also be called from backend for timeout case
     public function encoding-timeout() {
         self.control-state = ControlState.PostAction;
-        self.user-message = "Encoding Tag Timed Out";
+        self.user-message = Translations.tr-encoding-tag-timed-out;
         self.user-message-type = StatusType.Error;
 
         AppBackend.read-tag-mode();
@@ -552,14 +561,14 @@ export global AppState {
         if AppBackend.encode-tag() { // return value of 0 means there was an error, error will be reported separately
             self.encode-timeout = 15;
             self.control-state = ControlState.Encoding;
-            user-message = "Place Spool Tag\nto Encode";
+            user-message = Translations.tr-place-spool-tag-encode;
             user-message-type = StatusType.Normal;
         }
     }
 
     public function erasing-timeout() {
         self.control-state = ControlState.PostAction;
-        self.user-message = "Erasing Tag Timed Out";
+        self.user-message = Translations.tr-erasing-tag-timed-out;
         self.user-message-type = StatusType.Error;
 
         AppBackend.read-tag-mode();
@@ -574,7 +583,7 @@ export global AppState {
         if AppBackend.erase-tag-by-spool-id(spool-id) {
             self.erase-timeout = 15;
             self.control-state = ControlState.Erasing;
-            user-message = "Place Spool Tag\nto Erase";
+            user-message = Translations.tr-place-spool-tag-erase;
             user-message-type = StatusType.Normal;
         }
     }
@@ -583,7 +592,7 @@ export global AppState {
         if AppBackend.erase-tag(tag-id) {
             self.erase-timeout = 15;
             self.control-state = ControlState.Erasing;
-            user-message = "Place Spool Tag\nto Erase";
+            user-message = Translations.tr-place-spool-tag-erase;
             user-message-type = StatusType.Normal;
         }
     }

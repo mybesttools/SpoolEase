@@ -5,6 +5,7 @@ import { Utils } from "utils.slint";
 import { ScaleWeightDisplay } from "app-widgets.slint";
 import { SpoolDisplay, SpoolDisplayMode } from "spool-display.slint";
 import { UpdateWeightPage } from "common-operations.slint";
+import { Translations } from "translations.slint";
 
 enum AddSelection {
   None,
@@ -22,7 +23,7 @@ component SpoolDefinitionTagScannedPage inherits Rectangle {
 
     VerticalLayout {
         Title {
-            text: "New \{AppState.new-tag-scan-definition-type} Tag Scanned";
+            text: Translations.tr-new-def-tag-scanned-prefix + AppState.new-tag-scan-definition-type + Translations.tr-new-def-tag-scanned-suffix;
         }
 
         VerticalLayout {
@@ -33,19 +34,19 @@ component SpoolDefinitionTagScannedPage inherits Rectangle {
 
             MyText {
                 wrap: word-wrap;
-                text: "The scanned tag is \{AppState.new-tag-scan-definition-type} tag, and isn't linked to your inventory.";
+                text: Translations.tr-scanned-tag-not-linked-prefix + AppState.new-tag-scan-definition-type + Translations.tr-scanned-tag-not-linked-suffix;
                 color: black;
             }
 
             MyText {
-                text: "Import tag data to the inventory as a new spool?";
+                text: Translations.tr-import-tag-to-inventory;
             }
 
             add-rec-yes := MyButton {
                 type: ButtonType.RadioButton;
                 pushed: add-selection == AddSelection.Yes;
                 height: 56px;
-                text: "Yes, Import Data as New Spool Record";
+                text: Translations.tr-yes-import;
                 pressed => {
                     pressed(AddSelection.Yes);
                 }
@@ -55,7 +56,7 @@ component SpoolDefinitionTagScannedPage inherits Rectangle {
                 type: ButtonType.RadioButton;
                 pushed: add-selection == AddSelection.No;
                 height: 56px;
-                text: "No, Ignore the Data";
+                text: Translations.tr-no-ignore;
                 pressed => {
                     pressed(AddSelection.No);
                 }
@@ -104,7 +105,7 @@ component BambulabSpoolTypePage inherits Rectangle {
 
     VerticalLayout {
         Title {
-            text: "New \{AppState.new-tag-scan-definition-type} Tag Scanned";
+            text: Translations.tr-new-def-tag-scanned-prefix + AppState.new-tag-scan-definition-type + Translations.tr-new-def-tag-scanned-suffix;
         }
 
         VerticalLayout {
@@ -116,19 +117,19 @@ component BambulabSpoolTypePage inherits Rectangle {
             MyText {
                 width: parent.width;
                 wrap: word-wrap;
-                text: "Available filament est. needs empty-spool weight.";
+                text: Translations.tr-filament-est-needs-weight;
                 color: black;
             }
 
             MyText {
-                text: "What spool type is used with this tag?";
+                text: Translations.tr-what-spool-type;
             }
 
             lowtemp := MyButton {
                 type: ButtonType.RadioButton;
                 pushed: spool-selection == BambulabSpoolTypeSelection.LowTemp;
                 height: 45px;
-                text: "Low Temp (≤ 70°C) / Light Gray (~250g)"; // 208-212 + 38 (if change, change also below)
+                text: Translations.tr-low-temp; // 208-212 + 38 (if change, change also below)
                 pressed => {
                     pressed(BambulabSpoolTypeSelection.LowTemp);
                 }
@@ -138,7 +139,7 @@ component BambulabSpoolTypePage inherits Rectangle {
                 type: ButtonType.RadioButton;
                 pushed: spool-selection == BambulabSpoolTypeSelection.HighTemp;
                 height: 45px;
-                text: "High Temp (≤ 90°C) / Dark Gray (~260g)"; // 223 + 38, (if change, change also below)
+                text: Translations.tr-high-temp; // 223 + 38, (if change, change also below)
                 pressed => {
                     pressed(BambulabSpoolTypeSelection.HighTemp);
                 }
@@ -148,7 +149,7 @@ component BambulabSpoolTypePage inherits Rectangle {
                 type: ButtonType.RadioButton;
                 pushed: spool-selection == BambulabSpoolTypeSelection.Other;
                 height: 45px;
-                text: "Other (Can be entered manually later)";
+                text: Translations.tr-other-manual;
                 pressed => {
                     pressed(BambulabSpoolTypeSelection.Other);
                 }
@@ -179,7 +180,7 @@ component OperationSelectionStep inherits Rectangle {
 
     VerticalLayout {
         Title {
-            text: AppState.new-tag-scan-tag-type == NewScannedTagType.SimpleTag ? "New Tag Scanned" : "New \{AppState.new-tag-scan-definition-type} Tag Scanned";
+            text: AppState.new-tag-scan-tag-type == NewScannedTagType.SimpleTag ? Translations.tr-new-tag-scanned : Translations.tr-new-def-tag-scanned-prefix + AppState.new-tag-scan-definition-type + Translations.tr-new-def-tag-scanned-suffix;
         }
 
         VerticalLayout {
@@ -191,7 +192,7 @@ component OperationSelectionStep inherits Rectangle {
                 MyText {
                     width: parent.width;
                     wrap: word-wrap;
-                    text: "\{AppState.new-tag-scan-definition-type} tag data imported as spool ID: \{AppState.new-tag-scan-spool-id}.";
+                    text: Translations.tr-def-tag-data-imported-prefix + AppState.new-tag-scan-definition-type + Translations.tr-def-tag-data-imported-middle + AppState.new-tag-scan-spool-id + Translations.tr-def-tag-data-imported-suffix;
                     color: black;
                 }
             }
@@ -199,7 +200,7 @@ component OperationSelectionStep inherits Rectangle {
                 MyText {
                     width: parent.width;
                     wrap: word-wrap;
-                    text: (AppState.new-tag-scan-tag-type == NewScannedTagType.SimpleTag) ? "Please choose an action:" : "Please choose how to proceed:";
+                    text: (AppState.new-tag-scan-tag-type == NewScannedTagType.SimpleTag) ? Translations.tr-please-choose-action : Translations.tr-please-choose-how-to-proceed;
                     color: black;
                 }
             }
@@ -209,7 +210,7 @@ component OperationSelectionStep inherits Rectangle {
                     type: ButtonType.RadioButton;
                     pushed: AppState.new-tag-operation == NewTagOperation.LinkTagToSpoolId;
                     height: 56px;
-                    text: "Link Tag to an Untagged Spool";
+                    text: Translations.tr-link-tag-to-untagged-spool;
                     pressed => {
                         pressed(NewTagOperation.LinkTagToSpoolId);
                     }
@@ -220,7 +221,7 @@ component OperationSelectionStep inherits Rectangle {
                     pushed: AppState.new-tag-operation == NewTagOperation.LinkTagToRecentlyAddedSpool;
                     type: ButtonType.RadioButton;
                     height: 56px;
-                    text: (AppState.new-tag-scan-tag-type == NewScannedTagType.SimpleTag) ? "Link tag to recently added spool ID: \{AppBackend.recently_added_spool_id_if_untagged()}" : "Link tag to the imported spool ID: \{AppBackend.recently_added_spool_id_if_untagged()}";
+                    text: (AppState.new-tag-scan-tag-type == NewScannedTagType.SimpleTag) ? Translations.tr-link-tag-recent-prefix + AppBackend.recently_added_spool_id_if_untagged() : Translations.tr-link-tag-imported-prefix + AppBackend.recently_added_spool_id_if_untagged();
                     pressed => {
                         pressed(NewTagOperation.LinkTagToRecentlyAddedSpool);
                     }
@@ -244,7 +245,7 @@ component OperationSelectionStep inherits Rectangle {
                     }
                 }
             }
-            cancel-text: (AppState.new-tag-scan-tag-type == NewScannedTagType.SimpleTag) ? "× Cancel" : "Done";
+            cancel-text: (AppState.new-tag-scan-tag-type == NewScannedTagType.SimpleTag) ? Translations.tr-btn-cancel-x : Translations.tr-done;
             cancel-clicked => {
                 AppState.control-state = ControlState.Ready;
             }
@@ -257,7 +258,7 @@ component SpoolSelectStep inherits Rectangle {
     in-out property <int> spool-id: num-pad.number;
     VerticalLayout {
         Title {
-            text: "Please Select Spool Id to Link";
+            text: Translations.tr-please-select-spool-id;
         }
 
         Rectangle {
@@ -330,7 +331,7 @@ component V1TagPromptStep inherits Rectangle {
                 pushed: selected-operation == NewTagOperation.EraseV1Tag;
                 type: ButtonType.RadioButton;
                 height: 56px;
-                text: "Erase Tag to Use it Without the Data";
+                text: Translations.tr-erase-tag-without-data;
                 pressed => {
                     pressed(NewTagOperation.EraseV1Tag);
                 }
@@ -388,7 +389,7 @@ component SpoolDisplayStep inherits Rectangle {
             next-clicked => {
                 self.back-enabled = false;
                 self.next-enabled = false;
-                cancel-text = "Close";
+                cancel-text = Translations.tr-close;
                 // perform action
                 if AppState.new-tag-scan-tag-type == NewScannedTagType.SimpleTag {
                     AppBackend.link_tag_to_spool_id(AppState.new-tag-scan-tag-id, AppState.new-tag-scan-definition-type, AppState.new-tag-scan-spool-id, last-step);
@@ -412,7 +413,7 @@ component ImportDefinitionNoticePage inherits Rectangle {
     VerticalLayout {
 
         Title {
-            text: "\{AppState.new-tag-scan-definition-type} Tag Information Imported";
+            text: Translations.tr-def-tag-imported-prefix + AppState.new-tag-scan-definition-type + Translations.tr-def-tag-imported-suffix;
         }
         Rectangle {
           background: white;
@@ -423,14 +424,14 @@ component ImportDefinitionNoticePage inherits Rectangle {
               spacing: 5px;
               MyText {
                   horizontal-alignment: center;
-                  text: "Tag Information Imported to Spool \{AppState.new-tag-scan-spool-id}";
+                  text: Translations.tr-tag-imported-to-spool-prefix + AppState.new-tag-scan-spool-id + Translations.tr-tag-imported-to-spool-suffix;
               }
               MyText {
-                  text: "Imported data may still be incomplete or inaccurate, and some features might not work as expected.";
+                  text: Translations.tr-imported-data-may-be-incomplete;
                   wrap: word-wrap;
               }
               MyText {
-                  text: "Please review the spool record in the inventory app and complete or correct the missing details.";
+                  text: Translations.tr-please-review-spool-record;
                   wrap: word-wrap;
               }
           }
@@ -441,7 +442,7 @@ component ImportDefinitionNoticePage inherits Rectangle {
         WizardButtons {
             back-enabled: false;
             next-enabled: true;
-            next-text: "Continue";
+            next-text: Translations.tr-continue;
             cancel-enabled: false;
             next-clicked => {
                 AppState.new-tag-scan-page = NewTagScanPage.OperationSelect;
@@ -455,7 +456,7 @@ component ImportDefinitionNoticePage inherits Rectangle {
 
 component StatusDisplayPage inherits Rectangle {
     in-out property <bool> success: AppState.new-tag-scan-status == "";
-    in-out property <string> message: self.success ? "Tag Linked to Spool Successfuly" : AppState.new-tag-scan-status;
+    in-out property <string> message: self.success ? Translations.tr-tag-linked-success : AppState.new-tag-scan-status;
     VerticalLayout {
         Rectangle {
             background: success ? lightgreen : red;
@@ -469,7 +470,7 @@ component StatusDisplayPage inherits Rectangle {
             back-enabled: false;
             next-enabled: false;
             cancel-enabled: true;
-            cancel-text: "Close";
+            cancel-text: Translations.tr-close;
             cancel-clicked => {
                 AppState.control-state = ControlState.Ready;
             }
@@ -492,8 +493,8 @@ export component NewTagScan inherits Rectangle {
 
     if AppState.new-tag-scan-page == NewTagScanPage.UpdateWeight: update-weight-display := UpdateWeightPage {
         final-step: true;
-        title: "Linking Tag Succeeded, Measure Weight";
-        user-prompt: "Now is a good time to measure spool weight,\nPlease place it on the scale.";
+        title: Translations.tr-linking-succeeded-measure-weight;
+        user-prompt: Translations.tr-now-measure-weight;
         weight-current: spool-display.spool-record.weight-current;
         weight-new: spool-display.spool-record.weight-new;
         spool-id: spool-display.spool-record.id;

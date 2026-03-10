@@ -10,6 +10,7 @@
 mod app;
 mod app_config;
 mod bambu;
+mod translations;
 mod bambu_api;
 mod color_utils;
 mod csvdb;
