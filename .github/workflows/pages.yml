@@ -37,12 +37,14 @@ jobs:
             ~/.rustup/toolchains/esp1
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin/espup
-            ~/.cargo/bin/espflash
+            ~/.cargo/bin
             core/target
           key: esp32s3-${{ hashFiles('core/Cargo.lock', 'core/rust-toolchain.toml') }}
           restore-keys: |
             esp32s3-
+
+      - name: Add ~/.cargo/bin to path
+        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       # ------------------------------------------------------------------
       # espup: installs the Xtensa Rust fork + LLVM toolchain into
