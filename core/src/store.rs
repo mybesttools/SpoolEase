@@ -192,18 +192,53 @@ impl Store {
     }
 
     pub fn query_spools(&self) -> Option<String> {
+        // SpoolRecord serialises to this many CSV columns. Old on-disk records
+        // written before a schema expansion may have fewer; we pad them here so
+        // the inventory JS always receives exactly SPOOL_COLS columns per row.
+        const SPOOL_COLS: usize = 24;
         if let Some(spools_db) = self.spools_db.get() {
             let spool_records = spools_db.records.borrow();
-            let total_length = spool_records.values().map(|v| v.length).sum::<usize>();
-            let results: Result<String, CsvDbError> = spool_records.values().try_fold(String::with_capacity(total_length), |mut acc, v| {
-                let csv = v.to_csv_string();
-                if let Err(e) = &csv {
-                    error!("Error serializing to csv: {v:?} : {e}");
-                }
-                acc.push_str(&csv?);
-                Ok(acc)
-            });
-            // TODO: make it an error up as well, to handle in the caller
+            let total_length = spool_records.values().map(|v| v.length + 16).sum::<usize>();
+            let results: Result<String, CsvDbError> = spool_records.values().try_fold(
+                String::with_capacity(total_length),
+                |mut acc, v| {
+                    let csv = v.to_csv_string()?;
+                    for line in csv.lines() {
+                        if line.is_empty() { continue; }
+                        // Count CSV columns with quote-aware comma scanning.
+                        let cols = {
+                            let mut n = 1usize;
+                            let mut in_q = false;
+                            for b in line.bytes() {
+                                match b {
+                                    b'"' => in_q = !in_q,
+                                    b',' if !in_q => n += 1,
+                                    _ => {}
+                                }
+                            }
+                            n
+                        };
+                        if cols < SPOOL_COLS {
+                            // Old record: pad missing trailing columns.
+                            // The last (SPOOL_COLS-1) column is spools_count; default to 1.
+                            acc.push_str(line);
+                            for i in cols..SPOOL_COLS {
+                                acc.push(',');
+                                if i == SPOOL_COLS - 1 { acc.push('1'); }
+                            }
+                        } else if line.ends_with(",0") {
+                            // spools_count is 0 — treat as 1 (one physical spool per record).
+                            acc.push_str(&line[..line.len() - 1]);
+                            acc.push('1');
+                        } else {
+                            acc.push_str(line);
+                        }
+                        acc.push('\n');
+                    }
+                    Ok(acc)
+                },
+            );
+            // TODO: propagate error to caller
             results.ok()
         } else {
             None

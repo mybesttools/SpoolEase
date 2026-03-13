@@ -10,7 +10,7 @@
   <body>
     <h1>SpoolEase Configuration</h1>
     <div style="text-align: center; margin-bottom: 20px;">
-      <a href="/spools" id="spools-nav-link" style="display: inline-block; padding: 10px 20px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 4px; margin: 0 5px;">Spool Inventory Editor</a>
+      <a href="/inventory" id="spools-nav-link" style="display: inline-block; padding: 10px 20px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 4px; margin: 0 5px;">Spool Inventory Editor</a>
     </div>
     <h3 style="text-align: center;">Most configurations require device restart</h3>
 
@@ -522,7 +522,7 @@ ProtoPasta 500g - Cardboard - 84g,84"
       function updateSpoolsNavLink() {
         const key = document.getElementById("security-key").value.trim();
         const link = document.getElementById("spools-nav-link");
-        link.href = key ? `/spools#sk=${encodeURIComponent(key)}` : "/spools";
+        link.href = key ? `/inventory#sk=${encodeURIComponent(key)}` : "/inventory";
         if (key) {
           sessionStorage.setItem('spoolease_sk', key);
         } else {
