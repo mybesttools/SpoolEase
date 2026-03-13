@@ -132,6 +132,29 @@ pub struct Store {
 }
 
 impl Store {
+    fn is_empty_like_text(v: &str) -> bool {
+        let s = v.trim().to_ascii_lowercase();
+        s.is_empty() || s == "0" || s == "false" || s == "none" || s == "null" || s == "undefined"
+    }
+
+    fn is_empty_spool_for_cleanup(spool: &SpoolRecord) -> bool {
+        if spool.id.trim().is_empty() {
+            return false;
+        }
+
+        Self::is_empty_like_text(&spool.tag_id)
+            && Self::is_empty_like_text(&spool.material_type)
+            && Self::is_empty_like_text(&spool.material_subtype)
+            && Self::is_empty_like_text(&spool.color_name)
+            && Self::is_empty_like_text(&spool.color_code)
+            && Self::is_empty_like_text(&spool.note)
+            && Self::is_empty_like_text(&spool.brand)
+            && spool.weight_advertised.unwrap_or(0) == 0
+            && spool.weight_core.unwrap_or(0) == 0
+            && Self::is_empty_like_text(&spool.slicer_filament)
+            && !spool.added_full.unwrap_or(false)
+    }
+
     pub fn new(framework: Rc<RefCell<Framework>>) -> Rc<Store> {
         // let requests_channel = mk_static!(StoreRequestsChannel, StoreRequestsChannel::new());
         let store = Rc::new(Self {
@@ -208,6 +231,31 @@ impl Store {
             }
         }
         Ok(())
+    }
+
+    pub async fn delete_empty_spools(&self) -> Result<usize, StoreError> {
+        let candidate_ids: Vec<String> = if let Some(spools_db) = &self.spools_db.get() {
+            let records = spools_db.records.borrow();
+            records
+                .values()
+                .filter(|r| Self::is_empty_spool_for_cleanup(&r.data))
+                .map(|r| r.data.id.clone())
+                .collect()
+        } else {
+            return Err(StoreError::NoCsvDb);
+        };
+
+        let mut removed = 0usize;
+        for id in candidate_ids {
+            self.delete_spool(&id).await?;
+            if let Some(spools_db) = &self.spools_db.get() {
+                if !spools_db.records.borrow().contains_key(&id) {
+                    removed += 1;
+                }
+            }
+        }
+
+        Ok(removed)
     }
 
     pub fn remove_tag_from_tag_id_index(&self, tag_id: &str) -> Option<String> {

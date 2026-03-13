@@ -6,6 +6,9 @@ rel_train="debug"
 product="console"
 
 source ./deploy-vars.sh
+source ./deploy-shell-init.sh
+
+mkdir -p "$base_target_dir${path_in_base_target}/${product}/${rel_train}"
 
 #----
 
@@ -16,9 +19,9 @@ case "$product" in
   *) echo "Not a valid product"; exit 1;;
 esac
 
-pushd ${xtask_dir} 
-cargo xtask ota build --input "$proj_dir" --output "$base_target_dir${path_in_base_target}/${product}/${rel_train}"
-cargo xtask web-install build --input "$proj_dir" --output "$base_target_dir${path_in_base_target}/${product}/${rel_train}"
+pushd "${xtask_dir}"
+"${CARGO_CMD}" xtask ota build --input "$proj_dir" --output "$base_target_dir${path_in_base_target}/${product}/${rel_train}"
+"${CARGO_CMD}" xtask web-install build --input "$proj_dir" --output "$base_target_dir${path_in_base_target}/${product}/${rel_train}"
 popd
 
 replace=$(grep '^version' Cargo.toml | sed -E 's/version *= *"([^"]+)".*/\1/')

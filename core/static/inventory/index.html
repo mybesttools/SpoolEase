@@ -5,7 +5,6 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<meta name="color-scheme" content="light dark" />
 		<title>Inventory</title>
-    <link rel="icon" type="image/png" href="https://bin.spoolease.io/bins/0.5/inventory/favicon-48x48.png" sizes="48x48">
     <script>
       // Persist the security key across refreshes via sessionStorage.
       // The SPA reads #sk=<key> from the URL hash; we cache it so it
@@ -24,8 +23,101 @@
         }
       })();
     </script>
-		<script type="module" crossorigin src="https://bin.spoolease.io/bins/0.5/inventory/inventory-0.5.0.js"></script>
-		<link rel="stylesheet" crossorigin href="https://bin.spoolease.io/bins/0.5/inventory/style-0.5.0.css">
+    <script>
+      // Inventory app assets are loaded dynamically to avoid hard-pinning
+      // the UI to a legacy bundle when newer firmware versions exist.
+      (function () {
+        const version = '{{SE_VERSION}}';
+        const majorMinor = version.split('.').slice(0, 2).join('.');
+        const base = 'https://bin.spoolease.io/bins/' + majorMinor + '/inventory/';
+        const v = version.split('.');
+        const major = v[0] || '';
+        const minor = v[1] || '';
+
+        // 0.6.2 firmware currently ships before 0.6.2 web assets are published.
+        // Prefer same major/minor fallback (0.6.1) before legacy 0.5 assets.
+        const sameLineFallbacks = [];
+        if (major === '0' && minor === '6' && version !== '0.6.1') {
+          sameLineFallbacks.push('0.6.1');
+        }
+
+        const defaults = {
+          icon: [
+            base + 'favicon-48x48.png',
+            'https://bin.spoolease.io/bins/0.5/inventory/favicon-48x48.png'
+          ],
+          css: [
+            base + 'style-' + version + '.css',
+            ...sameLineFallbacks.map(ver => base + 'style-' + ver + '.css'),
+            'https://bin.spoolease.io/bins/0.5/inventory/style-0.5.0.css'
+          ],
+          js: [
+            base + 'inventory-' + version + '.js',
+            ...sameLineFallbacks.map(ver => base + 'inventory-' + ver + '.js'),
+            'https://bin.spoolease.io/bins/0.5/inventory/inventory-0.5.0.js'
+          ]
+        };
+
+        const query = new URLSearchParams(location.search);
+        const hash = new URLSearchParams(location.hash.slice(1));
+
+        // Optional overrides for testing/migrations:
+        // ?inv_js=<url>&inv_css=<url>&inv_icon=<url>
+        // or #inv_js=<url>&inv_css=<url>&inv_icon=<url>
+        // Do NOT persist these in sessionStorage; stale values can pin users
+        // to old bundles across refreshes.
+        const invJs = query.get('inv_js') || hash.get('inv_js') || '';
+        const invCss = query.get('inv_css') || hash.get('inv_css') || '';
+        const invIcon = query.get('inv_icon') || hash.get('inv_icon') || '';
+
+        // Clean up any legacy persisted overrides from older firmware builds.
+        sessionStorage.removeItem('spoolease_inv_js');
+        sessionStorage.removeItem('spoolease_inv_css');
+        sessionStorage.removeItem('spoolease_inv_icon');
+
+        const jsCandidates = invJs ? [invJs, ...defaults.js] : defaults.js;
+        const cssCandidates = invCss ? [invCss, ...defaults.css] : defaults.css;
+        const iconCandidates = invIcon ? [invIcon, ...defaults.icon] : defaults.icon;
+
+        function loadStylesheet(candidates, index) {
+          if (index >= candidates.length) return;
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.crossOrigin = 'anonymous';
+          link.href = candidates[index];
+          link.onerror = function () { loadStylesheet(candidates, index + 1); };
+          document.head.appendChild(link);
+        }
+
+        function loadModule(candidates, index) {
+          if (index >= candidates.length) {
+            console.error('SpoolEase inventory app failed to load from all configured URLs.');
+            return;
+          }
+          const script = document.createElement('script');
+          script.type = 'module';
+          script.crossOrigin = 'anonymous';
+          script.src = candidates[index];
+          script.onerror = function () { loadModule(candidates, index + 1); };
+          document.head.appendChild(script);
+        }
+
+        function loadIcon(candidates, index) {
+          if (index >= candidates.length) return;
+          const link = document.createElement('link');
+          link.rel = 'icon';
+          link.type = 'image/png';
+          link.sizes = '48x48';
+          link.href = candidates[index];
+          link.onerror = function () { loadIcon(candidates, index + 1); };
+          document.head.appendChild(link);
+        }
+
+        loadIcon(iconCandidates, 0);
+        loadStylesheet(cssCandidates, 0);
+        loadModule(jsCandidates, 0);
+      })();
+    </script>
 	</head>
 	<body>
 		<div id="app"></div>
@@ -36,7 +128,10 @@
       <span style="color:#aaa;font-size:12px;">CSV</span>
       <button id="se-import-btn" style="font-size:12px;padding:2px 8px;border-radius:4px;border:none;background:#2196F3;color:#fff;cursor:pointer;" disabled>⬆ Import</button>
       <button id="se-export-btn" style="font-size:12px;padding:2px 8px;border-radius:4px;border:none;background:#4CAF50;color:#fff;cursor:pointer;" disabled>⬇ Export</button>
+      <button id="se-fix-rgb-btn" style="font-size:12px;padding:2px 8px;border-radius:4px;border:none;background:#9C27B0;color:#fff;cursor:pointer;" disabled>🎨 Fix RGB→RGBA</button>
+      <button id="se-clean-empty-btn" style="font-size:12px;padding:2px 8px;border-radius:4px;border:none;background:#FF7043;color:#fff;cursor:pointer;" disabled>🧹 Clean Empty</button>
       <span id="se-csv-status" style="color:#aaa;font-size:11px;"></span>
+      <span style="color:#555;font-size:11px;margin-left:6px;">v{{SE_VERSION}}</span>
     </div>
 
     <script type="module">
@@ -49,13 +144,13 @@
       const INT = { id:0, material_type:2, material_subtype:3, color_name:4, color_code:5, note:6, brand:7,
                     weight_advertised:8, weight_core:9, slicer_filament:12, added_full:15, tag_id:1 };
 
-      function csvParseLine(line) {
+      function csvParseLine(line, delim = ',') {
         const fields = []; let cur = ''; let inQ = false;
         for (let i = 0; i < line.length; i++) {
           const c = line[i];
           if (inQ) { if (c === '"' && line[i+1] === '"') { cur += '"'; i++; } else if (c === '"') { inQ = false; } else { cur += c; } }
           else if (c === '"') { inQ = true; }
-          else if (c === ',') { fields.push(cur); cur = ''; }
+          else if (c === delim) { fields.push(cur); cur = ''; }
           else { cur += c; }
         }
         fields.push(cur);
@@ -66,15 +161,63 @@
         return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g, '""') + '"' : v;
       }
 
+      function normalizeHexToRgba(v) {
+        const raw = String(v ?? '').replace(/\s+/g, '').replace(/^#/, '').toUpperCase();
+        if (!raw) return '';
+
+        // 6-digit RGB -> 8-digit RGBA (opaque)
+        if (/^[0-9A-F]{6}$/.test(raw)) return '#' + raw + 'FF';
+        // 8-digit RGBA -> unchanged
+        if (/^[0-9A-F]{8}$/.test(raw)) return '#' + raw;
+        // 3-digit RGB shorthand -> 8-digit RGBA (opaque)
+        if (/^[0-9A-F]{3}$/.test(raw)) {
+          const e = raw.split('').map(c => c + c).join('');
+          return '#' + e + 'FF';
+        }
+        // 4-digit RGBA shorthand -> 8-digit RGBA
+        if (/^[0-9A-F]{4}$/.test(raw)) {
+          const e = raw.split('').map(c => c + c).join('');
+          return '#' + e;
+        }
+
+        return '';
+      }
+
       function internalCsvToRows(raw) {
         return raw.split('\n').filter(l => l.trim()).map(csvParseLine);
       }
 
+      function isEmptyLike(v) {
+        const s = String(v ?? '').trim().toLowerCase();
+        return s === '' || s === '0' || s === 'false' || s === 'none' || s === 'null' || s === 'undefined';
+      }
+
+      function isEmptySpoolRow(r) {
+        const hasId = (r[INT.id] ?? '').trim() !== '';
+        if (!hasId) return false;
+
+        // Treat a row as empty when all visible user fields (except id) are empty-like.
+        return [
+          r[INT.material_type],
+          r[INT.material_subtype],
+          r[INT.color_name],
+          r[INT.color_code],
+          r[INT.note],
+          r[INT.brand],
+          r[INT.weight_advertised],
+          r[INT.weight_core],
+          r[INT.slicer_filament],
+          r[INT.tag_id],
+          r[INT.added_full],
+        ].every(isEmptyLike);
+      }
+
       function internalRowToExport(r) {
+        const rgba = normalizeHexToRgba((r[INT.color_code] ?? '').trim());
         return {
           id: r[INT.id] ?? '', brand: r[INT.brand] ?? '', material: r[INT.material_type] ?? '',
           subtype: r[INT.material_subtype] ?? '', color_name: r[INT.color_name] ?? '',
-          rgba: r[INT.color_code] ?? '', label_weight: r[INT.weight_advertised] ?? '',
+          rgba: rgba || '', label_weight: r[INT.weight_advertised] ?? '',
           core_weight: r[INT.weight_core] ?? '', note: r[INT.note] ?? '',
           slicer_filament: r[INT.slicer_filament] ?? '', full_unused: r[INT.added_full] ?? '',
           tag_id: r[INT.tag_id] ?? '',
@@ -116,23 +259,35 @@
         } catch(e) { setStatus('Export failed: ' + e.message, '#f44'); }
       }
 
+      // Column name aliases: maps BambuLabs CSV names → inventory import names
+      const COL_ALIASES = { material_type: 'material', material_subtype: 'subtype', color_code: 'rgba', color: 'rgba', hex_color: 'rgba', weight_advertised: 'label_weight', weight_core: 'core_weight' };
+
       // ---- Import ----
       async function doImport(file) {
         const text = await file.text();
         const lines = text.split(/\r?\n/).filter(l => l.trim());
         if (lines.length < 2) { setStatus('CSV empty or header only', '#f90'); return; }
-        const headerRow = csvParseLine(lines[0]).map(h => h.trim().toLowerCase());
-        const getCol = (row, name) => { const i = headerRow.indexOf(name); return i >= 0 ? (row[i] ?? '').trim() : ''; };
-        const rows = lines.slice(1).map(csvParseLine);
+        const delim = lines[0].includes(';') ? ';' : ',';
+        const headerRow = csvParseLine(lines[0], delim).map(h => h.trim().toLowerCase());
+        const getCol = (row, name) => {
+          let i = headerRow.indexOf(name);
+          if (i < 0) { const alias = Object.entries(COL_ALIASES).find(([,v]) => v === name); if (alias) i = headerRow.indexOf(alias[0]); }
+          return i >= 0 ? (row[i] ?? '').trim() : '';
+        };
+        // If any BambuLabs alias column is present, IDs are catalog IDs, not SpoolEase IDs — always add as new
+        const isForeignFormat = Object.keys(COL_ALIASES).some(k => headerRow.includes(k));
+        const rows = lines.slice(1).map(l => csvParseLine(l, delim));
         let ok = 0, fail = 0;
         setStatus('Importing 0/' + rows.length + '…', '#aaa');
         try {
           const key = await getKey();
           for (const r of rows) {
+            const rawColor = getCol(r, 'rgba') || getCol(r, 'color_code') || getCol(r, 'color') || getCol(r, 'hex_color');
+            const rgba = normalizeHexToRgba(rawColor);
             const dto = {
-              id:               getCol(r, 'id'),
+              id:               isForeignFormat ? '' : getCol(r, 'id'),
               tag_id:           getCol(r, 'tag_id'),
-              rgba:             getCol(r, 'rgba').replace('#',''),
+              rgba,
               color_name:       getCol(r, 'color_name'),
               material:         getCol(r, 'material'),
               subtype:          getCol(r, 'subtype'),
@@ -156,16 +311,130 @@
         } catch(e) { setStatus('Import failed: ' + e.message, '#f44'); }
       }
 
+      // ---- Migrate existing RGB rows to RGBA ----
+      async function doFixRgbToRgba(options = {}) {
+        const interactive = options.interactive !== false;
+        const migrationKey = options.migrationKey || '';
+        const reloadOnDone = options.reloadOnDone !== false;
+
+        if (interactive) setStatus('Scanning existing colors…', '#aaa');
+        try {
+          const key = await getKey();
+          const resp = await fetch('/api/spools');
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const raw = decrypt(key, await resp.text());
+          const rows = internalCsvToRows(raw);
+
+          const targets = rows.filter(r => {
+            const current = String(r[INT.color_code] ?? '').trim();
+            const normalized = normalizeHexToRgba(current);
+            if (!normalized) return false;
+            const a = current.replace(/^#/, '').toUpperCase();
+            const b = normalized.replace(/^#/, '').toUpperCase();
+            return a !== b;
+          });
+
+          if (!targets.length) {
+            if (migrationKey) localStorage.setItem(migrationKey, '1');
+            if (interactive) setStatus('No RGB rows need conversion', '#4CAF50');
+            return;
+          }
+
+          if (interactive && !window.confirm('Convert ' + targets.length + ' existing RGB color code(s) to RGBA?')) {
+            setStatus('Conversion cancelled', '#f90');
+            return;
+          }
+
+          let ok = 0;
+          let fail = 0;
+          for (const r of targets) {
+            const dto = {
+              id:               String(r[INT.id] ?? '').trim(),
+              tag_id:           String(r[INT.tag_id] ?? '').trim(),
+              rgba:             normalizeHexToRgba(String(r[INT.color_code] ?? '').trim()),
+              color_name:       String(r[INT.color_name] ?? '').trim(),
+              material:         String(r[INT.material_type] ?? '').trim(),
+              subtype:          String(r[INT.material_subtype] ?? '').trim(),
+              brand:            String(r[INT.brand] ?? '').trim(),
+              core_weight:      parseInt(String(r[INT.weight_core] ?? '').trim()) || 0,
+              label_weight:     parseInt(String(r[INT.weight_advertised] ?? '').trim()) || 0,
+              note:             String(r[INT.note] ?? '').trim(),
+              slicer_filament:  String(r[INT.slicer_filament] ?? '').trim(),
+              full_unused:      String(r[INT.added_full] ?? '').trim(),
+              k_info:           null,
+            };
+
+            try {
+              const saveResp = await fetch('/api/spools/add-edit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/text' },
+                body: encrypt(key, JSON.stringify(dto))
+              });
+              const result = JSON.parse(decrypt(key, await saveResp.text()));
+              if (result.success) ok++; else fail++;
+            } catch (_) {
+              fail++;
+            }
+            if (interactive) setStatus('Converting ' + (ok + fail) + '/' + targets.length + '…', '#aaa');
+          }
+
+          if (migrationKey && fail === 0) localStorage.setItem(migrationKey, '1');
+          if (interactive) setStatus('Converted: ' + ok + ', failed: ' + fail, fail ? '#f90' : '#4CAF50');
+          if (ok && reloadOnDone) window.location.reload();
+        } catch (e) {
+          if (interactive) setStatus('Conversion failed: ' + e.message, '#f44');
+          else console.warn('Auto RGB->RGBA migration failed:', e);
+        }
+      }
+
+      const AUTO_RGB_MIGRATION_KEY = 'spoolease_rgb_to_rgba_migrated_v1';
+      async function runAutoRgbMigrationOnce() {
+        if (localStorage.getItem(AUTO_RGB_MIGRATION_KEY) === '1') return;
+        await doFixRgbToRgba({ interactive: false, migrationKey: AUTO_RGB_MIGRATION_KEY, reloadOnDone: true });
+      }
+
+      // ---- Cleanup empty rows ----
+      async function doCleanupEmpty() {
+        setStatus('Removing empty rows…', '#aaa');
+        try {
+          const key = await getKey();
+          if (!window.confirm('Delete empty rows now?')) {
+            setStatus('Cleanup cancelled', '#f90');
+            return;
+          }
+
+          const resp = await fetch('/api/spools/delete-empty', { method: 'POST' });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const result = JSON.parse(decrypt(key, await resp.text()));
+
+          if (!result.success) {
+            throw new Error(result.error || 'Cleanup failed');
+          }
+
+          setStatus('Cleanup done: ' + result.removed + ' removed', '#4CAF50');
+          if (result.removed > 0) window.location.reload();
+        } catch (e) {
+          setStatus('Cleanup failed: ' + e.message, '#f44');
+        }
+      }
+
       // Init
       await wasm();
       const importBtn = document.getElementById('se-import-btn');
       const exportBtn = document.getElementById('se-export-btn');
+      const fixRgbBtn = document.getElementById('se-fix-rgb-btn');
+      const cleanEmptyBtn = document.getElementById('se-clean-empty-btn');
       const fileInput = document.getElementById('se-csv-input');
       importBtn.disabled = false;
       exportBtn.disabled = false;
+      fixRgbBtn.disabled = false;
+      cleanEmptyBtn.disabled = false;
       exportBtn.addEventListener('click', doExport);
+      fixRgbBtn.addEventListener('click', () => { doFixRgbToRgba({ interactive: true, reloadOnDone: true }); });
+      cleanEmptyBtn.addEventListener('click', doCleanupEmpty);
       importBtn.addEventListener('click', () => { fileInput.value=''; fileInput.click(); });
       fileInput.addEventListener('change', () => { if (fileInput.files[0]) doImport(fileInput.files[0]); });
+      runAutoRgbMigrationOnce();
     </script>
   </body>
 </html>

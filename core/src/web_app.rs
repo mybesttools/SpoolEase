@@ -84,8 +84,10 @@ fn build_inventory_html(language: &str) -> String {
 
     };
 
+    let version = env!("CARGO_PKG_VERSION");
     INVENTORY_HTML_TEMPLATE
         .replace(r#"lang="en""#, &format!(r#"lang="{language}""#))
+        .replace("{{SE_VERSION}}", version)
         .replace("</body>", &format!("{trans_script}<script>window.SE_LANG='{language}';</script>{selector}</body>"))
 }
 
@@ -380,6 +382,36 @@ impl AppWithStateBuilder for NestedAppBuilder {
                     }
                 },
             ),
+        );
+
+        let router = router.route(
+            "/api/spools/delete-empty",
+            post(async move |State(Encryption(key)): State<Encryption>, State(state): State<ConsoleAppState>| {
+                let store = state.store;
+                match store.delete_empty_spools().await {
+                    Ok(removed) => encrypt(
+                        &key.borrow(),
+                        &serde_json::to_string(&DeleteEmptySpoolsResponse {
+                            success: true,
+                            removed,
+                            error: None,
+                        })
+                        .unwrap_or_default(),
+                    ),
+                    Err(err) => {
+                        error!("Failed to cleanup empty spools: {err}");
+                        encrypt(
+                            &key.borrow(),
+                            &serde_json::to_string(&DeleteEmptySpoolsResponse {
+                                success: false,
+                                removed: 0,
+                                error: Some(err.to_string()),
+                            })
+                            .unwrap_or_default(),
+                        )
+                    }
+                }
+            }),
         );
 
         let router = router.route(
@@ -918,6 +950,13 @@ pub struct DeleteSpoolDTO {
     pub id: String,
 }
 encrypted_input!(DeleteSpoolDTO);
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct DeleteEmptySpoolsResponse {
+    pub success: bool,
+    pub removed: usize,
+    pub error: Option<String>,
+}
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct AddSpoolDTO {

@@ -55,6 +55,8 @@ impl OtaObserver for AppOtaObserver {
         // Translate key identifiers coming from the OTA library
         let translated = if text.starts_with("ota_") {
             crate::translations::tr_rust(&self.language, text)
+        } else if text == "Resolving Dns" {
+            crate::translations::tr_rust(&self.language, "ota_resolving_dns")
         } else {
             text
         };
@@ -62,9 +64,14 @@ impl OtaObserver for AppOtaObserver {
     }
 
     fn on_ota_failed(&mut self, text: &str) {
-        self.view_model.borrow_mut().on_ota_failed(text);
+        let translated = if text.starts_with("ota_") {
+            crate::translations::tr_rust(&self.language, text)
+        } else {
+            text
+        };
+        self.view_model.borrow_mut().on_ota_failed(translated);
         if self.notify_framework {
-            self.framework.borrow_mut().notify_ota_failed(text);
+            self.framework.borrow_mut().notify_ota_failed(translated);
         }
     }
 
