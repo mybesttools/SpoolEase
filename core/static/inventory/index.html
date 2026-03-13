@@ -213,11 +213,12 @@
       }
 
       // CSV import/export columns (user-facing format)
-      const HEADERS = ['id','brand','material','subtype','color_name','rgba','label_weight','core_weight','note','slicer_filament','full_unused','tag_id'];
+      const HEADERS = ['id','brand','material','subtype','color_name','rgba','label_weight','core_weight','note','slicer_filament','full_unused','tag_id','assigned_location','actual_location','spools_count'];
 
       // Internal CSV column indices (serde field order of SpoolRecord)
       const INT = { id:0, material_type:2, material_subtype:3, color_name:4, color_code:5, note:6, brand:7,
-                    weight_advertised:8, weight_core:9, slicer_filament:12, added_full:15, tag_id:1 };
+                    weight_advertised:8, weight_core:9, slicer_filament:12, added_full:15, tag_id:1,
+                    assigned_location:21, actual_location:22, spools_count:23 };
 
       function csvParseLine(line, delim = ',') {
         const fields = []; let cur = ''; let inQ = false;
@@ -296,6 +297,8 @@
           core_weight: r[INT.weight_core] ?? '', note: r[INT.note] ?? '',
           slicer_filament: r[INT.slicer_filament] ?? '', full_unused: r[INT.added_full] ?? '',
           tag_id: r[INT.tag_id] ?? '',
+          assigned_location: r[INT.assigned_location] ?? '', actual_location: r[INT.actual_location] ?? '',
+          spools_count: r[INT.spools_count] ?? '',
         };
       }
 
@@ -373,6 +376,9 @@
               slicer_filament:  getCol(r, 'slicer_filament'),
               full_unused:      getCol(r, 'full_unused') || '',
               k_info:           null,
+              assigned_location: getCol(r, 'assigned_location'),
+              actual_location:   getCol(r, 'actual_location'),
+              spools_count:      parseInt(getCol(r, 'spools_count')) || 0,
             };
             try {
               const resp = await fetch('/api/spools/add-edit', { method: 'POST', headers: { 'Content-Type': 'application/text' }, body: encrypt(key, JSON.stringify(dto)) });

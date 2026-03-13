@@ -353,7 +353,15 @@ impl AppWithStateBuilder for NestedAppBuilder {
             "/api/spools",
             get(
                 async move |State(Encryption(key)): State<Encryption>, state: State<ConsoleAppState>| match state.0.store.query_spools() {
-                    Some(csv) => encrypt(&key.borrow(), &csv),
+                    Some(csv) => {
+                        // Append 3 extra columns (assigned_location, actual_location, spools_count)
+                        // so the 0.6.1 inventory JS (which expects 24 CSV columns) does not crash.
+                        let compat = csv.lines().fold(
+                            alloc::string::String::with_capacity(csv.len() + csv.lines().count() * 5),
+                            |mut acc, line| { acc.push_str(line); acc.push_str(",,,0\n"); acc },
+                        );
+                        encrypt(&key.borrow(), &compat)
+                    }
                     None => {
                         error!("Failed to generate response to spoole query");
                         "".to_string()
@@ -973,6 +981,12 @@ pub struct AddSpoolDTO {
     pub slicer_filament: String,
     pub full_unused: String,
     pub k_info: Option<KInfo>,
+    #[serde(default)]
+    pub assigned_location: String,
+    #[serde(default)]
+    pub actual_location: String,
+    #[serde(default)]
+    pub spools_count: i32,
 }
 encrypted_input!(AddSpoolDTO);
 
