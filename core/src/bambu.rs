@@ -3097,6 +3097,9 @@ impl TagInformationV1 {
             ext_has_k: false, // this means if in the store, so need to be set to true when saving store
             data_origin: SPOOLEASE_V1_TAG_TYPE.to_string(),
             tag_type: "".to_string(),
+            assigned_location: String::new(),
+            actual_location: String::new(),
+            spools_count: 0,
         }
     }
 }
