@@ -351,6 +351,9 @@ impl Store {
                         ext_has_k: k_info.is_some(),
                         data_origin: current_record.data_origin.clone(),
                         tag_type: current_record.tag_type.clone(),
+                        assigned_location: spool_record.assigned_location,
+                        actual_location: spool_record.actual_location,
+                        spools_count: spool_record.spools_count,
                     }
                 } else {
                     return Err(StoreError::NotFound { id: spool_record.id.clone() });
