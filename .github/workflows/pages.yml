@@ -72,7 +72,7 @@ jobs:
             [ -f "$f" ] && source "$f" && break
           done
           # Persist LLVM/Clang vars so subsequent steps pick them up (PATH is handled separately)
-          env | grep -E '^(LIBCLANG_PATH|CLANG_PATH|LIBCLANG_BIN_PATH)=' >> "$GITHUB_ENV"
+          env | grep -E '^(LIBCLANG_PATH|CLANG_PATH|LIBCLANG_BIN_PATH)=' >> "$GITHUB_ENV" || true
           XTENSA_BIN=$(find "$HOME/.rustup/toolchains/esp1" -name "xtensa-esp32s3-elf-gcc" | head -1 | xargs dirname)
           echo "$XTENSA_BIN" >> "$GITHUB_PATH"
 
