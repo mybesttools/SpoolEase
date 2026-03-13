@@ -9,6 +9,7 @@ use alloc::{
     string::{String, ToString},
 };
 use serde::{Deserialize, Serialize};
+fn default_one_i32() -> i32 { 1 }
 use shared::utils::{
     deserialize_bool_yn_empty_n, deserialize_f32_base64, deserialize_optional, deserialize_optional_bool_yn, serialize_bool_yn, serialize_f32_base64,
     serialize_optional_bool_yn,
@@ -61,7 +62,7 @@ pub struct SpoolRecord {
     pub assigned_location: String,
     #[serde(default)]
     pub actual_location: String,
-    #[serde(default)]
+    #[serde(default = "default_one_i32")]
     pub spools_count: i32,
     // !!! Don't Forget to set default for any field!
     // pub update_time

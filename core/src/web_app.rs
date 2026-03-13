@@ -980,9 +980,10 @@ pub struct AddSpoolDTO {
     pub assigned_location: String,
     #[serde(default)]
     pub actual_location: String,
-    #[serde(default)]
+    #[serde(default = "default_one_i32")]
     pub spools_count: i32,
 }
+fn default_one_i32() -> i32 { 1 }
 encrypted_input!(AddSpoolDTO);
 
 #[derive(serde::Deserialize, serde::Serialize)]
