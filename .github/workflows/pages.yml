@@ -53,9 +53,20 @@ jobs:
       # ------------------------------------------------------------------
       - name: Install espup (if not cached)
         run: |
-          command -v espup || cargo install espup --locked
-          # rust-toolchain.toml uses channel "esp1", so register under that name
-          [ -d "$HOME/.rustup/toolchains/esp1" ] || espup install --name esp1
+          command -v espup || cargo install espup
+          # Install toolchain if not already cached.
+          # Try --name esp1 (espup >= 0.12); older versions only support the default name "esp".
+          # In either case we ensure ~/.rustup/toolchains/esp1 exists (symlink if needed)
+          # because core/rust-toolchain.toml sets channel = "esp1".
+          if [ ! -d "$HOME/.rustup/toolchains/esp1" ]; then
+            if espup install --name esp1 2>/dev/null; then
+              echo "Installed Xtensa toolchain as 'esp1'"
+            else
+              espup install
+              ln -sf "$HOME/.rustup/toolchains/esp" "$HOME/.rustup/toolchains/esp1"
+              echo "Installed Xtensa toolchain as 'esp', symlinked to 'esp1'"
+            fi
+          fi
           # espup may write export-esp.sh or export-esp1.sh depending on version
           for f in "$HOME/export-esp1.sh" "$HOME/export-esp.sh"; do
             [ -f "$f" ] && source "$f" && break
