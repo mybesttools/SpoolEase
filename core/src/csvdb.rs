@@ -62,7 +62,9 @@ where
 {
     pub fn to_csv_string(&self) -> Result<String, CsvDbError> {
         let mut writer = serde_csv_core::Writer::new();
-        let mut buffer = alloc::vec![0; self.length];
+        // Use extra headroom over the stored length to accommodate schema additions
+        // (new fields with defaults serialise longer than the original on-disk record).
+        let mut buffer = alloc::vec![0; self.length + 128];
         let length_written = writer.serialize(&self.data, buffer.as_mut_slice()).context(SerializeSnafu)?;
         buffer.truncate(length_written);
         // TODO: add this error as a source to the SerializeSnafu (so one error from several underlying sources)

@@ -449,6 +449,9 @@ impl AppWithStateBuilder for NestedAppBuilder {
                         ext_has_k: add_spool.k_info.is_some(),
                         data_origin: String::new(),
                         tag_type: String::new(),
+                        assigned_location: add_spool.assigned_location.clone(),
+                        actual_location: add_spool.actual_location.clone(),
+                        spools_count: add_spool.spools_count,
                     };
                     if new_spool.id.is_empty() {
                         match store
@@ -973,6 +976,12 @@ pub struct AddSpoolDTO {
     pub slicer_filament: String,
     pub full_unused: String,
     pub k_info: Option<KInfo>,
+    #[serde(default)]
+    pub assigned_location: String,
+    #[serde(default)]
+    pub actual_location: String,
+    #[serde(default)]
+    pub spools_count: i32,
 }
 encrypted_input!(AddSpoolDTO);
 
