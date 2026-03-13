@@ -137,6 +137,81 @@
     <script type="module">
       import { default as wasm, derive_key, encrypt, decrypt } from "/pkg/device_wasm.js";
 
+      // ---- CSV-bar i18n ----
+      const CSV_I18N = {
+        en: {
+          import_btn: '⬆ Import', export_btn: '⬇ Export',
+          fix_rgb_btn: '🎨 Fix RGB→RGBA', clean_btn: '🧹 Clean Empty',
+          fetching: 'Fetching…', no_spools: 'No spools to export',
+          export_fail: 'Export failed: ', exported: 'Exported $1 spools',
+          importing: 'Importing $1/$2…',
+          import_done: 'Done: $1 added, $2 failed', import_fail: 'Import failed: ',
+          csv_empty: 'CSV empty or header only',
+          scanning: 'Scanning existing colors…', no_rgb: 'No RGB rows need conversion',
+          convert_cancel: 'Conversion cancelled', converting: 'Converting $1/$2…',
+          converted: 'Converted: $1, failed: $2', convert_fail: 'Conversion failed: ',
+          removing: 'Removing empty rows…', cleanup_cancel: 'Cleanup cancelled',
+          cleanup_done: 'Cleanup done: $1 removed', cleanup_fail: 'Cleanup failed: ',
+          confirm_convert: 'Convert $1 existing RGB color code(s) to RGBA?',
+          confirm_clean: 'Delete empty rows now?',
+        },
+        de: {
+          import_btn: '⬆ Importieren', export_btn: '⬇ Exportieren',
+          fix_rgb_btn: '🎨 RGB→RGBA korrigieren', clean_btn: '🧹 Leere bereinigen',
+          fetching: 'Lade…', no_spools: 'Keine Spulen zum Exportieren',
+          export_fail: 'Export fehlgeschlagen: ', exported: '$1 Spulen exportiert',
+          importing: 'Importiere $1/$2…',
+          import_done: 'Fertig: $1 hinzugefügt, $2 fehlgeschlagen', import_fail: 'Import fehlgeschlagen: ',
+          csv_empty: 'CSV leer oder nur Kopfzeile',
+          scanning: 'Scanne vorhandene Farben…', no_rgb: 'Keine RGB-Zeilen zu konvertieren',
+          convert_cancel: 'Konvertierung abgebrochen', converting: 'Konvertiere $1/$2…',
+          converted: 'Konvertiert: $1, fehlgeschlagen: $2', convert_fail: 'Konvertierung fehlgeschlagen: ',
+          removing: 'Entferne leere Zeilen…', cleanup_cancel: 'Bereinigung abgebrochen',
+          cleanup_done: 'Bereinigung fertig: $1 entfernt', cleanup_fail: 'Bereinigung fehlgeschlagen: ',
+          confirm_convert: '$1 vorhandene RGB-Farbe(n) in RGBA konvertieren?',
+          confirm_clean: 'Leere Zeilen jetzt löschen?',
+        },
+        nl: {
+          import_btn: '⬆ Importeren', export_btn: '⬇ Exporteren',
+          fix_rgb_btn: '🎨 RGB→RGBA herstellen', clean_btn: '🧹 Lege verwijderen',
+          fetching: 'Laden…', no_spools: 'Geen spoelen om te exporteren',
+          export_fail: 'Exporteren mislukt: ', exported: '$1 spoelen geëxporteerd',
+          importing: 'Importeren $1/$2…',
+          import_done: 'Klaar: $1 toegevoegd, $2 mislukt', import_fail: 'Importeren mislukt: ',
+          csv_empty: 'CSV leeg of alleen koptekst',
+          scanning: 'Kleuren scannen…', no_rgb: 'Geen RGB-rijen om te converteren',
+          convert_cancel: 'Conversie geannuleerd', converting: 'Converteren $1/$2…',
+          converted: 'Geconverteerd: $1, mislukt: $2', convert_fail: 'Conversie mislukt: ',
+          removing: 'Lege rijen verwijderen…', cleanup_cancel: 'Opruimen geannuleerd',
+          cleanup_done: 'Opruimen klaar: $1 verwijderd', cleanup_fail: 'Opruimen mislukt: ',
+          confirm_convert: '$1 bestaande RGB-kleur(en) converteren naar RGBA?',
+          confirm_clean: 'Lege rijen nu verwijderen?',
+        },
+        pl: {
+          import_btn: '⬆ Importuj', export_btn: '⬇ Eksportuj',
+          fix_rgb_btn: '🎨 Napraw RGB→RGBA', clean_btn: '🧹 Wyczyść puste',
+          fetching: 'Pobieranie…', no_spools: 'Brak szpul do eksportu',
+          export_fail: 'Eksport nieudany: ', exported: 'Wyeksportowano $1 szpul',
+          importing: 'Importowanie $1/$2…',
+          import_done: 'Gotowe: $1 dodano, $2 nieudanych', import_fail: 'Import nieudany: ',
+          csv_empty: 'CSV pusty lub tylko nagłówek',
+          scanning: 'Skanowanie kolorów…', no_rgb: 'Brak wierszy RGB do konwersji',
+          convert_cancel: 'Konwersja anulowana', converting: 'Konwertowanie $1/$2…',
+          converted: 'Przekonwertowano: $1, nieudanych: $2', convert_fail: 'Konwersja nieudana: ',
+          removing: 'Usuwanie pustych wierszy…', cleanup_cancel: 'Czyszczenie anulowane',
+          cleanup_done: 'Czyszczenie gotowe: $1 usunięto', cleanup_fail: 'Czyszczenie nieudane: ',
+          confirm_convert: 'Przekonwertować $1 istniejące kody kolorów RGB na RGBA?',
+          confirm_clean: 'Czy teraz usunąć puste wiersze?',
+        },
+      };
+      const _lang = (typeof window !== 'undefined' && window.SE_LANG) || 'en';
+      const _i18n = CSV_I18N[_lang] || CSV_I18N.en;
+      function t(key, ...subs) {
+        let s = _i18n[key] || CSV_I18N.en[key] || key;
+        subs.forEach((v, i) => { s = s.replace('$' + (i + 1), v); });
+        return s;
+      }
+
       // CSV import/export columns (user-facing format)
       const HEADERS = ['id','brand','material','subtype','color_name','rgba','label_weight','core_weight','note','slicer_filament','full_unused','tag_id'];
 
@@ -237,14 +312,14 @@
 
       // ---- Export ----
       async function doExport() {
-        setStatus('Fetching…', '#aaa');
+        setStatus(t('fetching'), '#aaa');
         try {
           const key = await getKey();
           const resp = await fetch('/api/spools');
           if (!resp.ok) throw new Error('HTTP ' + resp.status);
           const raw = decrypt(key, await resp.text());
           const rows = internalCsvToRows(raw);
-          if (!rows.length) { setStatus('No spools to export', '#f90'); return; }
+          if (!rows.length) { setStatus(t('no_spools'), '#f90'); return; }
           const lines = [HEADERS.join(',')];
           for (const r of rows) {
             const obj = internalRowToExport(r);
@@ -255,8 +330,8 @@
           a.href = URL.createObjectURL(blob);
           a.download = 'spoolease-inventory.csv';
           a.click();
-          setStatus('Exported ' + rows.length + ' spools', '#4CAF50');
-        } catch(e) { setStatus('Export failed: ' + e.message, '#f44'); }
+          setStatus(t('exported', rows.length), '#4CAF50');
+        } catch(e) { setStatus(t('export_fail') + e.message, '#f44'); }
       }
 
       // Column name aliases: maps BambuLabs CSV names → inventory import names
@@ -266,7 +341,7 @@
       async function doImport(file) {
         const text = await file.text();
         const lines = text.split(/\r?\n/).filter(l => l.trim());
-        if (lines.length < 2) { setStatus('CSV empty or header only', '#f90'); return; }
+        if (lines.length < 2) { setStatus(t('csv_empty'), '#f90'); return; }
         const delim = lines[0].includes(';') ? ';' : ',';
         const headerRow = csvParseLine(lines[0], delim).map(h => h.trim().toLowerCase());
         const getCol = (row, name) => {
@@ -278,7 +353,7 @@
         const isForeignFormat = Object.keys(COL_ALIASES).some(k => headerRow.includes(k));
         const rows = lines.slice(1).map(l => csvParseLine(l, delim));
         let ok = 0, fail = 0;
-        setStatus('Importing 0/' + rows.length + '…', '#aaa');
+        setStatus(t('importing', 0, rows.length), '#aaa');
         try {
           const key = await getKey();
           for (const r of rows) {
@@ -304,11 +379,11 @@
               const result = JSON.parse(decrypt(key, await resp.text()));
               if (result.success) { ok++; } else { fail++; console.warn('Import row failed:', result.error); }
             } catch(e) { fail++; console.warn('Import row error:', e); }
-            setStatus('Importing ' + (ok+fail) + '/' + rows.length + '…', '#aaa');
+            setStatus(t('importing', ok+fail, rows.length), '#aaa');
           }
-          setStatus('Done: ' + ok + ' added, ' + fail + ' failed', fail ? '#f90' : '#4CAF50');
+          setStatus(t('import_done', ok, fail), fail ? '#f90' : '#4CAF50');
           if (ok) window.location.reload();
-        } catch(e) { setStatus('Import failed: ' + e.message, '#f44'); }
+        } catch(e) { setStatus(t('import_fail') + e.message, '#f44'); }
       }
 
       // ---- Migrate existing RGB rows to RGBA ----
@@ -317,7 +392,7 @@
         const migrationKey = options.migrationKey || '';
         const reloadOnDone = options.reloadOnDone !== false;
 
-        if (interactive) setStatus('Scanning existing colors…', '#aaa');
+        if (interactive) setStatus(t('scanning'), '#aaa');
         try {
           const key = await getKey();
           const resp = await fetch('/api/spools');
@@ -336,12 +411,12 @@
 
           if (!targets.length) {
             if (migrationKey) localStorage.setItem(migrationKey, '1');
-            if (interactive) setStatus('No RGB rows need conversion', '#4CAF50');
+            if (interactive) setStatus(t('no_rgb'), '#4CAF50');
             return;
           }
 
-          if (interactive && !window.confirm('Convert ' + targets.length + ' existing RGB color code(s) to RGBA?')) {
-            setStatus('Conversion cancelled', '#f90');
+          if (interactive && !window.confirm(t('confirm_convert', targets.length))) {
+            setStatus(t('convert_cancel'), '#f90');
             return;
           }
 
@@ -375,14 +450,14 @@
             } catch (_) {
               fail++;
             }
-            if (interactive) setStatus('Converting ' + (ok + fail) + '/' + targets.length + '…', '#aaa');
+            if (interactive) setStatus(t('converting', ok + fail, targets.length), '#aaa');
           }
 
           if (migrationKey && fail === 0) localStorage.setItem(migrationKey, '1');
-          if (interactive) setStatus('Converted: ' + ok + ', failed: ' + fail, fail ? '#f90' : '#4CAF50');
+          if (interactive) setStatus(t('converted', ok, fail), fail ? '#f90' : '#4CAF50');
           if (ok && reloadOnDone) window.location.reload();
         } catch (e) {
-          if (interactive) setStatus('Conversion failed: ' + e.message, '#f44');
+          if (interactive) setStatus(t('convert_fail') + e.message, '#f44');
           else console.warn('Auto RGB->RGBA migration failed:', e);
         }
       }
@@ -395,11 +470,11 @@
 
       // ---- Cleanup empty rows ----
       async function doCleanupEmpty() {
-        setStatus('Removing empty rows…', '#aaa');
+        setStatus(t('removing'), '#aaa');
         try {
           const key = await getKey();
-          if (!window.confirm('Delete empty rows now?')) {
-            setStatus('Cleanup cancelled', '#f90');
+          if (!window.confirm(t('confirm_clean'))) {
+            setStatus(t('cleanup_cancel'), '#f90');
             return;
           }
 
@@ -411,10 +486,10 @@
             throw new Error(result.error || 'Cleanup failed');
           }
 
-          setStatus('Cleanup done: ' + result.removed + ' removed', '#4CAF50');
+          setStatus(t('cleanup_done', result.removed), '#4CAF50');
           if (result.removed > 0) window.location.reload();
         } catch (e) {
-          setStatus('Cleanup failed: ' + e.message, '#f44');
+          setStatus(t('cleanup_fail') + e.message, '#f44');
         }
       }
 
@@ -425,10 +500,10 @@
       const fixRgbBtn = document.getElementById('se-fix-rgb-btn');
       const cleanEmptyBtn = document.getElementById('se-clean-empty-btn');
       const fileInput = document.getElementById('se-csv-input');
-      importBtn.disabled = false;
-      exportBtn.disabled = false;
-      fixRgbBtn.disabled = false;
-      cleanEmptyBtn.disabled = false;
+      importBtn.disabled = false; importBtn.textContent = t('import_btn');
+      exportBtn.disabled = false; exportBtn.textContent = t('export_btn');
+      fixRgbBtn.disabled = false; fixRgbBtn.textContent = t('fix_rgb_btn');
+      cleanEmptyBtn.disabled = false; cleanEmptyBtn.textContent = t('clean_btn');
       exportBtn.addEventListener('click', doExport);
       fixRgbBtn.addEventListener('click', () => { doFixRgbToRgba({ interactive: true, reloadOnDone: true }); });
       cleanEmptyBtn.addEventListener('click', doCleanupEmpty);
