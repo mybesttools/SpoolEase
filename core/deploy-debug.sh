@@ -10,6 +10,12 @@ source ./deploy-shell-init.sh
 
 mkdir -p "$base_target_dir${path_in_base_target}/${product}/${rel_train}"
 
+# Compile firmware (embeds static HTML via include_bytes_gz! proc macro)
+# NOTE: touch core/src/main.rs first if only static HTML files changed.
+pushd "${proj_dir}"
+"${CARGO_CMD}" build --release
+popd
+
 #----
 
 replace_dir=""

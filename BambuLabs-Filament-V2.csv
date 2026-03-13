@@ -1,153 +1,153 @@
-﻿id;material_type;material_subtype;color_code;color_name;brand;weight_advertised;weight_core;weight_core2;weight_new;weight_current;weight_left;weight_used;note;tag_id;date_added
-;PLA ;Basic;#FFFFFF ;Jade White;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#F7E6DE;Beige;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#D1D3D5;Light Gray;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#A6A9AA;Silver;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#8E9089;Gray;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#545454;Dark Gray;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#5B6579;Blue Gray;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#F4EE2A;Yellow;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#FEC600;Sunflower Yellow;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#E4BD68;Gold;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#FF9016;Pumpkin Orange;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#FF6A13;Orange;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#BECF00;Bright Green;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#00AE42;Bambu Green;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#3F8E43;Mistletoe Green;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#F55A74;Pink;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#F5547C;Hot Pink;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#EC008C;Magenta;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#C12E1F;Red;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#9D2235;Maroon Red;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#5E43B7;Purple;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#482960;Indigo Purple;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#00B1B7;Turquoise;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#0086D6;Cyan;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#0056B8;Cobalt blue;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#0A2989;Blue;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#9D432C;Brown;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#847D48;Bronze;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#6F5034;Cocoa Brown;Bambu Labs;;;;;;;;;;
-;PLA ;Basic;#000000;Black;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#FFFFFF;Ivory White;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#D3B7A7;Latte Brown;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#E8DBB7;Desert Tan;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#9B9EA0;Ash Gray;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#AE96D4;Lilac Purple;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#E8AFCF;Sakura Pink;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#F99963;Mandarin Orange;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#F7D959;Lemon Yellow;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#DE4343;Scarlet Red;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#BB3D43;Dark Red;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#7D6556;Dark Brown;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#68724D;Dark Green;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#61C680;Grass Green;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#A3D8E1;Ice Blue;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#A3D8E1;Marine Blue;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#A3D8E1;Dark Blue;Bambu Labs;;;;;;;;;;
-;PLA;Matte;#000000;Charcoal;Bambu Labs;;;;;;;;;;
-;PLA;Marble;#F7F3F0 ;White Marble;Bambu Labs;;;;;;;;;;
-;PLA;Marble;#AD4E38;Red Granite;Bambu Labs;;;;;;;;;;
-;PLA;Silk;#FFFFFF ;White (Generic);Bambu Labs;;;;;;;;;;
-;PLA;Silk;#EAECEB;Silver;Bambu Labs;;;;;;;;;;
-;PLA;Silk;#EEB1C1;Pink;Bambu Labs;;;;;;;;;;
-;PLA;Silk;#4CE4A0;Green;Bambu Labs;;;;;;;;;;
-;PLA;Silk;#AE96D4;Gold;Bambu Labs;;;;;;;;;;
-;PLA;Silk;#147BD1;Blue;Bambu Labs;;;;;;;;;;
-;PLA;Silk;#854CE4;Purple;Bambu Labs;;;;;;;;;;
-;PLA;Silk;#5E4B3C;Copper;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#F4A925;Gold;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#C8C8C8;Silver;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#5F6367;Titan Gray;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#008BDA;Blue;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#8671CB;Purple;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#D02727;Candy Red;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#9D432C;Candy Green;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#BA9594;Rose Gold;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#A8C6EE;Baby Blue;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#F7ADA6;Pink;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#96DCB9;Mint;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#F3CFB2;Champagne;Bambu Labs;;;;;;;;;;
-;PLA;Silk+;#FFFFFF;White;Bambu Labs;;;;;;;;;;
-;PLA;CF;#951E23;Burgundy Red;Bambu Labs;;;;;;;;;;
-;PLA;CF;#5C9748;Matcha Green;Bambu Labs;;;;;;;;;;
-;PLA;CF;#6E88BC;Jeans Blue;Bambu Labs;;;;;;;;;;
-;PLA;CF;#2842AD;Royal Blue;Bambu Labs;;;;;;;;;;
-;PLA;CF;#69398E;Iris Purple;Bambu Labs;;;;;;;;;;
-;PLA;CF;#4d5054;Lava Gray;Bambu Labs;;;;;;;;;;
-;PLA;CF;#000000;Black;Bambu Labs;;;;;;;;;;
-;PLA;Metal;#B39B84;Iridium Gold Metallic;Bambu Labs;;;;;;;;;;
-;PLA;Metal;#AA6443;Copper Brown Metallic;Bambu Labs;;;;;;;;;;
-;PLA;Metal;#1D7C6A;Oxide Green Metallic;Bambu Labs;;;;;;;;;;
-;PLA;Metal;#39699E;Cobalt Blue Metallic;Bambu Labs;;;;;;;;;;
-;PLA;Metal;#43403D;Iron Gray Metallic;Bambu Labs;;;;;;;;;;
-;PETG;HF;#000000;Black;Bambu Labs;;;;;;;;;;
-;PETG;HF;#1F79E5;Blue;Bambu Labs;;;;;;;;;;
-;PETG;HF;#F9DFB9;Cream;Bambu Labs;;;;;;;;;;
-;PETG;HF;#515151;Dark Gray;Bambu Labs;;;;;;;;;;
-;PETG;HF;#39541A;Forest Green;Bambu Labs;;;;;;;;;;
-;PETG;HF;#ADB1B2;Gray;Bambu Labs;;;;;;;;;;
-;PETG;HF;#00AE42;Green;Bambu Labs;;;;;;;;;;
-;PETG;HF;#1F79E5;Lake Blue;Bambu Labs;;;;;;;;;;
-;PETG;HF;#6EE53C;Lime Green;Bambu Labs;;;;;;;;;;
-;PETG;HF;#F75403;Orange;Bambu Labs;;;;;;;;;;
-;PETG;HF;#875718;Peanut Brown;Bambu Labs;;;;;;;;;;
-;PETG;HF;#BC0900;Red;Bambu Labs;;;;;;;;;;
-;PETG;HF;#FFFFFF;White;Bambu Labs;;;;;;;;;;
-;PETG;HF;#FFD00B;Yellow;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#FFFFFF;White;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#F9F7F2;Nature;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#9EA2A2;Gray;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#688197;Blue Gray;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#B28B33;Gold;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#D6001C;Red;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#FF671F;Orange;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#FCE300;Yellow;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#7CD82B;Lime Green;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#009639;Green;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#0069B1;Lake Blue;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#001489;Blue;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#9E007E;Purple;Bambu Labs;;;;;;;;;;
-;PETG;Basic;#ED0000;Black;Bambu Labs;;;;;;;;;;
-;TPU;95A HF;#FFFFFF;White;Bambu Labs;;;;;;;;;;
-;TPU;95A HF;#F3E600;Yellow;Bambu Labs;;;;;;;;;;
-;TPU;95A HF;#0072CE;Blue;Bambu Labs;;;;;;;;;;
-;TPU;95A HF;#C8102E;Red;Bambu Labs;;;;;;;;;;
-;TPU;95A HF;#898D8D;Gray;Bambu Labs;;;;;;;;;;
-;TPU;95A HF;#101820;Black;Bambu Labs;;;;;;;;;;
-;TPU;95A HF;#000000;Black (Not HF);Bambu Labs;;;;;;;;;;
-;TPU;95A HF;#5898DD;Blue (Generic);Bambu Labs;;;;;;;;;;
-;TPU;95A HF;#F68B1B;Orange (Generic);Bambu Labs;;;;;;;;;;
-;ABS;GF;#FFFFFF;White;Bambu Labs;;;;;;;;;;
-;ABS;GF;#C6C6C6;Gray;Bambu Labs;;;;;;;;;;
-;ABS;GF;#FFE133;Yellow;Bambu Labs;;;;;;;;;;
-;ABS;GF;#F48438;Orange;Bambu Labs;;;;;;;;;;
-;ABS;GF;#E83100;Red;Bambu Labs;;;;;;;;;;
-;ABS;GF;#61BF36;Green;Bambu Labs;;;;;;;;;;
-;ABS;GF;#0C3B95;Blue;Bambu Labs;;;;;;;;;;
-;ABS;GF;#000000;Black;Bambu Labs;;;;;;;;;;
-;ABS;;#DFD1A7;Beige;Bambu Labs;;;;;;;;;;
-;ABS;;#7248BD;Lavender;Bambu Labs;;;;;;;;;;
-;ABS;;#789D4A;Olive;Bambu Labs;;;;;;;;;;
-;ABS;;#FFC72C;Tangerine Yellow;Bambu Labs;;;;;;;;;;
-;ABS;;#489FDF;Azure;Bambu Labs;;;;;;;;;;
-;ABS;;#0C2340;Navy Blue;Bambu Labs;;;;;;;;;;
-;ABS;;#FFFFFF;White;Bambu Labs;;;;;;;;;;
-;ABS;;#87909A;Silver;Bambu Labs;;;;;;;;;;
-;ABS;;#D32941;Red;Bambu Labs;;;;;;;;;;
-;ABS;;#FF6A13;Orange;Bambu Labs;;;;;;;;;;
-;ABS;;#FCE900;Yellow;Bambu Labs;;;;;;;;;;
-;ABS;;#7AE1BF;Mint;Bambu Labs;;;;;;;;;;
-;ABS;;#00AE42;Bambu Green;Bambu Labs;;;;;;;;;;
-;ABS;;#0A2CA5;Blue;Bambu Labs;;;;;;;;;;
-;ABS;;#AF1685;Purple;Bambu Labs;;;;;;;;;;
-;ABS;;#000000;Black;Bambu Labs;;;;;;;;;;
-;ASA;;#FFFAF2;White;Bambu Labs;;;;;;;;;;
-;ASA;;#8A949E;Gray;Bambu Labs;;;;;;;;;;
-;ASA;;#E02928;Red;Bambu Labs;;;;;;;;;;
-;ASA;;#00A6A0;Green;Bambu Labs;;;;;;;;;;
-;ASA;;#2140B4;Blue;Bambu Labs;;;;;;;;;;
-;ASA;;#000000;Black;Bambu Labs;;;;;;;;;;
-;ASA;CF;#000000;Black;Bambu Labs;;;;;;;;;;
-;PA6;GF;#75AED8;Blue;Bambu Labs;;;;;;;;;;
-;PAHT;CF;#000000;Black;Bambu Labs;;;;;;;;;;
+id,brand,material,subtype,color_name,rgba,label_weight,core_weight,note,slicer_filament,full_unused,tag_id,assigned_location,actual_location,spools_count
+,Bambu Labs,PLA,Basic,Jade White,#FFFFFFFF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Beige,#F7E6DEFF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Light Gray,#D1D3D5FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Silver,#A6A9AAFF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Gray,#8E9089FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Dark Gray,#545454FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Blue Gray,#5B6579FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Yellow,#F4EE2AFF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Sunflower Yellow,#FEC600FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Gold,#E4BD68FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Pumpkin Orange,#FF9016FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Orange,#FF6A13FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Bright Green,#BECF00FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Bambu Green,#00AE42FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Mistletoe Green,#3F8E43FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Pink,#F55A74FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Hot Pink,#F5547CFF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Magenta,#EC008CFF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Red,#C12E1FFF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Maroon Red,#9D2235FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Purple,#5E43B7FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Indigo Purple,#482960FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Turquoise,#00B1B7FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Cyan,#0086D6FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Cobalt blue,#0056B8FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Blue,#0A2989FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Brown,#9D432CFF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Bronze,#847D48FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Cocoa Brown,#6F5034FF,,,,,,,,,1
+,Bambu Labs,PLA,Basic,Black,#000000FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Ivory White,#FFFFFFFF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Latte Brown,#D3B7A7FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Desert Tan,#E8DBB7FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Ash Gray,#9B9EA0FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Lilac Purple,#AE96D4FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Sakura Pink,#E8AFCFFF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Mandarin Orange,#F99963FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Lemon Yellow,#F7D959FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Scarlet Red,#DE4343FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Dark Red,#BB3D43FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Dark Brown,#7D6556FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Dark Green,#68724DFF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Grass Green,#61C680FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Ice Blue,#A3D8E1FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Marine Blue,#A3D8E1FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Dark Blue,#A3D8E1FF,,,,,,,,,1
+,Bambu Labs,PLA,Matte,Charcoal,#000000FF,,,,,,,,,1
+,Bambu Labs,PLA,Marble,White Marble,#F7F3F0FF,,,,,,,,,1
+,Bambu Labs,PLA,Marble,Red Granite,#AD4E38FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk,White (Generic),#FFFFFFFF,,,,,,,,,1
+,Bambu Labs,PLA,Silk,Silver,#EAECEBFF,,,,,,,,,1
+,Bambu Labs,PLA,Silk,Pink,#EEB1C1FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk,Green,#4CE4A0FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk,Gold,#AE96D4FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk,Blue,#147BD1FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk,Purple,#854CE4FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk,Copper,#5E4B3CFF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Gold,#F4A925FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Silver,#C8C8C8FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Titan Gray,#5F6367FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Blue,#008BDAFF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Purple,#8671CBFF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Candy Red,#D02727FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Candy Green,#9D432CFF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Rose Gold,#BA9594FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Baby Blue,#A8C6EEFF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Pink,#F7ADA6FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Mint,#96DCB9FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,Champagne,#F3CFB2FF,,,,,,,,,1
+,Bambu Labs,PLA,Silk+,White,#FFFFFFFF,,,,,,,,,1
+,Bambu Labs,PLA,CF,Burgundy Red,#951E23FF,,,,,,,,,1
+,Bambu Labs,PLA,CF,Matcha Green,#5C9748FF,,,,,,,,,1
+,Bambu Labs,PLA,CF,Jeans Blue,#6E88BCFF,,,,,,,,,1
+,Bambu Labs,PLA,CF,Royal Blue,#2842ADFF,,,,,,,,,1
+,Bambu Labs,PLA,CF,Iris Purple,#69398EFF,,,,,,,,,1
+,Bambu Labs,PLA,CF,Lava Gray,#4D5054FF,,,,,,,,,1
+,Bambu Labs,PLA,CF,Black,#000000FF,,,,,,,,,1
+,Bambu Labs,PLA,Metal,Iridium Gold Metallic,#B39B84FF,,,,,,,,,1
+,Bambu Labs,PLA,Metal,Copper Brown Metallic,#AA6443FF,,,,,,,,,1
+,Bambu Labs,PLA,Metal,Oxide Green Metallic,#1D7C6AFF,,,,,,,,,1
+,Bambu Labs,PLA,Metal,Cobalt Blue Metallic,#39699EFF,,,,,,,,,1
+,Bambu Labs,PLA,Metal,Iron Gray Metallic,#43403DFF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Black,#000000FF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Blue,#1F79E5FF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Cream,#F9DFB9FF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Dark Gray,#515151FF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Forest Green,#39541AFF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Gray,#ADB1B2FF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Green,#00AE42FF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Lake Blue,#1F79E5FF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Lime Green,#6EE53CFF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Orange,#F75403FF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Peanut Brown,#875718FF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Red,#BC0900FF,,,,,,,,,1
+,Bambu Labs,PETG,HF,White,#FFFFFFFF,,,,,,,,,1
+,Bambu Labs,PETG,HF,Yellow,#FFD00BFF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,White,#FFFFFFFF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Nature,#F9F7F2FF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Gray,#9EA2A2FF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Blue Gray,#688197FF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Gold,#B28B33FF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Red,#D6001CFF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Orange,#FF671FFF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Yellow,#FCE300FF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Lime Green,#7CD82BFF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Green,#009639FF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Lake Blue,#0069B1FF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Blue,#001489FF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Purple,#9E007EFF,,,,,,,,,1
+,Bambu Labs,PETG,Basic,Black,#ED0000FF,,,,,,,,,1
+,Bambu Labs,TPU,95A HF,White,#FFFFFFFF,,,,,,,,,1
+,Bambu Labs,TPU,95A HF,Yellow,#F3E600FF,,,,,,,,,1
+,Bambu Labs,TPU,95A HF,Blue,#0072CEFF,,,,,,,,,1
+,Bambu Labs,TPU,95A HF,Red,#C8102EFF,,,,,,,,,1
+,Bambu Labs,TPU,95A HF,Gray,#898D8DFF,,,,,,,,,1
+,Bambu Labs,TPU,95A HF,Black,#101820FF,,,,,,,,,1
+,Bambu Labs,TPU,95A HF,Black (Not HF),#000000FF,,,,,,,,,1
+,Bambu Labs,TPU,95A HF,Blue (Generic),#5898DDFF,,,,,,,,,1
+,Bambu Labs,TPU,95A HF,Orange (Generic),#F68B1BFF,,,,,,,,,1
+,Bambu Labs,ABS,GF,White,#FFFFFFFF,,,,,,,,,1
+,Bambu Labs,ABS,GF,Gray,#C6C6C6FF,,,,,,,,,1
+,Bambu Labs,ABS,GF,Yellow,#FFE133FF,,,,,,,,,1
+,Bambu Labs,ABS,GF,Orange,#F48438FF,,,,,,,,,1
+,Bambu Labs,ABS,GF,Red,#E83100FF,,,,,,,,,1
+,Bambu Labs,ABS,GF,Green,#61BF36FF,,,,,,,,,1
+,Bambu Labs,ABS,GF,Blue,#0C3B95FF,,,,,,,,,1
+,Bambu Labs,ABS,GF,Black,#000000FF,,,,,,,,,1
+,Bambu Labs,ABS,,Beige,#DFD1A7FF,,,,,,,,,1
+,Bambu Labs,ABS,,Lavender,#7248BDFF,,,,,,,,,1
+,Bambu Labs,ABS,,Olive,#789D4AFF,,,,,,,,,1
+,Bambu Labs,ABS,,Tangerine Yellow,#FFC72CFF,,,,,,,,,1
+,Bambu Labs,ABS,,Azure,#489FDFFF,,,,,,,,,1
+,Bambu Labs,ABS,,Navy Blue,#0C2340FF,,,,,,,,,1
+,Bambu Labs,ABS,,White,#FFFFFFFF,,,,,,,,,1
+,Bambu Labs,ABS,,Silver,#87909AFF,,,,,,,,,1
+,Bambu Labs,ABS,,Red,#D32941FF,,,,,,,,,1
+,Bambu Labs,ABS,,Orange,#FF6A13FF,,,,,,,,,1
+,Bambu Labs,ABS,,Yellow,#FCE900FF,,,,,,,,,1
+,Bambu Labs,ABS,,Mint,#7AE1BFFF,,,,,,,,,1
+,Bambu Labs,ABS,,Bambu Green,#00AE42FF,,,,,,,,,1
+,Bambu Labs,ABS,,Blue,#0A2CA5FF,,,,,,,,,1
+,Bambu Labs,ABS,,Purple,#AF1685FF,,,,,,,,,1
+,Bambu Labs,ABS,,Black,#000000FF,,,,,,,,,1
+,Bambu Labs,ASA,,White,#FFFAF2FF,,,,,,,,,1
+,Bambu Labs,ASA,,Gray,#8A949EFF,,,,,,,,,1
+,Bambu Labs,ASA,,Red,#E02928FF,,,,,,,,,1
+,Bambu Labs,ASA,,Green,#00A6A0FF,,,,,,,,,1
+,Bambu Labs,ASA,,Blue,#2140B4FF,,,,,,,,,1
+,Bambu Labs,ASA,,Black,#000000FF,,,,,,,,,1
+,Bambu Labs,ASA,CF,Black,#000000FF,,,,,,,,,1
+,Bambu Labs,PA6,GF,Blue,#75AED8FF,,,,,,,,,1
+,Bambu Labs,PAHT,CF,Black,#000000FF,,,,,,,,,1
