@@ -1,5 +1,8 @@
 # SpoolEase System
 
+> **This is a community fork of [yanshay/SpoolEase](https://github.com/yanshay/SpoolEase).**
+> See [Differences from Upstream](#differences-from-upstream) for what this fork adds.
+
 SpoolEase is a smart add-on system for Bambu Lab 3D printers that adds intelligence and control to every filament spool.
 
 It features:
@@ -121,6 +124,68 @@ If you're interested in commercial licensing, redistribution rights, or other ac
 SpoolScale uses the following sources for it's Spools Catalog:  
 - Scuk's "Empty Spool Weight Catalog": https://www.printables.com/model/464663-empty-spool-weight-catalog
 - https://www.onlyspoolz.com/portfolio/
+
+---
+
+## Differences from Upstream
+
+This fork ([mybesttools/SpoolEase](https://github.com/mybesttools/SpoolEase)) is based on [yanshay/SpoolEase](https://github.com/yanshay/SpoolEase) and extends it with the following changes.
+
+### Multilingual UI, Config Page, and Web Inventory
+
+The on-device UI (Slint), the web config page (`config.html`), and the web inventory are fully translated.
+Supported languages: **English, German (de), French (fr), Dutch (nl), Polish (pl)**.
+
+- Language selection persists in the browser and on the device.
+- Translation strings are stored in `core/translations/<lang>.json` and embedded at build time via `core/translations.slint` and `build.rs`.
+- The CSV inventory toolbar (export, column visibility, search) is translated in all languages.
+
+### Translation Upload Page
+
+A hosted GitHub Pages page at  
+[`/SpoolEase/translations-upload.html`](https://mybesttools.github.io/SpoolEase/translations-upload.html)  
+lets contributors submit a new language translation without needing to fork the repository.
+
+- Authenticates via **GitHub Device Flow** (click a button, enter a code at `github.com/login/device` — no personal access token needed).
+- After authentication, the user uploads a `.json` file; the worker validates it, commits it to a new branch, and opens a Pull Request automatically.
+- Backed by a Cloudflare Worker (`workers/translation-oauth/`) that uses a bot token for all write operations; contributors need no repo access.
+
+### GitHub Actions CI/CD — Flash-from-Browser
+
+A GitHub Actions workflow (`.github/workflows/pages.yml`) builds the firmware on every push to `main` and deploys the result to GitHub Pages:
+
+- Builds a merged flash image (`SpoolEase-flash.bin`) with `espflash save-image`.
+- Stamps the version from `Cargo.toml` into `docs/firmware/manifest.json` (upgrade) and generates `manifest-new.json` (fresh install with Improv Wi-Fi).
+- Deploys the full `docs/` folder to GitHub Pages, making firmware always available for flashing at [`docs/flash.html`](https://mybesttools.github.io/SpoolEase/flash.html).
+
+### Inventory: Additional Spool Fields
+
+Three new fields added to `SpoolRecord` and surfaced in the web inventory:
+
+| Field | Description |
+|---|---|
+| `assigned_location` | The storage location a spool is assigned to |
+| `actual_location` | Where the spool physically is right now |
+| `spools_count` | Number of spools at this entry (defaults to 1 for backward compat) |
+
+The inventory CSV renderer and column visibility controls are updated accordingly.
+
+### Inventory and Config Page Bug Fixes
+
+- Fixed inventory link and column padding for records from older database versions.
+- Fixed JS compatibility for 0.6.1 firmware: appends the 3 new CSV columns so old DB records render without layout breakage.
+- Fixed `SpoolRecord` to include all required fields in the Bambu API path (`bambu.rs`).
+
+### Build and Deploy Improvements
+
+- `deploy-vars.sh`: falls back to the Cargo git cache when the `deps/` submodule is absent (useful in CI).
+- `deploy-beta.sh`, `deploy-debug.sh`, `deploy-rel.sh`: updated paths and flags for the 0.6.x toolchain.
+- Added `deploy-shell-init.sh` for environment setup on the dev machine.
+- Toolchain caching in CI keyed on `Cargo.lock` + `rust-toolchain.toml`.
+
+### `rel="noopener noreferrer"` on External Links
+
+All `target="_blank"` links in `docs/flash.html` and `docs/index.html` have `rel="noopener noreferrer"` added for security best practice.
 
 ## License
 
