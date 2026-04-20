@@ -218,6 +218,7 @@ async function handleSubmit(request, env, cors) {
         title: `Add translation: ${lang_code}`,
         head: branchName,
         base: BASE_BRANCH,
+        draft: true,
         body: prBodyLines.join("\n"),
       },
     });
