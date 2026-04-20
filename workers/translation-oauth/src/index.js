@@ -124,10 +124,14 @@ async function handleSubmit(request, env, cors) {
       headers: {
         Accept: "application/vnd.github+json",
         Authorization: "Bearer " + user_token,
+        "User-Agent": "SpoolEase-Translation-Worker/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
       },
     });
     if (!userRes.ok) {
-      return jsonResponse({ error: "auth_failed", message: "Could not verify GitHub identity." }, 401, cors);
+      let ghMsg = "HTTP " + userRes.status;
+      try { const body = await userRes.json(); ghMsg = body.message || ghMsg; } catch (_) {}
+      return jsonResponse({ error: "auth_failed", message: "GitHub identity check failed: " + ghMsg }, 401, cors);
     }
     const user = await userRes.json();
     userLogin = user.login;

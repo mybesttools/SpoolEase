@@ -803,7 +803,7 @@
           }
           if (result.error === "auth_failed") {
             state.canSubmit = false;
-            setStatus(submitStatus, "err", tr("status_auth_err"));
+            setStatus(submitStatus, "err", tr("status_auth_err") + (result.message ? " (" + result.message + ")" : ""));
             return;
           }
           throw new Error(result.message || ("Worker error: " + result.error));
