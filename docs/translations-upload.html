@@ -307,12 +307,21 @@
 
     <section class="card" id="authCard">
       <h2 data-i18n="auth_title">1) Authenticate with GitHub</h2>
-      <p class="muted" data-i18n="auth_help">Use a GitHub Fine-grained Personal Access Token with repository write access on your fork.</p>
-      <label for="tokenInput" data-i18n="token_label">GitHub token</label>
-      <input id="tokenInput" type="password" autocomplete="off" placeholder="ghp_..." />
+      <p class="muted" data-i18n="auth_help">Click the button below — a code will appear. Enter it at github.com/login/device.</p>
       <div class="actions">
-        <button id="authBtn" class="btn-main" type="button" data-i18n="auth_btn">Verify account</button>
-        <button id="clearBtn" class="btn-light" type="button" data-i18n="clear_btn">Clear token</button>
+        <button id="authBtn" class="btn-gh" type="button">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.09.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.603-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.907-.619.069-.606.069-.606 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.091-.647.35-1.087.636-1.337-2.22-.252-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.682-.103-.253-.446-1.268.098-2.644 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.376.202 2.391.1 2.644.64.698 1.027 1.59 1.027 2.682 0 3.841-2.337 4.687-4.565 4.935.359.308.678.917.678 1.847 0 1.334-.012 2.41-.012 2.737 0 .267.18.577.688.48C19.138 20.163 22 16.416 22 12c0-5.523-4.477-10-10-10z"/></svg>
+          <span data-i18n="auth_btn">Sign in with GitHub</span>
+        </button>
+        <button id="clearBtn" class="btn-light hidden" type="button" data-i18n="clear_btn">Sign out</button>
+      </div>
+      <div id="deviceBox" class="device-box hidden">
+        <div id="deviceCodeDisplay" class="device-code">────────</div>
+        <p class="device-note">
+          Open <a href="https://github.com/login/device" target="_blank" rel="noopener noreferrer">github.com/login/device</a>
+          and enter the code above &nbsp;·&nbsp;
+          <button id="copyCodeBtn" type="button" class="btn-light" data-i18n="device_copy">Copy code</button>
+        </p>
       </div>
       <div id="authStatus" class="status" data-i18n="auth_waiting">Waiting for authentication.</div>
       <div id="authDetails" class="muted hidden"></div>
@@ -362,13 +371,16 @@
         title: "Upload a New Translation File",
         intro_1: "This page submits your translation and opens a Pull Request directly in the SpoolEase repository \u2014 no fork required.",
         intro_2: "For anti-spam reasons, GitHub account authentication is mandatory before submission.",
-        intro_3: "Your token is only used to verify your identity. It is never stored by this page.",
+        intro_3: "Your GitHub token is only used briefly to verify your identity. This page never stores it.",
         auth_title: "1) Authenticate with GitHub",
-        auth_help: "Sign in to verify your identity. No write access to the repository is required.",
-        token_label: "GitHub token",
-        auth_btn: "Verify account",
-        clear_btn: "Clear token",
+        auth_help: "Click the button below — a code will appear. Enter it at github.com/login/device.",
+        auth_btn: "Sign in with GitHub",
+        clear_btn: "Sign out",
         auth_waiting: "Waiting for authentication.",
+        device_copy: "Copy code",
+        device_copied: "Copied!",
+        status_auth_pending: "Waiting for you to authorize on GitHub\u2026",
+        status_auth_expired: "Code expired. Click \u2018Sign in\u2019 to try again.",
         upload_title: "2) Submit translation JSON",
         lang_code_label: "Language code (2-5 chars)",
         file_label: "Translation file",
@@ -380,7 +392,7 @@
         status_auth_ok: "Authenticated as @{login}.",
         status_auth_age_fail: "Account is too new ({days} days old). Minimum is {min} days.",
         status_auth_rate_warn: "Rate limit protection: please wait before creating another PR from this browser.",
-        status_auth_err: "Authentication failed. Verify token scopes and try again.",
+        status_auth_err: "Authentication failed. Please try again.",
         status_submit_start: "Preparing branch and Pull Request...",
         status_submit_done: "Pull Request created successfully: {url}",
         status_submit_need_auth: "Please authenticate with GitHub first.",
@@ -396,13 +408,16 @@
         title: "Neue Ubersetzungsdatei hochladen",
         intro_1: "Diese Seite reicht deine Ubersetzung ein und offnet einen Pull Request direkt im SpoolEase-Repository \u2014 kein Fork notig.",
         intro_2: "Aus Anti-Spam-Grunden ist eine GitHub-Authentifizierung vor dem Senden verpflichtend.",
-        intro_3: "Dein Token dient nur zur Identitatsverifizierung. Er wird von dieser Seite nicht gespeichert.",
+        intro_3: "Dein GitHub-Token wird nur kurz zur Identitatsverifizierung verwendet und nie von dieser Seite gespeichert.",
         auth_title: "1) Bei GitHub authentifizieren",
-        auth_help: "Melde dich an, um deine Identitat zu bestatigen. Schreibrechte am Repository sind nicht erforderlich.",
-        token_label: "GitHub-Token",
-        auth_btn: "Konto prufen",
-        clear_btn: "Token loschen",
+        auth_help: "Klicke auf die Schaltflache unten — ein Code erscheint. Gib ihn auf github.com/login/device ein.",
+        auth_btn: "Mit GitHub anmelden",
+        clear_btn: "Abmelden",
         auth_waiting: "Warte auf Authentifizierung.",
+        device_copy: "Code kopieren",
+        device_copied: "Kopiert!",
+        status_auth_pending: "Warte auf deine Autorisierung bei GitHub\u2026",
+        status_auth_expired: "Code abgelaufen. Klicke auf \u2018Anmelden\u2019, um es erneut zu versuchen.",
         upload_title: "2) Ubersetzungs-JSON senden",
         lang_code_label: "Sprachcode (2-5 Zeichen)",
         file_label: "Ubersetzungsdatei",
@@ -414,7 +429,7 @@
         status_auth_ok: "Authentifiziert als @{login}.",
         status_auth_age_fail: "Konto ist zu neu ({days} Tage alt). Minimum: {min} Tage.",
         status_auth_rate_warn: "Rate-Limit-Schutz: Bitte warte, bevor du einen weiteren PR aus diesem Browser erstellst.",
-        status_auth_err: "Authentifizierung fehlgeschlagen. Token-Rechte prufen und erneut versuchen.",
+        status_auth_err: "Authentifizierung fehlgeschlagen. Bitte erneut versuchen.",
         status_submit_start: "Branch und Pull Request werden vorbereitet...",
         status_submit_done: "Pull Request erfolgreich erstellt: {url}",
         status_submit_need_auth: "Bitte zuerst mit GitHub authentifizieren.",
@@ -430,13 +445,16 @@
         title: "Televerser un nouveau fichier de traduction",
         intro_1: "Cette page soumet votre traduction et ouvre une Pull Request directement dans le depot SpoolEase \u2014 aucun fork requis.",
         intro_2: "Pour limiter le spam, une authentification GitHub est obligatoire avant envoi.",
-        intro_3: "Votre token sert uniquement a verifier votre identite. Il n est pas stocke par cette page.",
+        intro_3: "Votre token GitHub sert uniquement a verifier votre identite et n est jamais stocke par cette page.",
         auth_title: "1) Authentification GitHub",
-        auth_help: "Connectez-vous pour verifier votre identite. Aucun droit d ecriture sur le depot n est requis.",
-        token_label: "Token GitHub",
-        auth_btn: "Verifier le compte",
-        clear_btn: "Effacer le token",
+        auth_help: "Cliquez sur le bouton ci-dessous — un code s affiche. Saisissez-le sur github.com/login/device.",
+        auth_btn: "Se connecter avec GitHub",
+        clear_btn: "Se deconnecter",
         auth_waiting: "En attente d authentification.",
+        device_copy: "Copier le code",
+        device_copied: "Copie !",
+        status_auth_pending: "En attente de votre autorisation sur GitHub\u2026",
+        status_auth_expired: "Code expire. Cliquez sur \u2018Se connecter\u2019 pour reessayer.",
         upload_title: "2) Envoyer le JSON de traduction",
         lang_code_label: "Code langue (2-5 caracteres)",
         file_label: "Fichier de traduction",
@@ -448,7 +466,7 @@
         status_auth_ok: "Authentifie en tant que @{login}.",
         status_auth_age_fail: "Compte trop recent ({days} jours). Minimum: {min} jours.",
         status_auth_rate_warn: "Protection anti-abus: veuillez attendre avant de creer une autre PR depuis ce navigateur.",
-        status_auth_err: "Echec de l authentification. Verifiez les droits du token et reessayez.",
+        status_auth_err: "Echec de l authentification. Veuillez reessayer.",
         status_submit_start: "Preparation de la branche et de la Pull Request...",
         status_submit_done: "Pull Request creee avec succes: {url}",
         status_submit_need_auth: "Veuillez d abord vous authentifier avec GitHub.",
@@ -464,13 +482,16 @@
         title: "Nieuw vertaalbestand uploaden",
         intro_1: "Deze pagina dient je vertaling in en opent een Pull Request rechtstreeks in de SpoolEase-repository \u2014 geen fork nodig.",
         intro_2: "Om spam te voorkomen is GitHub-authenticatie verplicht voordat je kunt indienen.",
-        intro_3: "Je token wordt alleen gebruikt om je identiteit te bevestigen. Het wordt niet opgeslagen door deze pagina.",
+        intro_3: "Je GitHub-token wordt alleen kort gebruikt om je identiteit te bevestigen en nooit opgeslagen.",
         auth_title: "1) Authenticeren met GitHub",
-        auth_help: "Log in om je identiteit te bevestigen. Schrijfrechten op de repository zijn niet vereist.",
-        token_label: "GitHub-token",
-        auth_btn: "Account verifieren",
-        clear_btn: "Token wissen",
+        auth_help: "Klik op de knop hieronder — er verschijnt een code. Voer die in op github.com/login/device.",
+        auth_btn: "Inloggen met GitHub",
+        clear_btn: "Uitloggen",
         auth_waiting: "Wachten op authenticatie.",
+        device_copy: "Code kopieren",
+        device_copied: "Gekopieerd!",
+        status_auth_pending: "Wachten op jouw autorisatie op GitHub\u2026",
+        status_auth_expired: "Code verlopen. Klik op \u2018Inloggen\u2019 om het opnieuw te proberen.",
         upload_title: "2) Vertaling JSON indienen",
         lang_code_label: "Taalcode (2-5 tekens)",
         file_label: "Vertaalbestand",
@@ -482,7 +503,7 @@
         status_auth_ok: "Geverifieerd als @{login}.",
         status_auth_age_fail: "Account is te nieuw ({days} dagen). Minimum is {min} dagen.",
         status_auth_rate_warn: "Rate-limit bescherming: wacht even voordat je opnieuw een PR maakt vanaf deze browser.",
-        status_auth_err: "Authenticatie mislukt. Controleer tokenrechten en probeer opnieuw.",
+        status_auth_err: "Authenticatie mislukt. Probeer het opnieuw.",
         status_submit_start: "Branch en Pull Request worden voorbereid...",
         status_submit_done: "Pull Request succesvol gemaakt: {url}",
         status_submit_need_auth: "Authenticeer eerst met GitHub.",
@@ -498,13 +519,16 @@
         title: "Przeslij nowy plik tlumaczenia",
         intro_1: "Ta strona przesyla Twoje tlumaczenie i otwiera Pull Request bezposrednio w repozytorium SpoolEase \u2014 fork nie jest wymagany.",
         intro_2: "Ze wzgledow antyspamowych uwierzytelnienie GitHub jest wymagane przed wyslaniem.",
-        intro_3: "Token sluzy tylko do weryfikacjitozsamosci. Nie jest zapisywany przez ta strone.",
+        intro_3: "Token GitHub sluzy tylko do krotkotrwalej weryfikacji tozsamosci i nie jest zapisywany przez te strone.",
         auth_title: "1) Uwierzytelnij przez GitHub",
-        auth_help: "Zaloguj sie, aby potwierdzic swojq tozsamosc. Uprawnienia do zapisu w repozytorium nie sq wymagane.",
-        token_label: "Token GitHub",
-        auth_btn: "Zweryfikuj konto",
-        clear_btn: "Wyczysc token",
+        auth_help: "Kliknij przycisk ponizej — pojawi sie kod. Wpisz go na github.com/login/device.",
+        auth_btn: "Zaloguj sie przez GitHub",
+        clear_btn: "Wyloguj sie",
         auth_waiting: "Oczekiwanie na uwierzytelnienie.",
+        device_copy: "Skopiuj kod",
+        device_copied: "Skopiowano!",
+        status_auth_pending: "Oczekiwanie na autoryzacje na GitHub\u2026",
+        status_auth_expired: "Kod wygasl. Kliknij \u2018Zaloguj sie\u2019, aby sprobowac ponownie.",
         upload_title: "2) Wyslij JSON tlumaczenia",
         lang_code_label: "Kod jezyka (2-5 znakow)",
         file_label: "Plik tlumaczenia",
@@ -516,7 +540,7 @@
         status_auth_ok: "Uwierzytelniono jako @{login}.",
         status_auth_age_fail: "Konto jest zbyt nowe ({days} dni). Minimum to {min} dni.",
         status_auth_rate_warn: "Ochrona rate-limit: poczekaj przed utworzeniem kolejnego PR z tej przegladarki.",
-        status_auth_err: "Uwierzytelnienie nieudane. Sprawdz uprawnienia tokena i sprobuj ponownie.",
+        status_auth_err: "Uwierzytelnienie nieudane. Sprobuj ponownie.",
         status_submit_start: "Przygotowywanie brancha i Pull Request...",
         status_submit_done: "Pull Request utworzony pomyslnie: {url}",
         status_submit_need_auth: "Najpierw uwierzytelnij sie przez GitHub.",
@@ -533,13 +557,17 @@
       uiLang: "en",
       token: "",
       user: null,
-      canSubmit: false
+      canSubmit: false,
+      _pollTimer: null,
+      _deviceCode: null,
     };
 
     const uiLanguage    = document.getElementById("uiLanguage");
-    const tokenInput    = document.getElementById("tokenInput");
     const authBtn       = document.getElementById("authBtn");
     const clearBtn      = document.getElementById("clearBtn");
+    const deviceBox     = document.getElementById("deviceBox");
+    const deviceCodeDisp = document.getElementById("deviceCodeDisplay");
+    const copyCodeBtn   = document.getElementById("copyCodeBtn");
     const authStatus    = document.getElementById("authStatus");
     const authDetails   = document.getElementById("authDetails");
     const langCode        = document.getElementById("langCode");
@@ -592,14 +620,96 @@
       return passed >= SUBMIT_COOLDOWN_MIN ? 0 : Math.ceil(SUBMIT_COOLDOWN_MIN - passed);
     }
 
-    // Verify identity only — no write access needed
-    async function verifyAccount() {
-      const token = tokenInput.value.trim();
-      if (!token) { setStatus(authStatus, "warn", tr("status_auth_err")); return; }
+    // GitHub Device Flow authentication
+    function resetAuthUI() {
+      state.token = "";
+      state.user = null;
+      state.canSubmit = false;
+      clearTimeout(state._pollTimer);
+      state._pollTimer = null;
+      state._deviceCode = null;
+      deviceBox.classList.add("hidden");
+      authBtn.disabled = false;
+      authBtn.classList.remove("hidden");
+      clearBtn.classList.add("hidden");
+      authDetails.classList.add("hidden");
+      setStatus(authStatus, "", tr("auth_waiting"));
+      setStatus(submitStatus, "", tr("submit_waiting"));
+    }
 
+    async function startDeviceFlow() {
+      if (!OAUTH_WORKER_URL) {
+        setStatus(authStatus, "err", "Worker not yet configured.");
+        return;
+      }
+      authBtn.disabled = true;
+      setStatus(authStatus, "", "\u2026");
+      deviceBox.classList.add("hidden");
+      try {
+        const res = await fetch(OAUTH_WORKER_URL + "/device/code", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "client_id=" + encodeURIComponent(OAUTH_CLIENT_ID),
+        });
+        if (!res.ok) { throw new Error("HTTP " + res.status); }
+        const data = await res.json();
+        if (!data.user_code || !data.device_code) { throw new Error("Unexpected response"); }
+        state._deviceCode = data.device_code;
+        deviceCodeDisp.textContent = data.user_code;
+        deviceBox.classList.remove("hidden");
+        setStatus(authStatus, "", tr("status_auth_pending"));
+        const intervalMs = Math.max((data.interval || 5), 5) * 1000;
+        const expiresAt  = Date.now() + (data.expires_in || 900) * 1000;
+        state._pollTimer = setTimeout(() => pollDeviceToken(data.device_code, expiresAt, intervalMs), intervalMs);
+      } catch (_) {
+        authBtn.disabled = false;
+        setStatus(authStatus, "err", tr("status_auth_err"));
+      }
+    }
+
+    async function pollDeviceToken(deviceCode, expiresAt, intervalMs) {
+      if (Date.now() > expiresAt) {
+        state._pollTimer = null;
+        authBtn.disabled = false;
+        deviceBox.classList.add("hidden");
+        setStatus(authStatus, "warn", tr("status_auth_expired"));
+        return;
+      }
+      try {
+        const res = await fetch(OAUTH_WORKER_URL + "/device/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "client_id=" + encodeURIComponent(OAUTH_CLIENT_ID) +
+                "&device_code=" + encodeURIComponent(deviceCode) +
+                "&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code",
+        });
+        const data = await res.json();
+        if (data.access_token) {
+          state._pollTimer = null;
+          await onTokenReceived(data.access_token);
+          return;
+        }
+        if (data.error === "access_denied") {
+          state._pollTimer = null;
+          authBtn.disabled = false;
+          deviceBox.classList.add("hidden");
+          setStatus(authStatus, "warn", tr("status_auth_err"));
+          return;
+        }
+        if (data.error === "slow_down") {
+          intervalMs = Math.min(intervalMs + 5000, 30000);
+        }
+        // authorization_pending or unexpected: keep polling
+      } catch (_) {
+        // network error — keep polling
+      }
+      state._pollTimer = setTimeout(() => pollDeviceToken(deviceCode, expiresAt, intervalMs), intervalMs);
+    }
+
+    async function onTokenReceived(token) {
       state.token = token;
       setStatus(authStatus, "", "\u2026");
-
+      deviceBox.classList.add("hidden");
       try {
         const res = await fetch("https://api.github.com/user", {
           headers: { Accept: "application/vnd.github+json", Authorization: "Bearer " + token }
@@ -608,15 +718,18 @@
         const user = await res.json();
         state.user = user;
         state.canSubmit = true;
+        authBtn.classList.add("hidden");
+        clearBtn.classList.remove("hidden");
         setStatus(authStatus, "ok", tr("status_auth_ok", { login: user.login }));
         authDetails.classList.remove("hidden");
         authDetails.textContent = "@" + user.login + " (" + user.html_url + ")";
         setStatus(submitStatus, "", tr("submit_waiting"));
       } catch (_) {
+        state.token = "";
         state.user = null;
         state.canSubmit = false;
+        authBtn.disabled = false;
         setStatus(authStatus, "err", tr("status_auth_err"));
-        authDetails.classList.add("hidden");
       }
     }
 
@@ -717,15 +830,14 @@
         applyI18n();
       });
 
-      authBtn.addEventListener("click", verifyAccount);
-      clearBtn.addEventListener("click", () => {
-        tokenInput.value = "";
-        state.token = "";
-        state.user = null;
-        state.canSubmit = false;
-        authDetails.classList.add("hidden");
-        setStatus(authStatus, "", tr("auth_waiting"));
-        setStatus(submitStatus, "", tr("submit_waiting"));
+      authBtn.addEventListener("click", startDeviceFlow);
+      clearBtn.addEventListener("click", resetAuthUI);
+      copyCodeBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(deviceCodeDisp.textContent).then(() => {
+          const orig = copyCodeBtn.textContent;
+          copyCodeBtn.textContent = tr("device_copied");
+          setTimeout(() => { copyCodeBtn.textContent = orig; }, 2000);
+        }).catch(() => {});
       });
 
       translationFile.addEventListener("change", () => {
