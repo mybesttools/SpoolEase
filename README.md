@@ -28,6 +28,7 @@ And most importantly, even though it’s an open-source project, it’s fun and 
 
 - [Documentation](https://docs.spoolease.io/docs/welcome)
 - [Flashing Web Site](https://www.spoolease.io)
+- [Translation Upload Page](https://mybesttools.github.io/SpoolEase/translations-upload.html)
 - [Reddit](https://www.reddit.com/r/SpoolEase/)
 - [Discord Server](https://discord.gg/6brKUCERcQ)
 

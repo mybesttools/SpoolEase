@@ -31,5 +31,9 @@
 
   <h2>Adding a language</h2>
   <p>Translations are embedded directly in the firmware HTML (see <code>core/src/web_app.rs</code> — <code>build_inventory_html()</code> and <code>translate_script()</code>). To add a new language, add its translation table there, add it to the language selector bar and <code>/api/language</code> whitelist, then rebuild and flash.</p>
+
+  <h2>Upload a New Translation</h2>
+  <p><a href="translations-upload.html"><strong>Submit translation JSON via GitHub login →</strong></a></p>
+  <p>This flow requires an authenticated GitHub account before upload is enabled, then creates a branch on your fork and opens a Pull Request to <code>main</code>.</p>
 </body>
 </html>

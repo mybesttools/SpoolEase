@@ -1,0 +1,9 @@
+name = "spoolease-oauth"
+main = "index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Wrangler docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+#
+# After deploying, copy the *.workers.dev URL shown by `wrangler deploy` into
+# docs/translations-upload.html as the OAUTH_WORKER_URL constant.
