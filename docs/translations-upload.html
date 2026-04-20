@@ -595,6 +595,16 @@
       el.textContent = message;
     }
 
+    function formatWorkerError(result) {
+      const code = result && typeof result.error === "string" && result.error.trim()
+        ? result.error.trim()
+        : "unknown_error";
+      const message = result && typeof result.message === "string" && result.message.trim()
+        ? result.message.trim()
+        : "";
+      return message ? (code + ": " + message) : code;
+    }
+
     function applyI18n() {
       document.documentElement.lang = state.uiLang;
       document.querySelectorAll("[data-i18n]").forEach((el) => {
@@ -798,15 +808,21 @@
             return;
           }
           if (result.error === "account_too_new") {
-            setStatus(submitStatus, "warn", result.message || tr("status_auth_age_fail", { days: "?", min: 7 }));
+            setStatus(
+              submitStatus,
+              "warn",
+              result.message
+                ? ("account_too_new: " + result.message)
+                : tr("status_auth_age_fail", { days: "?", min: 7 })
+            );
             return;
           }
           if (result.error === "auth_failed") {
             state.canSubmit = false;
-            setStatus(submitStatus, "err", tr("status_auth_err") + (result.message ? " (" + result.message + ")" : ""));
+            setStatus(submitStatus, "err", tr("status_auth_err") + " (" + formatWorkerError(result) + ")");
             return;
           }
-          throw new Error(result.message || ("Worker error: " + result.error));
+          throw new Error(formatWorkerError(result));
         }
 
         localStorage.setItem(STORAGE_RATE_KEY, String(Date.now()));

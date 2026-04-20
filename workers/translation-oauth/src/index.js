@@ -83,6 +83,8 @@ async function ghApi(path, botToken, options) {
     headers: {
       Accept: "application/vnd.github+json",
       Authorization: "Bearer " + botToken,
+      "User-Agent": "SpoolEase-Translation-Worker/1.0",
+      "X-GitHub-Api-Version": "2022-11-28",
       "Content-Type": "application/json",
     },
     body: options && options.body ? JSON.stringify(options.body) : undefined,
