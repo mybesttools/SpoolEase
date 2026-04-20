@@ -798,7 +798,7 @@
             return;
           }
           if (result.error === "account_too_new") {
-            setStatus(submitStatus, "warn", result.message || tr("status_auth_age_fail", { days: "?", min: 14 }));
+            setStatus(submitStatus, "warn", result.message || tr("status_auth_age_fail", { days: "?", min: 7 }));
             return;
           }
           if (result.error === "auth_failed") {

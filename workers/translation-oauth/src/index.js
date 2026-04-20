@@ -48,7 +48,7 @@ const ALLOWED_ORIGINS = [
 const OWNER       = "mybesttools";
 const REPO        = "SpoolEase";
 const BASE_BRANCH = "main";
-const MIN_ACCOUNT_AGE_DAYS = 14;
+const MIN_ACCOUNT_AGE_DAYS = 7;
 
 const GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code";
 const GITHUB_TOKEN_URL       = "https://github.com/login/oauth/access_token";
