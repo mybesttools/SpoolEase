@@ -29,12 +29,13 @@
  *      - Permissions: Contents = Read & write, Pull requests = Read & write
  *      Save the token.
  *
- *   3. Deploy this worker and add the bot secret:
+ *   3. Deploy this worker and add the required secrets:
  *      npm install -g wrangler
  *      wrangler login
  *      cd workers/translation-oauth
  *      wrangler deploy
  *      wrangler secret put BOT_TOKEN   ← paste the PAT from step 2
+ *      wrangler secret put OAUTH_CLIENT_SECRET   ← paste GitHub OAuth app client secret
  *
  *   4. Update OAUTH_CLIENT_ID and OAUTH_WORKER_URL in docs/translations-upload.html.
  */
@@ -252,17 +253,25 @@ export default {
       return handleSubmit(request, env, cors);
     }
 
-    // Device Flow proxy endpoints (no secrets needed — public client flow)
+    // Device Flow proxy endpoints.
+    // For /device/token, we optionally append OAUTH_CLIENT_SECRET server-side.
     let target;
+    let body = await request.text();
     if (pathname === "/device/code") {
       target = GITHUB_DEVICE_CODE_URL;
     } else if (pathname === "/device/token") {
       target = GITHUB_TOKEN_URL;
+      if (env.OAUTH_CLIENT_SECRET) {
+        const params = new URLSearchParams(body);
+        if (!params.get("client_secret")) {
+          params.set("client_secret", env.OAUTH_CLIENT_SECRET);
+          body = params.toString();
+        }
+      }
     } else {
       return new Response("Not found", { status: 404, headers: cors });
     }
 
-    const body = await request.text();
     let upstreamResponse;
     try {
       upstreamResponse = await fetch(target, {

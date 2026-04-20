@@ -29,12 +29,13 @@
  *      - Permissions: Contents = Read & write, Pull requests = Read & write
  *      Save the token.
  *
- *   3. Deploy this worker and add the bot secret:
+ *   3. Deploy this worker and add the required secrets:
  *      npm install -g wrangler
  *      wrangler login
  *      cd workers/translation-oauth
  *      wrangler deploy
- *      wrangler secret put GITHUB_BOT_TOKEN   ← paste the PAT from step 2
+ *      wrangler secret put BOT_TOKEN   ← paste the PAT from step 2
+ *      wrangler secret put OAUTH_CLIENT_SECRET   ← paste GitHub OAuth app client secret
  *
  *   4. Update OAUTH_CLIENT_ID and OAUTH_WORKER_URL in docs/translations-upload.html.
  */
@@ -48,7 +49,7 @@ const ALLOWED_ORIGINS = [
 const OWNER       = "mybesttools";
 const REPO        = "SpoolEase";
 const BASE_BRANCH = "main";
-const MIN_ACCOUNT_AGE_DAYS = 14;
+const MIN_ACCOUNT_AGE_DAYS = 7;
 
 const GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code";
 const GITHUB_TOKEN_URL       = "https://github.com/login/oauth/access_token";
@@ -115,8 +116,8 @@ async function handleSubmit(request, env, cors) {
     return jsonResponse({ error: "invalid_lang_code" }, 400, cors);
   }
 
-  if (!env.GITHUB_BOT_TOKEN) {
-    return jsonResponse({ error: "worker_not_configured", message: "GITHUB_BOT_TOKEN secret is not set." }, 503, cors);
+  if (!env.BOT_TOKEN) {
+    return jsonResponse({ error: "worker_not_configured", message: "BOT_TOKEN secret is not set." }, 503, cors);
   }
 
   // ── 1. Verify submitter identity (read-only, uses their token) ──────
@@ -150,7 +151,7 @@ async function handleSubmit(request, env, cors) {
   // ── 2. Create branch in main repo using bot token ───────────────────
   let baseSha;
   try {
-    const ref = await ghApi(`/repos/${OWNER}/${REPO}/git/ref/heads/${BASE_BRANCH}`, env.GITHUB_BOT_TOKEN);
+    const ref = await ghApi(`/repos/${OWNER}/${REPO}/git/ref/heads/${BASE_BRANCH}`, env.BOT_TOKEN);
     baseSha = ref.object.sha;
   } catch (err) {
     return jsonResponse({ error: "github_error", message: String(err) }, 502, cors);
@@ -160,7 +161,7 @@ async function handleSubmit(request, env, cors) {
   const branchName = `translation-${lang_code}-${stamp}`;
 
   try {
-    await ghApi(`/repos/${OWNER}/${REPO}/git/refs`, env.GITHUB_BOT_TOKEN, {
+    await ghApi(`/repos/${OWNER}/${REPO}/git/refs`, env.BOT_TOKEN, {
       method: "POST",
       body: { ref: `refs/heads/${branchName}`, sha: baseSha },
     });
@@ -176,7 +177,7 @@ async function handleSubmit(request, env, cors) {
   try {
     const existing = await ghApi(
       `/repos/${OWNER}/${REPO}/contents/${filePath}?ref=${encodeURIComponent(branchName)}`,
-      env.GITHUB_BOT_TOKEN
+      env.BOT_TOKEN
     );
     existingSha = existing && existing.sha;
   } catch (_) { /* new file */ }
@@ -189,7 +190,7 @@ async function handleSubmit(request, env, cors) {
   if (existingSha) { commitBody.sha = existingSha; }
 
   try {
-    await ghApi(`/repos/${OWNER}/${REPO}/contents/${filePath}`, env.GITHUB_BOT_TOKEN, {
+    await ghApi(`/repos/${OWNER}/${REPO}/contents/${filePath}`, env.BOT_TOKEN, {
       method: "PUT",
       body: commitBody,
     });
@@ -211,7 +212,7 @@ async function handleSubmit(request, env, cors) {
 
   let pr;
   try {
-    pr = await ghApi(`/repos/${OWNER}/${REPO}/pulls`, env.GITHUB_BOT_TOKEN, {
+    pr = await ghApi(`/repos/${OWNER}/${REPO}/pulls`, env.BOT_TOKEN, {
       method: "POST",
       body: {
         title: `Add translation: ${lang_code}`,
@@ -250,17 +251,25 @@ export default {
       return handleSubmit(request, env, cors);
     }
 
-    // Device Flow proxy endpoints (no secrets needed — public client flow)
+    // Device Flow proxy endpoints.
+    // For /device/token, we optionally append OAUTH_CLIENT_SECRET server-side.
     let target;
+    let body = await request.text();
     if (pathname === "/device/code") {
       target = GITHUB_DEVICE_CODE_URL;
     } else if (pathname === "/device/token") {
       target = GITHUB_TOKEN_URL;
+      if (env.OAUTH_CLIENT_SECRET) {
+        const params = new URLSearchParams(body);
+        if (!params.get("client_secret")) {
+          params.set("client_secret", env.OAUTH_CLIENT_SECRET);
+          body = params.toString();
+        }
+      }
     } else {
       return new Response("Not found", { status: 404, headers: cors });
     }
 
-    const body = await request.text();
     let upstreamResponse;
     try {
       upstreamResponse = await fetch(target, {
