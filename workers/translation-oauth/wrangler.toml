@@ -1,9 +1,12 @@
-name = "spoolease-oauth"
-main = "index.js"
-compatibility_date = "2024-09-23"
+name               = "spoolease-translation"
+main               = "src/index.js"
+compatibility_date = "2025-03-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Wrangler docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+# Required secret (already set via `wrangler secret put BOT_TOKEN`):
+# BOT_TOKEN — GitHub Personal Access Token (classic) with `repo` scope
+#             on mybesttools/SpoolEase, used by the worker to create
+#             branches, commit files, and open Pull Requests.
 #
-# After deploying, copy the *.workers.dev URL shown by `wrangler deploy` into
+# After deploying, paste the *.workers.dev URL into
 # docs/translations-upload.html as the OAUTH_WORKER_URL constant.

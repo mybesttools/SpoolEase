@@ -347,6 +347,11 @@
   </div>
 
   <script>
+    // OAuth App created at https://github.com/settings/developer
+    // Worker URL is filled in after: cd workers/translation-oauth && wrangler deploy
+    const OAUTH_CLIENT_ID  = "Iv23litd1siRCq51Sl8n";
+    const OAUTH_WORKER_URL = "https://spoolease-translation.mikesomething98.workers.dev"; // TODO: paste worker URL here after wrangler deploy
+
     const STORAGE_LANG_KEY = "spoolease-upload-ui-lang";
     const STORAGE_RATE_KEY = "spoolease-upload-last-submit";
     const SUBMIT_COOLDOWN_MIN = 30;
@@ -650,6 +655,11 @@
 
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !String(parsed._name || "").trim()) {
         setStatus(submitStatus, "err", tr("status_submit_missing_name"));
+        return;
+      }
+
+      if (!OAUTH_WORKER_URL) {
+        setStatus(submitStatus, "err", "Submission worker is not yet configured. Check back later.");
         return;
       }
 
