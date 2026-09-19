@@ -14,6 +14,9 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+env:
+  ESP_XTENSA_TOOLCHAIN_VERSION: 1.90.0.0
+
 jobs:
   build-and-deploy:
     environment:
@@ -39,8 +42,9 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin
             core/target
-          key: esp32s3-${{ hashFiles('core/Cargo.lock', 'core/rust-toolchain.toml') }}
+          key: esp32s3-${{ env.ESP_XTENSA_TOOLCHAIN_VERSION }}-${{ hashFiles('core/Cargo.lock', 'core/rust-toolchain.toml') }}
           restore-keys: |
+            esp32s3-${{ env.ESP_XTENSA_TOOLCHAIN_VERSION }}-
             esp32s3-
 
       - name: Add ~/.cargo/bin to path
@@ -54,17 +58,25 @@ jobs:
       - name: Install espup (if not cached)
         run: |
           command -v espup || cargo install espup
-          # Install toolchain if not already cached.
+          TOOLCHAIN_VERSION="${ESP_XTENSA_TOOLCHAIN_VERSION}"
+          NEEDS_INSTALL=true
+          if [ -d "$HOME/.rustup/toolchains/esp1" ] && rustc +esp1 --version 2>/dev/null | grep -Fq "$TOOLCHAIN_VERSION"; then
+            NEEDS_INSTALL=false
+            echo "Using cached Xtensa toolchain esp1 ($TOOLCHAIN_VERSION)"
+          else
+            rm -rf "$HOME/.rustup/toolchains/esp1" "$HOME/.rustup/toolchains/esp"
+          fi
+          # Install toolchain if not already cached at the required version.
           # Try --name esp1 (espup >= 0.12); older versions only support the default name "esp".
           # In either case we ensure ~/.rustup/toolchains/esp1 exists (symlink if needed)
           # because core/rust-toolchain.toml sets channel = "esp1".
-          if [ ! -d "$HOME/.rustup/toolchains/esp1" ]; then
-            if espup install --name esp1 2>/dev/null; then
-              echo "Installed Xtensa toolchain as 'esp1'"
+          if [ "$NEEDS_INSTALL" = true ]; then
+            if espup install --name esp1 --toolchain-version "$TOOLCHAIN_VERSION" --skip-version-parse 2>/dev/null; then
+              echo "Installed Xtensa toolchain as 'esp1' ($TOOLCHAIN_VERSION)"
             else
-              espup install
+              espup install --toolchain-version "$TOOLCHAIN_VERSION" --skip-version-parse
               ln -sf "$HOME/.rustup/toolchains/esp" "$HOME/.rustup/toolchains/esp1"
-              echo "Installed Xtensa toolchain as 'esp', symlinked to 'esp1'"
+              echo "Installed Xtensa toolchain as 'esp' ($TOOLCHAIN_VERSION), symlinked to 'esp1'"
             fi
           fi
           # espup may write export-esp.sh or export-esp1.sh depending on version
