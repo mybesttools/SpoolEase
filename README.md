@@ -134,7 +134,7 @@ This fork ([mybesttools/SpoolEase](https://github.com/mybesttools/SpoolEase)) is
 ### Multilingual UI, Config Page, and Web Inventory
 
 The on-device UI (Slint), the web config page (`config.html`), and the web inventory are fully translated.
-Supported languages: **English, German (de), French (fr), Dutch (nl), Polish (pl)**.
+Supported languages: **English, German (de), French (fr), Spanish (es), Italian (it), Portuguese (pt), Dutch (nl), Polish (pl), Japanese (ja)**.
 
 - Language selection persists in the browser and on the device.
 - Translation strings are stored in `core/translations/<lang>.json` and embedded at build time via `core/translations.slint` and `build.rs`.
